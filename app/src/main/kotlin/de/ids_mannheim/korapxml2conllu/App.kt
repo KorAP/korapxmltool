@@ -114,6 +114,7 @@ class App {
                                     arrayOf(tokens, texts, sentences).forEach { map ->
                                         map.remove(docId)
                                     }
+                                    println()
                                 }
 
                             }
@@ -137,9 +138,10 @@ class App {
         feats: String = "_",
         head: String = "_",
         deprel: String = "_",
-        deps: String = "_"
+        deps: String = "_",
+        misc: String = "_"
     ) {
-        println("$token_index\t$token\t$lemma\t$upos\t$xpos\t$feats\t$head\t$deprel\t$deps")
+        println("$token_index\t$token\t$lemma\t$upos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc")
     }
     private fun printTokenOffsetsInSentence(
         sentences: ConcurrentHashMap<String, Array<Span>>,
@@ -152,7 +154,7 @@ class App {
         var i = token_index
         var start_offsets_string = ""
         var end_offsets_string = ""
-        while (i < tokens[docId]!!.size && tokens[docId]!![i].to < sentenceEndOffset) {
+        while (i < tokens[docId]!!.size && tokens[docId]!![i].to <= sentenceEndOffset) {
             start_offsets_string += " " + tokens[docId]!![i].from
             end_offsets_string += " " + tokens[docId]!![i].to
             i++
@@ -196,6 +198,6 @@ class App {
 
 fun main(args: Array<String?>?) {
     System.setProperty("file.encoding", "UTF-8")
-    println(App().main(args))
+    App().main(args)
 }
 
