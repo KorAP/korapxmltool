@@ -97,6 +97,7 @@ class App {
                                 synchronized(System.out) {
                                     println("# foundry = base")
                                     println("# filename = $tokens_fname")
+                                    println("# text_id = $docId")
                                     printTokenOffsetsInSentence(sentences, docId, sentence_index, real_token_index, tokens)
                                     tokens[docId]?.forEach { span ->
                                         token_index++
@@ -106,9 +107,12 @@ class App {
                                             token_index = 1
                                             printTokenOffsetsInSentence(sentences, docId, sentence_index, real_token_index, tokens)
                                         }
-                                        println("$token_index\t${span.from}\t${span.to}\t${sentences[docId]!![sentence_index].to}\t" + (texts[docId]?.substring(span.from, span.to) ?: ""))
+                                        printConlluToken(token_index, texts[docId]!!.substring(span.from, span.to)                                      )
                                         real_token_index++
 
+                                    }
+                                    arrayOf(tokens, texts, sentences).forEach { map ->
+                                        map.remove(docId)
                                     }
                                 }
 
@@ -124,6 +128,19 @@ class App {
         }
     }
 
+    private fun printConlluToken(
+        token_index: Int,
+        token: String,
+        lemma: String = "_",
+        upos: String = "_",
+        xpos: String = "_",
+        feats: String = "_",
+        head: String = "_",
+        deprel: String = "_",
+        deps: String = "_"
+    ) {
+        println("$token_index\t$token\t$lemma\t$upos\t$xpos\t$feats\t$head\t$deprel\t$deps")
+    }
     private fun printTokenOffsetsInSentence(
         sentences: ConcurrentHashMap<String, Array<Span>>,
         docId: String,
