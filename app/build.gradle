@@ -11,7 +11,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
-    id 'org.jetbrains.kotlin.jvm' version '1.9.22'
+    id 'org.jetbrains.kotlin.jvm' version '2.0.0-Beta4'
 
     // Apply the application plugin to add support for building a CLI application in Java.
     id 'application'
@@ -39,7 +39,7 @@ dependencies {
 
     // Use the Kotlin JUnit integration.
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit'
-    testImplementation "org.jetbrains.kotlin:kotlin-test:1.9.22"
+    testImplementation "org.jetbrains.kotlin:kotlin-test:2.0.0-Beta4"
 }
 
 
