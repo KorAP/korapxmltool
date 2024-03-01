@@ -13,7 +13,7 @@ plugins {
 
     // Apply the application plugin to add support for building a CLI application in Java.
     id 'application'
-    id 'com.github.johnrengelman.shadow' version '7.1.2'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 
@@ -43,7 +43,7 @@ dependencies {
 
 application {
     // Define the main class for the application.
-    mainClass = 'de.ids_mannheim.korapxml2conllu.AppKt'
+    mainClass = 'de.ids_mannheim.korapxmltools.KorapXml2ConlluKt'
 }
 
 jar {
@@ -53,9 +53,13 @@ jar {
 
     manifest.attributes(
             'Class-Path': configurations.compileClasspath.collect { it.getName() }.join(' '),
-            'Main-Class': "de.ids_mannheim.korapxml2conllu.AppKt"
+            'Main-Class': "de.ids_mannheim.korapxmltools.KorapXml2ConlluKt"
     )
-
+    shadowJar {
+        archiveBaseName.set('korapxml2conllu')
+        archiveClassifier.set('')
+        archiveVersion.set('')
+    }
 }
 
 

@@ -1,4 +1,4 @@
-package de.ids_mannheim.korapxml2conllu
+package de.ids_mannheim.korapxmltools
 
 import org.junit.After
 import org.junit.Before
@@ -7,9 +7,9 @@ import java.io.PrintStream
 import java.net.URL
 import kotlin.test.Test
 import kotlin.test.assertContains
+import de.ids_mannheim.korapxmltools.KorapXml2Conllu
 
-
-class AppTest {
+class KorapXml2ConlluTest {
     private val outContent = ByteArrayOutputStream()
     private val errContent = ByteArrayOutputStream()
     private val originalOut: PrintStream = System.out
@@ -27,7 +27,7 @@ class AppTest {
         System.setErr(originalErr)
     }
 
-    fun loadResource(path: String): URL {
+    private fun loadResource(path: String): URL {
         val resource = Thread.currentThread().contextClassLoader.getResource(path)
         requireNotNull(resource) { "Resource $path not found" }
         return resource
@@ -35,7 +35,7 @@ class AppTest {
 
     @Test
     fun appWorks() {
-        val classUnderTest = App()
+        val classUnderTest = de.ids_mannheim.korapxmltools.KorapXml2Conllu()
         val args = arrayOf(loadResource("goe.zip").path)
         classUnderTest.main(args)
         assertContains(

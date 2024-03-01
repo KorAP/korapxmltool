@@ -1,4 +1,4 @@
-package de.ids_mannheim.korapxml2conllu
+package de.ids_mannheim.korapxmltools
 
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
@@ -16,8 +16,8 @@ import org.xml.sax.InputSource
 import java.io.InputStreamReader
 import java.util.logging.Logger
 
-class App {
-    private val LOGGER: Logger = Logger.getLogger(App::class.java.name)
+class KorapXml2Conllu {
+    private val LOGGER: Logger = Logger.getLogger(KorapXml2Conllu::class.java.name)
 
     fun main(args: Array<String?>?) {
         val executor: ExecutorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
@@ -198,6 +198,6 @@ class App {
 
 fun main(args: Array<String?>?) {
     System.setProperty("file.encoding", "UTF-8")
-    App().main(args)
+    KorapXml2Conllu().main(args)
 }
 
