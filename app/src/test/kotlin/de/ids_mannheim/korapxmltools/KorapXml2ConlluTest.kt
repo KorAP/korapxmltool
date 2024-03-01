@@ -34,13 +34,34 @@ class KorapXml2ConlluTest {
     }
 
     @Test
-    fun appWorks() {
-        val classUnderTest = de.ids_mannheim.korapxmltools.KorapXml2Conllu()
+    fun canConvertGOE() {
+        val classUnderTest = KorapXml2Conllu()
         val args = arrayOf(loadResource("goe.zip").path)
         classUnderTest.main(args)
         assertContains(
             outContent.toString(),
             "# start_offsets = 55 55 59 63 70 75 82 87 94 102 105 111 120 124 130 134 140 144 151 153 163 175 187 191 207 209 213 218 222 239 248 255 259 264 267 271 277 283 297 307"
+        )
+    }
+    @Test
+    fun canConvertWithMorphoAnnotations() {
+        val classUnderTest = KorapXml2Conllu()
+        val args = arrayOf(loadResource("goe.zip").path, loadResource("goe.tree_tagger.zip").path)
+        classUnderTest.main(args)
+        assertContains(
+            outContent.toString(),
+            "9\tentzücke\tentzücken\t_\tVVFIN\t_\t_\t_\t_\t1.000000"
+        )
+    }
+
+    @Test
+    fun canConvertWfdWithMorphoAnnotations() {
+        val classUnderTest = KorapXml2Conllu()
+        val args = arrayOf(loadResource("wdf19.zip").path, loadResource("wdf19.tree_tagger.zip").path)
+        classUnderTest.main(args)
+        assertContains(
+            outContent.toString(),
+            "30\tvraie\tvrai\t_\tADJ\t_\t_\t_\t_\t1.000000"
         )
     }
 }
