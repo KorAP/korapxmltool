@@ -1,19 +1,46 @@
 package de.ids_mannheim.korapxml2conllu
 
+import org.junit.After
+import org.junit.Before
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 import java.net.URL
 import kotlin.test.Test
-import kotlin.test.assertNotNull
+import kotlin.test.assertContains
+
 
 class AppTest {
+    private val outContent = ByteArrayOutputStream()
+    private val errContent = ByteArrayOutputStream()
+    private val originalOut: PrintStream = System.out
+    private val originalErr: PrintStream = System.err
+
+    @Before
+    fun setUpStreams() {
+        System.setOut(PrintStream(outContent))
+        System.setErr(PrintStream(errContent))
+    }
+
+    @After
+    fun restoreStreams() {
+        System.setOut(originalOut)
+        System.setErr(originalErr)
+    }
+
     fun loadResource(path: String): URL {
         val resource = Thread.currentThread().contextClassLoader.getResource(path)
         requireNotNull(resource) { "Resource $path not found" }
         return resource
     }
 
-    @Test fun appHasAGreeting() {
+    @Test
+    fun appWorks() {
         val classUnderTest = App()
         val args = arrayOf(loadResource("goe.zip").path)
-        assertNotNull(classUnderTest.main(args), "app should have a greeting")
+        classUnderTest.main(args)
+        assertContains(
+            outContent.toString(),
+            "# start_offsets = 55 55 59 63 70 75 82 87 94 102 105 111 120 124 130 134 140 144 151 153 163 175 187 191 207 209 213 218 222 239 248 255 259 264 267 271 277 283 297 307"
+        )
     }
 }
