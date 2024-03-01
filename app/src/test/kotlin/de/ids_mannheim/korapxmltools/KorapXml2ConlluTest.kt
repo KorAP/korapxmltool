@@ -53,6 +53,16 @@ class KorapXml2ConlluTest {
             "9\tentzücke\tentzücken\t_\tVVFIN\t_\t_\t_\t_\t1.000000"
         )
     }
+    @Test
+    fun canInferBaseName() {
+        val classUnderTest = KorapXml2Conllu()
+        val args = arrayOf(loadResource("goe.tree_tagger.zip").path)
+        classUnderTest.main(args)
+        assertContains(
+            outContent.toString(),
+            "9\tentzücke\tentzücken\t_\tVVFIN\t_\t_\t_\t_\t1.000000"
+        )
+    }
 
     @Test
     fun canConvertWfdWithMorphoAnnotations() {

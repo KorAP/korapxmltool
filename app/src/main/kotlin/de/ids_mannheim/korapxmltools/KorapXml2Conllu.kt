@@ -13,6 +13,7 @@ import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
 import org.xml.sax.InputSource
+import java.io.File
 import java.io.InputStreamReader
 import java.util.logging.Logger
 
@@ -27,16 +28,28 @@ class KorapXml2Conllu {
         val morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>> = ConcurrentHashMap()
         val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
 
-        Arrays.stream(args).forEach { zipFilePath ->
+        if (args == null || args.isEmpty() || args[0] == null) {
+                LOGGER.severe("Usage: KorapXml2Conllu <zipfile1> [<zipfile2> ...]")
+                return
+        }
+        var zips:Array<String?> = args
+        if (args.size == 1 && args[0]!!.matches(Regex(".*\\.([^/.]+)\\.zip$")) == true) {
+            val baseZip = args[0]!!.replace(Regex("\\.([^/.]+)\\.zip$"), ".zip")
+            if (File(baseZip).exists()) {
+                zips = arrayOf(baseZip, zips[0])
+                LOGGER.info("Processing base zip file: $baseZip")
+            }
+        }
+        Arrays.stream(zips).forEach { zipFilePath ->
             executor.submit {
                 processZipFile(
-                    zipFilePath ?: "",
+                    (zipFilePath ?: "").toString(),
                     texts,
                     sentences,
                     tokens,
                     fnames,
                     morpho,
-                    args!!.size > 1
+                    zips.size > 1
                 )
             }
         }
@@ -205,7 +218,7 @@ class KorapXml2Conllu {
         var i = token_index
         var start_offsets_string = ""
         var end_offsets_string = ""
-        while (i < tokens[docId]!!.size && tokens[docId]!![i].to <= sentenceEndOffset) {
+        while (tokens[docId]!=null && i < tokens[docId]!!.size && tokens[docId]!![i].to <= sentenceEndOffset) {
             start_offsets_string += " " + tokens[docId]!![i].from
             end_offsets_string += " " + tokens[docId]!![i].to
             i++
@@ -236,7 +249,7 @@ class KorapXml2Conllu {
             .mapToObj(fsSpans::item)
             .forEach { node ->
                 val features = (node as Element).getElementsByTagName("f")
-                var fs = MorphoSpan()
+                val fs = MorphoSpan()
                 val fromTo = node.getAttribute("from") + "-" + node.getAttribute("to")
                 IntStream.range(0, features.length).mapToObj(features::item)
                     .forEach { feature ->
