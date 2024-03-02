@@ -50,6 +50,7 @@ class KorapXml2Conllu {
                     tokens,
                     fnames,
                     morpho,
+                    getFoundryFromZipFileNames(zips),
                     zips.size > 1
                 )
             }
@@ -63,6 +64,23 @@ class KorapXml2Conllu {
         // Further processing as needed
     }
 
+    private fun getFoundryFromZipFileName(zipFileName: String): String {
+        if (!zipFileName.matches(Regex(".*\\.([^/.]+)\\.zip$"))) {
+            return "base"
+        }
+        return zipFileName.replace(Regex(".*\\.([^/.]+)\\.zip$"), "$1")
+    }
+
+    private fun getFoundryFromZipFileNames(zipFileNames: Array<String?>): String {
+        for (zipFileName in zipFileNames) {
+            val foundry = getFoundryFromZipFileName(zipFileName!!)
+            if (foundry != "base") {
+                return foundry
+            }
+        }
+        return "base"
+    }
+
     private fun processZipFile(
         zipFilePath: String,
         texts: ConcurrentHashMap<String, String>,
@@ -70,7 +88,8 @@ class KorapXml2Conllu {
         tokens: ConcurrentHashMap<String, Array<Span>>,
         fname: ConcurrentHashMap<String, String>,
         morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>>,
-        waitForMorpho: Boolean = false
+        foundry: String = "base",
+        waitForMorpho: Boolean = false,
     ) {
         try {
             ZipFile(zipFilePath).use { zipFile ->

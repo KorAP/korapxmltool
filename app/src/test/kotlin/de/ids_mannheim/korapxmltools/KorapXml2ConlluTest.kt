@@ -7,7 +7,7 @@ import java.io.PrintStream
 import java.net.URL
 import kotlin.test.Test
 import kotlin.test.assertContains
-import de.ids_mannheim.korapxmltools.KorapXml2Conllu
+import org.junit.Ignore
 
 class KorapXml2ConlluTest {
     private val outContent = ByteArrayOutputStream(10000000)
@@ -44,6 +44,10 @@ class KorapXml2ConlluTest {
         classUnderTest.main(args)
         assertContains(
             outContent.toString(),
+            "# foundry = base"
+        )
+        assertContains(
+            outContent.toString(),
             "# start_offsets = 55 55 59 63 70 75 82 87 94 102 105 111 120 124 130 134 140 144 151 153 163 175 187 191 207 209 213 218 222 239 248 255 259 264 267 271 277 283 297 307"
         )
     }
@@ -54,6 +58,10 @@ class KorapXml2ConlluTest {
         classUnderTest.main(args)
         assertContains(
             outContent.toString(),
+            "# foundry = tree_tagger"
+        )
+        assertContains(
+            outContent.toString(),
             "9\tentzücke\tentzücken\t_\tVVFIN\t_\t_\t_\t_\t1.000000"
         )
     }
@@ -62,6 +70,10 @@ class KorapXml2ConlluTest {
         val classUnderTest = KorapXml2Conllu()
         val args = arrayOf(goeTreeTagger)
         classUnderTest.main(args)
+        assertContains(
+            outContent.toString(),
+            "# foundry = tree_tagger"
+        )
         assertContains(
             outContent.toString(),
             "9\tentzücke\tentzücken\t_\tVVFIN\t_\t_\t_\t_\t1.000000"
@@ -76,11 +88,15 @@ class KorapXml2ConlluTest {
         classUnderTest.main(args)
         assertContains(
             outContent.toString(),
+            "# foundry = tree_tagger"
+        )
+        assertContains(
+            outContent.toString(),
             "30\tvraie\tvrai\t_\tADJ\t_\t_\t_\t_\t1.000000"
         )
     }
 
-    @Suppress("for some reason not working")
+    @Ignore("for some reason not working")
     fun canConvertMorphoFeatureAnnotations() {
         val classUnderTest = KorapXml2Conllu()
         val args = arrayOf(goe, goeMarmot)
