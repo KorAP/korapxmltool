@@ -15,6 +15,7 @@ import org.w3c.dom.NodeList
 import org.xml.sax.InputSource
 import java.io.File
 import java.io.InputStreamReader
+import java.util.HashMap
 import java.util.logging.Logger
 
 class KorapXml2Conllu {
@@ -115,14 +116,14 @@ class KorapXml2Conllu {
 
                                 "morpho.xml" -> {
                                     val fsSpans: NodeList = doc.getElementsByTagName("span")
-                                    extractMorphoSpans(fsSpans, docId, morpho)
+                                    morpho[docId] = extractMorphoSpans(fsSpans)
                                 }
                             }
                             if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
                                 && (!waitForMorpho || morpho[docId] != null)
                             ) {
                                 synchronized(System.out) {
-                                    println("# foundry = base")
+                                    println("# foundry = $foundry")
                                     println("# filename = ${fname[docId]}")
                                     println("# text_id = $docId")
                                     printTokenOffsetsInSentence(
@@ -241,10 +242,9 @@ class KorapXml2Conllu {
     }
 
     private fun extractMorphoSpans(
-        fsSpans: NodeList,
-        docId: String,
-        morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>>
-    ) {
+        fsSpans: NodeList
+    ): MutableMap<String, MorphoSpan> {
+        val res: MutableMap<String, MorphoSpan> = HashMap()
         IntStream.range(0, fsSpans.length)
             .mapToObj(fsSpans::item)
             .forEach { node ->
@@ -263,11 +263,9 @@ class KorapXml2Conllu {
                             "certainty" -> fs.misc = value
                         }
                     }
-                if (morpho[docId] == null) {
-                    morpho[docId] = mutableMapOf()
-                }
-                morpho[docId]!![fromTo] = fs
+                res[fromTo] = fs
             }
+        return res
     }
 
     private fun extractSentenceSpans(spans: NodeList): Array<Span> {
