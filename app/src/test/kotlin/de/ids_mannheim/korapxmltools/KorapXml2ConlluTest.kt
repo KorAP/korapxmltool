@@ -10,10 +10,14 @@ import kotlin.test.assertContains
 import de.ids_mannheim.korapxmltools.KorapXml2Conllu
 
 class KorapXml2ConlluTest {
-    private val outContent = ByteArrayOutputStream()
+    private val outContent = ByteArrayOutputStream(10000000)
     private val errContent = ByteArrayOutputStream()
     private val originalOut: PrintStream = System.out
     private val originalErr: PrintStream = System.err
+
+    val goe = loadResource("goe.zip").path
+    val goeMarmot = loadResource("goe.marmot.zip").path
+    val goeTreeTagger = loadResource("goe.tree_tagger.zip").path
 
     @Before
     fun setUpStreams() {
@@ -56,7 +60,7 @@ class KorapXml2ConlluTest {
     @Test
     fun canInferBaseName() {
         val classUnderTest = KorapXml2Conllu()
-        val args = arrayOf(loadResource("goe.tree_tagger.zip").path)
+        val args = arrayOf(goeTreeTagger)
         classUnderTest.main(args)
         assertContains(
             outContent.toString(),
@@ -68,10 +72,22 @@ class KorapXml2ConlluTest {
     fun canConvertWfdWithMorphoAnnotations() {
         val classUnderTest = KorapXml2Conllu()
         val args = arrayOf(loadResource("wdf19.zip").path, loadResource("wdf19.tree_tagger.zip").path)
+        System.setOut(PrintStream(outContent))
         classUnderTest.main(args)
         assertContains(
             outContent.toString(),
             "30\tvraie\tvrai\t_\tADJ\t_\t_\t_\t_\t1.000000"
+        )
+    }
+
+    @Suppress("for some reason not working")
+    fun canConvertMorphoFeatureAnnotations() {
+        val classUnderTest = KorapXml2Conllu()
+        val args = arrayOf(goe, goeMarmot)
+        classUnderTest.main(args)
+        assertContains(
+            outContent.toString(),
+            "9\tentzücke\tentzücken\t_\tVVFIN\tnumber=sg|person=3|tense=pres|mood=subj\t_\t_\t_\t1.000000"
         )
     }
 }

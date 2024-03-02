@@ -258,9 +258,9 @@ class KorapXml2Conllu {
                         when (attr) {
                             "lemma" -> fs.lemma = value
                             "upos" -> fs.upos = value
-                            "xpos" -> fs.xpos = value
+                            "xpos", "ctag", "pos" -> fs.xpos = value
+                            "feats", "msd" -> fs.feats = value
                             "certainty" -> fs.misc = value
-                            "ctag", "pos" -> fs.xpos = value
                         }
                     }
                 if (morpho[docId] == null) {
