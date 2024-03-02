@@ -39,9 +39,8 @@ class KorapXml2ConlluTest {
 
     @Test
     fun canConvertGOE() {
-        val classUnderTest = KorapXml2Conllu()
         val args = arrayOf(loadResource("goe.zip").path)
-        classUnderTest.main(args)
+        debug(args)
         assertContains(
             outContent.toString(),
             "# foundry = base"
@@ -53,9 +52,8 @@ class KorapXml2ConlluTest {
     }
     @Test
     fun canConvertWithMorphoAnnotations() {
-        val classUnderTest = KorapXml2Conllu()
         val args = arrayOf(loadResource("goe.zip").path, loadResource("goe.tree_tagger.zip").path)
-        classUnderTest.main(args)
+        debug(args)
         assertContains(
             outContent.toString(),
             "# foundry = tree_tagger"
@@ -67,9 +65,8 @@ class KorapXml2ConlluTest {
     }
     @Test
     fun canInferBaseName() {
-        val classUnderTest = KorapXml2Conllu()
         val args = arrayOf(goeTreeTagger)
-        classUnderTest.main(args)
+        debug(args)
         assertContains(
             outContent.toString(),
             "# foundry = tree_tagger"
@@ -82,10 +79,8 @@ class KorapXml2ConlluTest {
 
     @Test
     fun canConvertWfdWithMorphoAnnotations() {
-        val classUnderTest = KorapXml2Conllu()
         val args = arrayOf(loadResource("wdf19.zip").path, loadResource("wdf19.tree_tagger.zip").path)
-        System.setOut(PrintStream(outContent))
-        classUnderTest.main(args)
+        debug(args)
         assertContains(
             outContent.toString(),
             "# foundry = tree_tagger"
@@ -96,11 +91,19 @@ class KorapXml2ConlluTest {
         )
     }
 
+    @Test
+    fun canPrintHelp() {
+        debug(arrayOf("-h"))
+        assertContains(
+            outContent.toString(),
+            "--s-bounds-from-morpho"
+        )
+    }
+
     @Ignore("for some reason not working")
     fun canConvertMorphoFeatureAnnotations() {
-        val classUnderTest = KorapXml2Conllu()
         val args = arrayOf(goe, goeMarmot)
-        classUnderTest.main(args)
+        debug(args)
         assertContains(
             outContent.toString(),
             "9\tentzücke\tentzücken\t_\tVVFIN\tnumber=sg|person=3|tense=pres|mood=subj\t_\t_\t_\t1.000000"

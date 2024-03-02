@@ -13,15 +13,74 @@ import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
 import org.xml.sax.InputSource
+import picocli.CommandLine
+import picocli.CommandLine.Parameters
+import picocli.CommandLine.Option
+import picocli.CommandLine.Command
 import java.io.File
 import java.io.InputStreamReader
 import java.util.HashMap
+import java.util.concurrent.Callable
 import java.util.logging.Logger
+import kotlin.system.exitProcess
 
-class KorapXml2Conllu {
+@Command(
+    name = "KorapXml2Conllu",
+    mixinStandardHelpOptions = true,
+    version = ["KorapXml2Conllu 2.0-alpha-01"],
+    description = ["Converts KorAP XML files to CoNLL-U format"]
+)
+
+class KorapXml2Conllu : Callable<Int> {
+
+    @Parameters(arity = "1..*", description = ["At least one zip file name"])
+    var zipFileNames: Array<String>? = null
+
+    @Option(names = ["--sigle-pattern", "-p"], paramLabel = "PATTERN",
+        description = ["Not yet implemented: sigle pattern"])
+    var siglePattern: String = ""
+
+    @Option(names = ["--extract-attributes-regex", "-e"], paramLabel = "REGEX",
+        description = ["Not yet implemented: extract attributes regex"])
+    var extractAttributesRegex: String = ""
+
+    @Option(names = ["--s-bounds-from-morpho"],
+        description = ["Not yet implemented: s bounds from morpho"])
+    var sBoundsFromMorpho: Boolean = false
+
+    @Option(names = ["--log", "-l"], paramLabel = "LEVEL",
+        description = ["Not yet implemented: log level"])
+    var logLevel: String = "warn"
+
+    @Option(names = ["--columns", "-c"], paramLabel = "NUMBER",
+        description = ["Not yet implemented: columns"])
+    var columns: Int = 10
+
+    @Option(names = ["--word2vec", "-w"], description = ["Not yet implemented: word2vec"])
+    var lmTrainingData: Boolean = false
+
+    @Option(names = ["--token-separator", "-s"], paramLabel = "SEPARATOR",
+        description = ["Not yet implemented: token separator"])
+    var tokenSeparator: String = "\n"
+
+    @Option(names = ["--offsets"], description = ["Not yet implemented: offsets"])
+    var offsets: Boolean = false
+
+    @Option(names = ["--comments"], description = ["Not yet implemented: comments"])
+    var comments: Boolean = false
+
+    @Option(names = ["--extract-metadata-regex", "-m"], paramLabel = "REGEX",
+        description = ["Not yet implemented: extract metadata regex"])
+    var extractMetadataRegex: MutableList<String> = mutableListOf()
+
+    override fun call(): Int {
+        LOGGER.info("Processing zip files: " + zipFileNames!!.joinToString(", "))
+        korapxml2conllu(zipFileNames!!)// Your application logic here
+        return 0
+    }
     private val LOGGER: Logger = Logger.getLogger(KorapXml2Conllu::class.java.name)
 
-    fun main(args: Array<String?>?) {
+    fun korapxml2conllu(args: Array<String>) {
         val executor: ExecutorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
         val texts: ConcurrentHashMap<String, String> = ConcurrentHashMap()
         val sentences: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
@@ -33,7 +92,7 @@ class KorapXml2Conllu {
                 LOGGER.severe("Usage: KorapXml2Conllu <zipfile1> [<zipfile2> ...]")
                 return
         }
-        var zips:Array<String?> = args
+        var zips:Array<String> = args
         if (args.size == 1 && args[0]!!.matches(Regex(".*\\.([^/.]+)\\.zip$")) == true) {
             val baseZip = args[0]!!.replace(Regex("\\.([^/.]+)\\.zip$"), ".zip")
             if (File(baseZip).exists()) {
@@ -71,7 +130,7 @@ class KorapXml2Conllu {
         return zipFileName.replace(Regex(".*\\.([^/.]+)\\.zip$"), "$1")
     }
 
-    private fun getFoundryFromZipFileNames(zipFileNames: Array<String?>): String {
+    private fun getFoundryFromZipFileNames(zipFileNames: Array<String>): String {
         for (zipFileName in zipFileNames) {
             val foundry = getFoundryFromZipFileName(zipFileName!!)
             if (foundry != "base") {
@@ -316,9 +375,8 @@ class KorapXml2Conllu {
 
 }
 
+fun main(args: Array<String>) : Unit = exitProcess(CommandLine(KorapXml2Conllu()).execute(*args))
 
-fun main(args: Array<String?>?) {
-    System.setProperty("file.encoding", "UTF-8")
-    KorapXml2Conllu().main(args)
+fun debug(args: Array<String>): Int {
+    return(CommandLine(KorapXml2Conllu()).execute(*args))
 }
-
