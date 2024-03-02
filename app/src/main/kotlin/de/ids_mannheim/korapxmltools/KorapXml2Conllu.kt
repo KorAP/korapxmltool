@@ -3,7 +3,6 @@ package de.ids_mannheim.korapxmltools
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
 import java.io.InputStream
-import java.util.Arrays
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -19,8 +18,9 @@ import picocli.CommandLine.Option
 import picocli.CommandLine.Command
 import java.io.File
 import java.io.InputStreamReader
-import java.util.HashMap
+import java.util.*
 import java.util.concurrent.Callable
+import java.util.logging.Level
 import java.util.logging.Logger
 import kotlin.system.exitProcess
 
@@ -37,8 +37,8 @@ class KorapXml2Conllu : Callable<Int> {
     var zipFileNames: Array<String>? = null
 
     @Option(names = ["--sigle-pattern", "-p"], paramLabel = "PATTERN",
-        description = ["Not yet implemented: sigle pattern"])
-    var siglePattern: String = ""
+        description = ["Extract only documents with sigle matching the pattern (regex)"])
+    var siglePattern: String? = null
 
     @Option(names = ["--extract-attributes-regex", "-e"], paramLabel = "REGEX",
         description = ["Not yet implemented: extract attributes regex"])
@@ -49,14 +49,15 @@ class KorapXml2Conllu : Callable<Int> {
     var sBoundsFromMorpho: Boolean = false
 
     @Option(names = ["--log", "-l"], paramLabel = "LEVEL",
-        description = ["Not yet implemented: log level"])
-    var logLevel: String = "warn"
+        description = ["Log level: one of SEVERE, WARNING, INFO, FINE, FINER, FINEST. Default: ${"$"}{DEFAULT-VALUE}])"])
+    var logLevel: String = "WARNING"
 
     @Option(names = ["--columns", "-c"], paramLabel = "NUMBER",
         description = ["Not yet implemented: columns"])
     var columns: Int = 10
 
-    @Option(names = ["--word2vec", "-w"], description = ["Not yet implemented: word2vec"])
+    @Option(names = ["--word2vec", "-w"], description = ["Print text in LM training format: tokens " +
+            "separated by space, sentences separated by newline"])
     var lmTrainingData: Boolean = false
 
     @Option(names = ["--token-separator", "-s"], paramLabel = "SEPARATOR",
@@ -74,8 +75,16 @@ class KorapXml2Conllu : Callable<Int> {
     var extractMetadataRegex: MutableList<String> = mutableListOf()
 
     override fun call(): Int {
+        LOGGER.level = try {
+            Level.parse(logLevel.uppercase(Locale.getDefault()))
+        } catch (e: IllegalArgumentException) {
+            LOGGER.warning("Invalid log level: $logLevel. Defaulting to WARNING.")
+            Level.WARNING
+        }
+
         LOGGER.info("Processing zip files: " + zipFileNames!!.joinToString(", "))
-        korapxml2conllu(zipFileNames!!)// Your application logic here
+
+        korapxml2conllu(zipFileNames!!)
         return 0
     }
     private val LOGGER: Logger = Logger.getLogger(KorapXml2Conllu::class.java.name)
@@ -88,7 +97,7 @@ class KorapXml2Conllu : Callable<Int> {
         val morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>> = ConcurrentHashMap()
         val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
 
-        if (args == null || args.isEmpty() || args[0] == null) {
+        if (args.isEmpty()) {
                 LOGGER.severe("Usage: KorapXml2Conllu <zipfile1> [<zipfile2> ...]")
                 return
         }
@@ -162,7 +171,9 @@ class KorapXml2Conllu : Callable<Int> {
 
                             doc.documentElement.normalize()
                             val docId: String = doc.documentElement.getAttribute("docid")
-
+                            if (siglePattern != null && !docId.matches(Regex(siglePattern!!))) {
+                                return@forEach
+                            }
                             // LOGGER.info("Processing file: " + zipEntry.getName())
                             val fileName =
                                 zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
@@ -201,52 +212,64 @@ class KorapXml2Conllu : Callable<Int> {
                                 && (!waitForMorpho || morpho[docId] != null)
                             ) {
                                 synchronized(System.out) {
-                                    println("# foundry = $foundry")
-                                    println("# filename = ${fname[docId]}")
-                                    println("# text_id = $docId")
-                                    printTokenOffsetsInSentence(
-                                        sentences,
-                                        docId,
-                                        sentence_index,
-                                        real_token_index,
-                                        tokens
-                                    )
-                                    tokens[docId]?.forEach { span ->
-                                        token_index++
-                                        if (span.from >= sentences[docId]!![sentence_index].to) {
-                                            println()
-                                            sentence_index++
-                                            token_index = 1
-                                            printTokenOffsetsInSentence(
-                                                sentences,
-                                                docId,
-                                                sentence_index,
-                                                real_token_index,
-                                                tokens
-                                            )
+                                    if (lmTrainingData) {
+                                        tokens[docId]?.forEach { span ->
+                                            token_index++
+                                            if (span.from >= sentences[docId]!![sentence_index].to) {
+                                                println()
+                                                sentence_index++
+                                            }
+                                            print(texts[docId]!!.substring(span.from, span.to)+ " ")
+                                            real_token_index++
                                         }
-                                        if (waitForMorpho && morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
-                                            val mfs = morpho[docId]!!["${span.from}-${span.to}"]
-                                            printConlluToken(
-                                                token_index,
-                                                texts[docId]!!.substring(span.from, span.to),
-                                                mfs!!.lemma!!,
-                                                mfs.upos!!,
-                                                mfs.xpos!!,
-                                                mfs.feats!!,
-                                                mfs.head!!,
-                                                mfs.deprel!!,
-                                                mfs.deps!!,
-                                                mfs.misc!!
-                                            )
-                                        } else {
-                                            printConlluToken(
-                                                token_index, texts[docId]!!.substring(span.from, span.to)
-                                            )
-                                        }
-                                        real_token_index++
+                                    } else {
+                                        println("# foundry = $foundry")
+                                        println("# filename = ${fname[docId]}")
+                                        println("# text_id = $docId")
+                                        printTokenOffsetsInSentence(
+                                            sentences,
+                                            docId,
+                                            sentence_index,
+                                            real_token_index,
+                                            tokens
+                                        )
+                                        tokens[docId]?.forEach { span ->
+                                            token_index++
+                                            if (span.from >= sentences[docId]!![sentence_index].to) {
+                                                println()
+                                                sentence_index++
+                                                token_index = 1
+                                                printTokenOffsetsInSentence(
+                                                    sentences,
+                                                    docId,
+                                                    sentence_index,
+                                                    real_token_index,
+                                                    tokens
+                                                )
+                                            }
+                                            if (waitForMorpho && morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
+                                                val mfs = morpho[docId]!!["${span.from}-${span.to}"]
+                                                printConlluToken(
+                                                    token_index,
+                                                    texts[docId]!!.substring(span.from, span.to),
+                                                    mfs!!.lemma!!,
+                                                    mfs.upos!!,
+                                                    mfs.xpos!!,
+                                                    mfs.feats!!,
+                                                    mfs.head!!,
+                                                    mfs.deprel!!,
+                                                    mfs.deps!!,
+                                                    mfs.misc!!
+                                                )
+                                            } else {
+                                                printConlluToken(
+                                                    token_index, texts[docId]!!.substring(span.from, span.to)
+                                                )
+                                            }
+                                            real_token_index++
 
-                                    }
+                                        }
+                                }
                                     arrayOf(tokens, texts, sentences, morpho).forEach { map ->
                                         map.remove(docId)
                                     }

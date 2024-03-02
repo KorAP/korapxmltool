@@ -8,6 +8,7 @@ import java.net.URL
 import kotlin.test.Test
 import kotlin.test.assertContains
 import org.junit.Ignore
+import kotlin.test.assertFalse
 
 class KorapXml2ConlluTest {
     private val outContent = ByteArrayOutputStream(10000000)
@@ -97,6 +98,38 @@ class KorapXml2ConlluTest {
         assertContains(
             outContent.toString(),
             "--s-bounds-from-morpho"
+        )
+    }
+
+    @Test
+    fun respectsSiglePattern() {
+        val args = arrayOf("-p",".*7", loadResource("wdf19.zip").path)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "# text_id = WDF19_A0000.14247"
+        )
+        assertFalse { outContent.toString().contains("WDF19_A0000.13865") }
+    }
+
+    @Test
+    fun w2vOptionWorks() {
+        val args = arrayOf("-w", loadResource("wdf19.zip").path)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "\nje ne suis pas du tout d'accord ! \n"
+        )
+        assertFalse { outContent.toString().contains("WDF19_A0000.13865") }
+    }
+
+    @Test
+    fun canSetLogLevel() {
+        val args = arrayOf("-l", "info", loadResource("wdf19.zip").path)
+        debug(args)
+        assertContains(
+            errContent.toString(),
+            "Processing zip file"
         )
     }
 
