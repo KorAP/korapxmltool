@@ -1,27 +1,25 @@
 package de.ids_mannheim.korapxmltools
 
-import javax.xml.parsers.DocumentBuilder
-import javax.xml.parsers.DocumentBuilderFactory
-import java.io.InputStream
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.stream.IntStream
-import java.util.zip.ZipFile
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
 import org.xml.sax.InputSource
 import picocli.CommandLine
-import picocli.CommandLine.Parameters
-import picocli.CommandLine.Option
-import picocli.CommandLine.Command
+import picocli.CommandLine.*
 import java.io.File
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.util.*
 import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.logging.Level
 import java.util.logging.Logger
+import java.util.stream.IntStream
+import java.util.zip.ZipFile
+import javax.xml.parsers.DocumentBuilder
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.system.exitProcess
 
 @Command(
@@ -36,32 +34,48 @@ class KorapXml2Conllu : Callable<Int> {
     @Parameters(arity = "1..*", description = ["At least one zip file name"])
     var zipFileNames: Array<String>? = null
 
-    @Option(names = ["--sigle-pattern", "-p"], paramLabel = "PATTERN",
-        description = ["Extract only documents with sigle matching the pattern (regex)"])
+    @Option(
+        names = ["--sigle-pattern", "-p"],
+        paramLabel = "PATTERN",
+        description = ["Extract only documents with sigle matching the pattern (regex)"]
+    )
     var siglePattern: String? = null
 
-    @Option(names = ["--extract-attributes-regex", "-e"], paramLabel = "REGEX",
-        description = ["Not yet implemented: extract attributes regex"])
+    @Option(
+        names = ["--extract-attributes-regex", "-e"],
+        paramLabel = "REGEX",
+        description = ["Not yet implemented: extract attributes regex"]
+    )
     var extractAttributesRegex: String = ""
 
-    @Option(names = ["--s-bounds-from-morpho"],
-        description = ["Not yet implemented: s bounds from morpho"])
+    @Option(
+        names = ["--s-bounds-from-morpho"], description = ["Not yet implemented: s bounds from morpho"]
+    )
     var sBoundsFromMorpho: Boolean = false
 
-    @Option(names = ["--log", "-l"], paramLabel = "LEVEL",
-        description = ["Log level: one of SEVERE, WARNING, INFO, FINE, FINER, FINEST. Default: ${"$"}{DEFAULT-VALUE}])"])
+    @Option(
+        names = ["--log", "-l"],
+        paramLabel = "LEVEL",
+        description = ["Log level: one of SEVERE, WARNING, INFO, FINE, FINER, FINEST. Default: ${"$"}{DEFAULT-VALUE}])"]
+    )
     var logLevel: String = "WARNING"
 
-    @Option(names = ["--columns", "-c"], paramLabel = "NUMBER",
-        description = ["Not yet implemented: columns"])
+    @Option(
+        names = ["--columns", "-c"], paramLabel = "NUMBER", description = ["Not yet implemented: columns"]
+    )
     var columns: Int = 10
 
-    @Option(names = ["--word2vec", "-w"], description = ["Print text in LM training format: tokens " +
-            "separated by space, sentences separated by newline"])
+    @Option(
+        names = ["--word2vec", "-w"],
+        description = ["Print text in LM training format: tokens separated by space, sentences separated by newline"]
+    )
     var lmTrainingData: Boolean = false
 
-    @Option(names = ["--token-separator", "-s"], paramLabel = "SEPARATOR",
-        description = ["Not yet implemented: token separator"])
+    @Option(
+        names = ["--token-separator", "-s"],
+        paramLabel = "SEPARATOR",
+        description = ["Not yet implemented: token separator"]
+    )
     var tokenSeparator: String = "\n"
 
     @Option(names = ["--offsets"], description = ["Not yet implemented: offsets"])
@@ -70,8 +84,11 @@ class KorapXml2Conllu : Callable<Int> {
     @Option(names = ["--comments"], description = ["Not yet implemented: comments"])
     var comments: Boolean = false
 
-    @Option(names = ["--extract-metadata-regex", "-m"], paramLabel = "REGEX",
-        description = ["Not yet implemented: extract metadata regex"])
+    @Option(
+        names = ["--extract-metadata-regex", "-m"],
+        paramLabel = "REGEX",
+        description = ["Not yet implemented: extract metadata regex"]
+    )
     var extractMetadataRegex: MutableList<String> = mutableListOf()
 
     override fun call(): Int {
@@ -87,6 +104,7 @@ class KorapXml2Conllu : Callable<Int> {
         korapxml2conllu(zipFileNames!!)
         return 0
     }
+
     private val LOGGER: Logger = Logger.getLogger(KorapXml2Conllu::class.java.name)
 
     fun korapxml2conllu(args: Array<String>) {
@@ -98,10 +116,10 @@ class KorapXml2Conllu : Callable<Int> {
         val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
 
         if (args.isEmpty()) {
-                LOGGER.severe("Usage: KorapXml2Conllu <zipfile1> [<zipfile2> ...]")
-                return
+            LOGGER.severe("Usage: KorapXml2Conllu <zipfile1> [<zipfile2> ...]")
+            return
         }
-        var zips:Array<String> = args
+        var zips: Array<String> = args
         if (args.size == 1 && args[0].matches(Regex(".*\\.([^/.]+)\\.zip$"))) {
             val baseZip = args[0].replace(Regex("\\.([^/.]+)\\.zip$"), ".zip")
             if (File(baseZip).exists()) {
@@ -175,8 +193,7 @@ class KorapXml2Conllu : Callable<Int> {
                                 return@forEach
                             }
                             // LOGGER.info("Processing file: " + zipEntry.getName())
-                            val fileName =
-                                zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
+                            val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
                             var token_index = 0
                             var real_token_index = 0
                             var sentence_index = 0
@@ -204,10 +221,8 @@ class KorapXml2Conllu : Callable<Int> {
                                     morpho[docId] = extractMorphoSpans(fsSpans)
                                 }
                             }
-                            if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
-                                && (!waitForMorpho || morpho[docId] != null)
-                            ) {
-                                val output : StringBuilder
+                            if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null && (!waitForMorpho || morpho[docId] != null)) {
+                                val output: StringBuilder
                                 if (lmTrainingData) {
                                     output = StringBuilder()
 
@@ -217,21 +232,16 @@ class KorapXml2Conllu : Callable<Int> {
                                             output.append("\n")
                                             sentence_index++
                                         }
-                                        output.append(texts[docId]!!.substring(span.from, span.to) + " ")
+                                        output.append(texts[docId]!!.substring(span.from, span.to), " ")
                                         real_token_index++
                                     }
                                 } else {
                                     output =
-                                        StringBuilder("# foundry = $foundry\n# filename = ${fname[docId]}\n# text_id = $docId\n")
-                                    output.append(
-                                        tokenOffsetsInSentence(
-                                            sentences,
-                                            docId,
-                                            sentence_index,
-                                            real_token_index,
-                                            tokens
-                                        )
-                                    )
+                                        StringBuilder("# foundry = $foundry\n# filename = ${fname[docId]}\n# text_id = $docId\n").append(
+                                                tokenOffsetsInSentence(
+                                                    sentences, docId, sentence_index, real_token_index, tokens
+                                                )
+                                            )
                                     tokens[docId]?.forEach { span ->
                                         token_index++
                                         if (span.from >= sentences[docId]!![sentence_index].to) {
@@ -240,11 +250,7 @@ class KorapXml2Conllu : Callable<Int> {
                                             token_index = 1
                                             output.append(
                                                 tokenOffsetsInSentence(
-                                                    sentences,
-                                                    docId,
-                                                    sentence_index,
-                                                    real_token_index,
-                                                    tokens
+                                                    sentences, docId, sentence_index, real_token_index, tokens
                                                 )
                                             )
                                         }
@@ -272,7 +278,6 @@ class KorapXml2Conllu : Callable<Int> {
                                             )
                                         }
                                         real_token_index++
-
                                     }
                                 }
                                 synchronized(System.out) {
@@ -307,8 +312,8 @@ class KorapXml2Conllu : Callable<Int> {
         deprel: String = "_",
         deps: String = "_",
         misc: String = "_"
-    ) : String {
-        return("$token_index\t$token\t$lemma\t$upos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc\n")
+    ): String {
+        return ("$token_index\t$token\t$lemma\t$upos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc\n")
     }
 
     private fun tokenOffsetsInSentence(
@@ -317,7 +322,7 @@ class KorapXml2Conllu : Callable<Int> {
         sentence_index: Int,
         token_index: Int,
         tokens: ConcurrentHashMap<String, Array<Span>>
-    ) : String{
+    ): String {
         val sentenceEndOffset: Int
         sentenceEndOffset = if (sentences[docId] == null) {
             -1
@@ -327,42 +332,35 @@ class KorapXml2Conllu : Callable<Int> {
         var i = token_index
         val start_offsets_string = StringBuilder()
         val end_offsets_string = StringBuilder()
-        val output = StringBuilder()
-        while (tokens[docId]!=null && i < tokens[docId]!!.size && tokens[docId]!![i].to <= sentenceEndOffset) {
+        while (tokens[docId] != null && i < tokens[docId]!!.size && tokens[docId]!![i].to <= sentenceEndOffset) {
             start_offsets_string.append(" ", tokens[docId]!![i].from)
             end_offsets_string.append(" ", tokens[docId]!![i].to)
             i++
         }
-        output.append("# start_offsets = ", tokens[docId]!![token_index].from, start_offsets_string, "\n")
-        output.append("# end_offsets = ", sentenceEndOffset, end_offsets_string, "\n")
-        return output.toString()
+        return (
+                StringBuilder() .append(
+                    "# start_offsets = ", tokens[docId]!![token_index].from, start_offsets_string, "\n",
+                    "# end_offsets = ", sentenceEndOffset, end_offsets_string, "\n"
+                ).toString())
     }
 
     private fun extractSpans(spans: NodeList): Array<Span> {
-        return IntStream.range(0, spans.length)
-            .mapToObj(spans::item)
-            .filter { node -> node is Element }
-            .map { node ->
+        return IntStream.range(0, spans.length).mapToObj(spans::item).filter { node -> node is Element }.map { node ->
                 Span(
-                    Integer.parseInt((node as Element).getAttribute("from")),
-                    Integer.parseInt(node.getAttribute("to"))
+                    Integer.parseInt((node as Element).getAttribute("from")), Integer.parseInt(node.getAttribute("to"))
                 )
-            }
-            .toArray { size -> arrayOfNulls(size) }
+            }.toArray { size -> arrayOfNulls(size) }
     }
 
     private fun extractMorphoSpans(
         fsSpans: NodeList
     ): MutableMap<String, MorphoSpan> {
         val res: MutableMap<String, MorphoSpan> = HashMap()
-        IntStream.range(0, fsSpans.length)
-            .mapToObj(fsSpans::item)
-            .forEach { node ->
+        IntStream.range(0, fsSpans.length).mapToObj(fsSpans::item).forEach { node ->
                 val features = (node as Element).getElementsByTagName("f")
                 val fs = MorphoSpan()
-                val fromTo = node.getAttribute("from") + "-" + node.getAttribute("to")
-                IntStream.range(0, features.length).mapToObj(features::item)
-                    .forEach { feature ->
+                val fromTo = "${node.getAttribute("from")}-${node.getAttribute("to")}"
+                IntStream.range(0, features.length).mapToObj(features::item).forEach { feature ->
                         val attr = (feature as Element).getAttribute("name")
                         val value = feature.textContent
                         when (attr) {
@@ -379,16 +377,13 @@ class KorapXml2Conllu : Callable<Int> {
     }
 
     private fun extractSentenceSpans(spans: NodeList): Array<Span> {
-        return IntStream.range(0, spans.length)
-            .mapToObj(spans::item)
+        return IntStream.range(0, spans.length).mapToObj(spans::item)
             .filter { node -> node is Element && node.getElementsByTagName("f").item(0).textContent.equals("s") }
             .map { node ->
                 Span(
-                    Integer.parseInt((node as Element).getAttribute("from")),
-                    Integer.parseInt(node.getAttribute("to"))
+                    Integer.parseInt((node as Element).getAttribute("from")), Integer.parseInt(node.getAttribute("to"))
                 )
-            }
-            .toArray { size -> arrayOfNulls(size) }
+            }.toArray { size -> arrayOfNulls(size) }
     }
 
 
@@ -407,8 +402,8 @@ class KorapXml2Conllu : Callable<Int> {
 
 }
 
-fun main(args: Array<String>) : Unit = exitProcess(CommandLine(KorapXml2Conllu()).execute(*args))
+fun main(args: Array<String>): Unit = exitProcess(CommandLine(KorapXml2Conllu()).execute(*args))
 
 fun debug(args: Array<String>): Int {
-    return(CommandLine(KorapXml2Conllu()).execute(*args))
+    return (CommandLine(KorapXml2Conllu()).execute(*args))
 }
