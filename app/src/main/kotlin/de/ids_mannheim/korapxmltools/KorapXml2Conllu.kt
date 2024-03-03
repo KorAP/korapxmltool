@@ -415,18 +415,21 @@ class KorapXml2Conllu : Callable<Int> {
         fsSpans: NodeList
     ): MutableMap<String, MorphoSpan> {
         val res: MutableMap<String, MorphoSpan> = HashMap()
-        IntStream.range(0, fsSpans.length).mapToObj(fsSpans::item).forEach { node ->
+        IntStream.range(0, fsSpans.length).mapToObj(fsSpans::item).filter { node -> node is Element && node.getAttribute("type") != "alt" }.forEach { node ->
                 val features = (node as Element).getElementsByTagName("f")
                 val fs = MorphoSpan()
                 val fromTo = "${node.getAttribute("from")}-${node.getAttribute("to")}"
                 IntStream.range(0, features.length).mapToObj(features::item).forEach { feature ->
                         val attr = (feature as Element).getAttribute("name")
                         val value = feature.textContent.trim()
+                        if (value.isEmpty()) return@forEach
                         when (attr) {
-                            "lemma" -> fs.lemma = value
+                            "lemma" -> if(fs.lemma == "_") fs.lemma = value
                             "upos" -> fs.upos = value
-                            "xpos", "ctag", "pos" -> fs.xpos = value
-                            "feats", "msd" -> fs.feats = value
+                            "xpos", "ctag", "pos" -> if(fs.xpos == "_") fs.xpos = value
+                            "feats", "msd" -> if(fs.feats == "_" ) fs.feats = value
+                            "type" -> if(fs.feats == "_") fs.feats = feature.getElementsByTagName("symbol").item(0).attributes.getNamedItem("value").textContent.trim()
+                            // "subtype" -> if(fs.feats == "_") fs.feats += ":" + feature.getElementsByTagName("symbol").item(0).attributes.getNamedItem("value").textContent
                             "certainty" -> fs.misc = value
                         }
                     }
