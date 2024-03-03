@@ -20,6 +20,7 @@ import java.util.stream.IntStream
 import java.util.zip.ZipFile
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlin.math.min
 import kotlin.system.exitProcess
 
 @Command(
@@ -61,7 +62,9 @@ class KorapXml2Conllu : Callable<Int> {
     var logLevel: String = "WARNING"
 
     @Option(
-        names = ["--columns", "-c"], paramLabel = "NUMBER", description = ["Not yet implemented: columns"]
+        names = ["--columns", "-c"],
+        paramLabel = "NUMBER",
+        description = ["Number of columns. 1 means just the token. Default: ${"$"}{DEFAULT-VALUE}", "Possible values: 1-10"]
     )
     var columns: Int = 10
 
@@ -81,7 +84,7 @@ class KorapXml2Conllu : Callable<Int> {
     @Option(names = ["--offsets"], description = ["Not yet implemented: offsets"])
     var offsets: Boolean = false
 
-    @Option(names = ["--comments"], description = ["Not yet implemented: comments"])
+    @Option(names = ["--comments", "-C"], description = ["Not yet implemented: comments"])
     var comments: Boolean = false
 
     @Option(
@@ -267,13 +270,14 @@ class KorapXml2Conllu : Callable<Int> {
                                                     mfs.head!!,
                                                     mfs.deprel!!,
                                                     mfs.deps!!,
-                                                    mfs.misc!!
+                                                    mfs.misc!!,
+                                                    columns
                                                 )
                                             )
                                         } else {
                                             output.append(
                                                 printConlluToken(
-                                                    token_index, texts[docId]!!.substring(span.from, span.to)
+                                                    token_index, texts[docId]!!.substring(span.from, span.to), columns = columns
                                                 )
                                             )
                                         }
@@ -311,9 +315,15 @@ class KorapXml2Conllu : Callable<Int> {
         head: String = "_",
         deprel: String = "_",
         deps: String = "_",
-        misc: String = "_"
+        misc: String = "_",
+        columns: Int = 10
     ): String {
-        return ("$token_index\t$token\t$lemma\t$upos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc\n")
+        when (columns) {
+            1 -> return ("$token\n")
+            10 -> return ("$token_index\t$token\t$lemma\t$upos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc\n")
+            else -> return arrayOf(token_index, token, lemma, upos, xpos, feats, head, deprel, deps, misc).slice(0..min(columns, 10) - 1)
+                .joinToString("\t") + "\n"
+        }
     }
 
     private fun tokenOffsetsInSentence(

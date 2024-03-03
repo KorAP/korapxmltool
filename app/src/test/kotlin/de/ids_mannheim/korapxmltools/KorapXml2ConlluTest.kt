@@ -113,6 +113,26 @@ class KorapXml2ConlluTest {
     }
 
     @Test
+    fun respectsColumnsParam() {
+        val args = arrayOf("-c","5", loadResource("wdf19.zip").path)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "42\tparfaitement\t_\t_\t_\n"
+        )
+    }
+
+    @Test
+    fun respectsSpecial1ColumnsParam() {
+        val args = arrayOf("-c","1", loadResource("wdf19.zip").path)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "\nparfaitement\n"
+        )
+    }
+
+    @Test
     fun w2vOptionWorks() {
         val args = arrayOf("-w", loadResource("wdf19.zip").path)
         debug(args)
