@@ -291,13 +291,23 @@ class KorapXml2Conllu : Callable<Int> {
             tokens[docId]?.forEach { span ->
                 token_index++
                 if (span.from >= sentences[docId]!![sentence_index].to) {
-                    output.append("\n")
+                    if(output.length > 0) {
+                        output.setCharAt(output.length - 1, '\n')
+                    } else {
+                        output.append("\n")
+                    }
                     sentence_index++
                 }
                 output.append(texts[docId]!!.substring(span.from, span.to), " ")
                 real_token_index++
             }
+            if(output.length > 0) {
+                output.deleteCharAt(output.length - 1)
+            }
         } else {
+            if (COMPATIBILITY_MODE) {
+                fname[docId] += "  "
+            }
             output =
                 StringBuilder("# foundry = $foundry\n# filename = ${fname[docId]}\n# text_id = $docId\n").append(
                     tokenOffsetsInSentence(
