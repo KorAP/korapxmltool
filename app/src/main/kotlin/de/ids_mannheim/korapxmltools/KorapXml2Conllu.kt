@@ -183,6 +183,7 @@ class KorapXml2Conllu : Callable<Int> {
         waitForMorpho: Boolean = false,
     ) {
         try {
+            var waitForMorpho = waitForMorpho
             ZipFile(zipFilePath).use { zipFile ->
                 zipFile.stream().parallel().forEach { zipEntry ->
                     try {
@@ -222,8 +223,12 @@ class KorapXml2Conllu : Callable<Int> {
                                 }
 
                                 "morpho.xml" -> {
+                                    waitForMorpho = true
                                     val fsSpans: NodeList = doc.getElementsByTagName("span")
                                     morpho[docId] = extractMorphoSpans(fsSpans)
+                                    if (!tokens.containsKey(docId) && sBoundsFromMorpho) {
+                                        tokens[docId] = extractSpans(fsSpans)
+                                    }
                                 }
                             }
                             if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null && (!waitForMorpho || morpho[docId] != null)) {
