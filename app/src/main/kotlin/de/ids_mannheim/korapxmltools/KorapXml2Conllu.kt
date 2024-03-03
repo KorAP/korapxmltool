@@ -372,7 +372,7 @@ class KorapXml2Conllu : Callable<Int> {
                 val fromTo = "${node.getAttribute("from")}-${node.getAttribute("to")}"
                 IntStream.range(0, features.length).mapToObj(features::item).forEach { feature ->
                         val attr = (feature as Element).getAttribute("name")
-                        val value = feature.textContent
+                        val value = feature.textContent.trim()
                         when (attr) {
                             "lemma" -> fs.lemma = value
                             "upos" -> fs.upos = value
