@@ -27,7 +27,9 @@ import kotlin.system.exitProcess
     name = "KorapXml2Conllu",
     mixinStandardHelpOptions = true,
     version = ["KorapXml2Conllu 2.0-alpha-01"],
-    description = ["Converts KorAP XML files to CoNLL-U format"]
+    description = ["Converts KorAP-XML <https://github.com/KorAP/KorAP-XML-Krill#about-korap-xml> base or " +
+            "morpho zips to CoNLL(-U) format with all information necessary for " +
+            "reconstruction in comment lines."]
 )
 
 class KorapXml2Conllu : Callable<Int> {
