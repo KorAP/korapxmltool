@@ -250,9 +250,7 @@ class KorapXml2Conllu : Callable<Int> {
                                     fname[docId] = zipEntry.name
                                     val fsSpans: NodeList = doc.getElementsByTagName("span")
                                     morpho[docId] = extractMorphoSpans(fsSpans)
-                                    if (!tokens.containsKey(docId) && sBoundsFromMorpho) {
                                         tokens[docId] = extractSpans(fsSpans)
-                                    }
                                 }
                             }
 
