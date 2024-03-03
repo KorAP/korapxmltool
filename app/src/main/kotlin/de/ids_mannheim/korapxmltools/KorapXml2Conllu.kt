@@ -434,13 +434,13 @@ class KorapXml2Conllu : Callable<Int> {
                         val value = feature.textContent.trim()
                         if (value.isEmpty()) return@forEach
                         when (attr) {
-                            "lemma" -> if(fs.lemma == "_") fs.lemma = value
+                            "lemma" -> if(fs.lemma == "_") fs.lemma = value.replace("UNKNOWN", "--")
                             "upos" -> fs.upos = value
-                            "xpos", "ctag", "pos" -> if(fs.xpos == "_") fs.xpos = value
+                            "xpos", "ctag", "pos" -> if(fs.xpos == "_") fs.xpos = value.replace("UNKNOWN", "--")
                             "feats", "msd" -> if(fs.feats == "_" ) fs.feats = value
                             "type" -> if(fs.feats == "_") fs.feats = feature.getElementsByTagName("symbol").item(0).attributes.getNamedItem("value").textContent.trim()
                             // "subtype" -> if(fs.feats == "_") fs.feats += ":" + feature.getElementsByTagName("symbol").item(0).attributes.getNamedItem("value").textContent
-                            "certainty" -> fs.misc = value
+                            "certainty" -> if(fs.misc == "_") fs.misc = value
                         }
                     }
                 res[fromTo] = fs
