@@ -33,7 +33,7 @@ import kotlin.system.exitProcess
 )
 
 class KorapXml2Conllu : Callable<Int> {
-    val COMPATIBILIY_MODE = System.getenv("COMPATIBILIY_MODE") != null
+    val COMPATIBILITY_MODE = System.getenv("COMPATIBILITY_MODE") != null
 
     @Parameters(arity = "1..*", description = ["At least one zip file name"])
     var zipFileNames: Array<String>? = null
@@ -366,7 +366,7 @@ class KorapXml2Conllu : Callable<Int> {
         misc: String = "_",
         columns: Int = 10
     ): String {
-        val myUpos = if (COMPATIBILIY_MODE && upos == "_") xpos else upos
+        val myUpos = if (COMPATIBILITY_MODE && upos == "_") xpos else upos
         when (columns) {
             1 -> return ("$token\n")
             10 -> return ("$token_index\t$token\t$lemma\t$myUpos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc\n")
