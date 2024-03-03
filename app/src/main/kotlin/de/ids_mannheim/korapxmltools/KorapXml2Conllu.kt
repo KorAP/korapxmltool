@@ -152,8 +152,31 @@ class KorapXml2Conllu : Callable<Int> {
         while (!executor.isTerminated) {
             // Wait for all tasks to finish
         }
+        texts.keys.sorted().parallelStream().forEach { docId ->
+            if (!tokens.containsKey(docId)) {
+                tokens[docId] = getTokenSpansFromMorho(morpho[docId]!!)
+            }
+            processText(
+                tokens,
+                docId,
+                sentences,
+                texts,
+                getFoundryFromZipFileName(fnames[docId]!!),
+                fnames,
+                true,
+                morpho
+            )
+        }
+    }
 
-        // Further processing as needed
+
+    private fun getTokenSpansFromMorho(morpho: MutableMap<String, MorphoSpan>): Array<Span> {
+        return morpho.keys.map { key ->
+            val fromTo = key.split("-")
+            Span(fromTo[0].toInt(), fromTo[1].toInt())
+        }.sortedBy {
+            it.from
+        }.toTypedArray()
     }
 
     private fun getFoundryFromZipFileName(zipFileName: String): String {
@@ -201,9 +224,6 @@ class KorapXml2Conllu : Callable<Int> {
                             }
                             // LOGGER.info("Processing file: " + zipEntry.getName())
                             val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
-                            var token_index = 0
-                            var real_token_index = 0
-                            var sentence_index = 0
                             when (fileName) {
                                 "data.xml" -> {
                                     val textsList: NodeList = doc.getElementsByTagName("text")
@@ -218,13 +238,16 @@ class KorapXml2Conllu : Callable<Int> {
                                 }
 
                                 "tokens.xml" -> {
-                                    fname[docId] = zipEntry.name
+                                    if (!fname.contains(docId)) {
+                                        fname[docId] = zipEntry.name
+                                    }
                                     val tokenSpans: NodeList = doc.getElementsByTagName("span")
                                     tokens[docId] = extractSpans(tokenSpans)
                                 }
 
                                 "morpho.xml" -> {
                                     waitForMorpho = true
+                                    fname[docId] = zipEntry.name
                                     val fsSpans: NodeList = doc.getElementsByTagName("span")
                                     morpho[docId] = extractMorphoSpans(fsSpans)
                                     if (!tokens.containsKey(docId) && sBoundsFromMorpho) {
@@ -232,73 +255,9 @@ class KorapXml2Conllu : Callable<Int> {
                                     }
                                 }
                             }
-                            if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null && (!waitForMorpho || morpho[docId] != null)) {
-                                val output: StringBuilder
-                                if (lmTrainingData) {
-                                    output = StringBuilder()
 
-                                    tokens[docId]?.forEach { span ->
-                                        token_index++
-                                        if (span.from >= sentences[docId]!![sentence_index].to) {
-                                            output.append("\n")
-                                            sentence_index++
-                                        }
-                                        output.append(texts[docId]!!.substring(span.from, span.to), " ")
-                                        real_token_index++
-                                    }
-                                } else {
-                                    output =
-                                        StringBuilder("# foundry = $foundry\n# filename = ${fname[docId]}\n# text_id = $docId\n").append(
-                                                tokenOffsetsInSentence(
-                                                    sentences, docId, sentence_index, real_token_index, tokens
-                                                )
-                                            )
-                                    tokens[docId]?.forEach { span ->
-                                        token_index++
-                                        if (span.from >= sentences[docId]!![sentence_index].to) {
-                                            output.append("\n")
-                                            sentence_index++
-                                            token_index = 1
-                                            output.append(
-                                                tokenOffsetsInSentence(
-                                                    sentences, docId, sentence_index, real_token_index, tokens
-                                                )
-                                            )
-                                        }
-                                        if (waitForMorpho && morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
-                                            val mfs = morpho[docId]!!["${span.from}-${span.to}"]
-                                            output.append(
-                                                printConlluToken(
-                                                    token_index,
-                                                    texts[docId]!!.substring(span.from, span.to),
-                                                    mfs!!.lemma!!,
-                                                    mfs.upos!!,
-                                                    mfs.xpos!!,
-                                                    mfs.feats!!,
-                                                    mfs.head!!,
-                                                    mfs.deprel!!,
-                                                    mfs.deps!!,
-                                                    mfs.misc!!,
-                                                    columns
-                                                )
-                                            )
-                                        } else {
-                                            output.append(
-                                                printConlluToken(
-                                                    token_index, texts[docId]!!.substring(span.from, span.to), columns = columns
-                                                )
-                                            )
-                                        }
-                                        real_token_index++
-                                    }
-                                }
-                                synchronized(System.out) {
-                                    println(output.toString())
-                                    println()
-                                }
-                                arrayOf(tokens, texts, sentences, morpho).forEach { map ->
-                                    map.remove(docId)
-                                }
+                            if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null && (!waitForMorpho || morpho[docId] != null)) {
+                                processText(tokens, docId, sentences, texts, foundry, fname, waitForMorpho, morpho)
 
                             }
                         }
@@ -309,6 +268,87 @@ class KorapXml2Conllu : Callable<Int> {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    private fun processText(
+        tokens: ConcurrentHashMap<String, Array<Span>>,
+        docId: String,
+        sentences: ConcurrentHashMap<String, Array<Span>>,
+        texts: ConcurrentHashMap<String, String>,
+        foundry: String,
+        fname: ConcurrentHashMap<String, String>,
+        waitForMorpho: Boolean,
+        morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>>
+    ) {
+        var token_index = 0
+        var real_token_index = 0
+        var sentence_index = 0
+        val output: StringBuilder
+        if (lmTrainingData) {
+            output = StringBuilder()
+
+            tokens[docId]?.forEach { span ->
+                token_index++
+                if (span.from >= sentences[docId]!![sentence_index].to) {
+                    output.append("\n")
+                    sentence_index++
+                }
+                output.append(texts[docId]!!.substring(span.from, span.to), " ")
+                real_token_index++
+            }
+        } else {
+            output =
+                StringBuilder("# foundry = $foundry\n# filename = ${fname[docId]}\n# text_id = $docId\n").append(
+                    tokenOffsetsInSentence(
+                        sentences, docId, sentence_index, real_token_index, tokens
+                    )
+                )
+            tokens[docId]?.forEach { span ->
+                token_index++
+                if (span.from >= sentences[docId]!![sentence_index].to) {
+                    output.append("\n")
+                    sentence_index++
+                    token_index = 1
+                    output.append(
+                        tokenOffsetsInSentence(
+                            sentences, docId, sentence_index, real_token_index, tokens
+                        )
+                    )
+                }
+                if (waitForMorpho && morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
+                    val mfs = morpho[docId]!!["${span.from}-${span.to}"]
+                    output.append(
+                        printConlluToken(
+                            token_index,
+                            texts[docId]!!.substring(span.from, span.to),
+                            mfs!!.lemma!!,
+                            mfs.upos!!,
+                            mfs.xpos!!,
+                            mfs.feats!!,
+                            mfs.head!!,
+                            mfs.deprel!!,
+                            mfs.deps!!,
+                            mfs.misc!!,
+                            columns
+                        )
+                    )
+                } else {
+                    output.append(
+                        printConlluToken(
+                            token_index, texts[docId]!!.substring(span.from, span.to), columns = columns
+                        )
+                    )
+                }
+                real_token_index++
+            }
+        }
+        synchronized(System.out) {
+            println(output.toString())
+        }
+
+        arrayOf(tokens, texts, sentences, morpho, fname).forEach { map ->
+            map.remove(docId)
         }
     }
 
