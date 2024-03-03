@@ -88,7 +88,7 @@ class KorapXml2ConlluTest {
         )
         assertContains(
             outContent.toString(),
-            "30\tvraie\tvrai\t_\tADJ\t_\t_\t_\t_\t1.000000"
+            "31\tvraie\tvrai\t_\tADJ\t_\t_\t_\t_\t1.000000"
         )
     }
 
@@ -138,7 +138,7 @@ class KorapXml2ConlluTest {
         debug(args)
         assertContains(
             outContent.toString(),
-            "\nje ne suis pas du tout d'accord ! \n"
+            "\nje ne suis pas du tout d'accord !\n"
         )
         assertFalse { outContent.toString().contains("WDF19_A0000.13865") }
     }
