@@ -192,7 +192,7 @@ class KorapXml2Conllu : Callable<Int> {
 
                             doc.documentElement.normalize()
                             val docId: String = doc.documentElement.getAttribute("docid")
-                            if (siglePattern != null && !docId.matches(Regex(siglePattern!!))) {
+                            if (siglePattern != null && !Regex(siglePattern!!).containsMatchIn(docId)) {
                                 return@forEach
                             }
                             // LOGGER.info("Processing file: " + zipEntry.getName())
