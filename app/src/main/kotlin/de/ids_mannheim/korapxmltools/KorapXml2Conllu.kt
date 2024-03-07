@@ -415,12 +415,10 @@ class KorapXml2Conllu : Callable<Int> {
         token_index: Int,
         tokens: ConcurrentHashMap<String, Array<Span>>
     ): String {
-        val sentenceEndOffset: Int
-        sentenceEndOffset = if (sentences[docId] == null) {
-            -1
-        } else {
-            sentences[docId]!![sentence_index].to
+        if (sentences[docId] == null || sentences[docId]!!.size <= sentence_index) {
+            return ""
         }
+        val sentenceEndOffset = sentences[docId]!![sentence_index].to
         var i = token_index
         val start_offsets_string = StringBuilder()
         val end_offsets_string = StringBuilder()
