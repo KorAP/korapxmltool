@@ -323,9 +323,6 @@ class KorapXml2Conllu : Callable<Int> {
                 output.deleteCharAt(output.length - 1)
             }
         } else {
-            if (COMPATIBILITY_MODE) {
-                fname[docId] += "  "
-            }
             output =
                 StringBuilder("# foundry = $foundry\n# filename = ${fname[docId]}\n# text_id = $docId\n").append(
                     tokenOffsetsInSentence(
