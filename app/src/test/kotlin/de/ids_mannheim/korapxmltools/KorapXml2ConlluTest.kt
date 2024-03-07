@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import org.junit.Ignore
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class KorapXml2ConlluTest {
     private val outContent = ByteArrayOutputStream(10000000)
@@ -151,6 +152,18 @@ class KorapXml2ConlluTest {
             errContent.toString(),
             "Processing zip file"
         )
+    }
+
+    @Test
+    fun canAnnotate() {
+        val args = arrayOf("-A", "sed -e 's/u/x/g'", loadResource("wdf19.zip").path)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "axtomatiqxe"
+        )
+        assertTrue("Annotated CoNLL-U should have at least as many lines as the original",
+            { outContent.toString().count { it == '\n'} >= 61511 })
     }
 
     @Ignore("for some reason not working")

@@ -1,5 +1,6 @@
 package de.ids_mannheim.korapxmltools
 
+import WorkerPool
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
@@ -97,6 +98,20 @@ class KorapXml2Conllu : Callable<Int> {
     )
     var extractMetadataRegex: MutableList<String> = mutableListOf()
 
+    @Option(
+        names = ["--annotate-with", "-A"],
+        paramLabel = "COMMAND",
+        description = ["Pipe output through command"]
+    )
+    var annotateWith: String = ""
+
+    @Option(
+        names = ["--threads", "-T"],
+        paramLabel = "THREADS",
+        description = ["Maximum number of threads to use. Default: ${"$"}{DEFAULT-VALUE}"]
+    )
+    var threads: Int = Runtime.getRuntime().availableProcessors()
+
     override fun call(): Int {
         LOGGER.level = try {
             Level.parse(logLevel.uppercase(Locale.getDefault()))
@@ -113,18 +128,20 @@ class KorapXml2Conllu : Callable<Int> {
 
     private val LOGGER: Logger = Logger.getLogger(KorapXml2Conllu::class.java.name)
 
+    private var workerPool : WorkerPool? = null
+
     fun korapxml2conllu(args: Array<String>) {
-        val executor: ExecutorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
+        val executor: ExecutorService = Executors.newFixedThreadPool(threads)
         val texts: ConcurrentHashMap<String, String> = ConcurrentHashMap()
         val sentences: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
         val tokens: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
         val morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>> = ConcurrentHashMap()
         val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
 
-        if (args.isEmpty()) {
-            LOGGER.severe("Usage: KorapXml2Conllu <zipfile1> [<zipfile2> ...]")
-            return
+        if (annotateWith != "") {
+            workerPool = WorkerPool(annotateWith, threads, LOGGER)
         }
+
         var zips: Array<String> = args
         if (args.size == 1 && args[0].matches(Regex(".*\\.([^/.]+)\\.zip$"))) {
             val baseZip = args[0].replace(Regex("\\.([^/.]+)\\.zip$"), ".zip")
@@ -166,6 +183,9 @@ class KorapXml2Conllu : Callable<Int> {
                 true,
                 morpho
             )
+        }
+        if (annotateWith != "") {
+            workerPool?.close()
         }
     }
 
@@ -351,8 +371,13 @@ class KorapXml2Conllu : Callable<Int> {
                 real_token_index++
             }
         }
-        synchronized(System.out) {
-            println(output.toString())
+
+        if (annotateWith != "") {
+            workerPool?.pushToQueue(output.append("\n# eot\n").toString())
+        } else {
+            synchronized(System.out) {
+                println(output.toString())
+            }
         }
 
         arrayOf(tokens, texts, sentences, morpho, fname).forEach { map ->
