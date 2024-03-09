@@ -60,6 +60,8 @@ class WorkerPool(private val command: String, private val numWorkers: Int, priva
 
                     } catch (e: IOException) {
                         e.printStackTrace()
+                        LOGGER.warning("Worker $it failed: ${e.message}")
+                        threads.remove(Thread.currentThread())
                     }
 
             }.start()
@@ -100,8 +102,14 @@ class WorkerPool(private val command: String, private val numWorkers: Int, priva
     }
 
     fun close() {
-        repeat(numWorkers) {
-            queue.offer("#eof")
+        var n = threads.size
+        while(n > 0) {
+            if (queue.offer("#eof")) {
+                n--
+            } else {
+                LOGGER.info("Queue is full, waiting for workers to process")
+                sleep(100)
+            }
         }
         waitForWorkersToFinish()
     }
@@ -110,7 +118,9 @@ class WorkerPool(private val command: String, private val numWorkers: Int, priva
         while (queue.isNotEmpty()) {
             sleep(100) // Wait for queue to empty
         }
+        LOGGER.info("Queue is empty, waiting for workers to finish")
         threads.forEach(Thread::join)
+        LOGGER.info("All workers finished")
     }
 }
 

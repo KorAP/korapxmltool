@@ -185,7 +185,8 @@ class KorapXml2Conllu : Callable<Int> {
                 morpho
             )
         }
-        if (annotateWith != "") {
+        if (annotateWith.isNotEmpty()) {
+            LOGGER.info("closing worker pool")
             workerPool?.close()
         }
     }
