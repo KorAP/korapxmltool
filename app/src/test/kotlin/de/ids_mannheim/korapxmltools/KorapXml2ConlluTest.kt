@@ -166,6 +166,16 @@ class KorapXml2ConlluTest {
             { outContent.toString().count { it == '\n'} >= 61511 })
     }
 
+    @Test
+    fun canExtractMetadata() {
+        val args = arrayOf("--word2vec", "-m" ,"<textSigle>([^<]+)", "-m", "<creatDate>([^<]+)", loadResource("wdf19.zip").path)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "WDF19/A0000.12006\t2011.08.11\tmerci pour l'info je suis curieux !"
+        )
+    }
+
     @Ignore("for some reason not working")
     fun canConvertMorphoFeatureAnnotations() {
         val args = arrayOf(goe, goeMarmot)

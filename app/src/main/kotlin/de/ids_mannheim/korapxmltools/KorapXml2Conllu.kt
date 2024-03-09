@@ -94,7 +94,7 @@ class KorapXml2Conllu : Callable<Int> {
     @Option(
         names = ["--extract-metadata-regex", "-m"],
         paramLabel = "REGEX",
-        description = ["Not yet implemented: extract metadata regex"]
+        description = ["Extract metadata regexes.\nExample: -m '<textSigle>([^<]+)' -m '<creatDate>([^<]+)'"]
     )
     var extractMetadataRegex: MutableList<String> = mutableListOf()
 
@@ -130,6 +130,7 @@ class KorapXml2Conllu : Callable<Int> {
 
     private var workerPool : WorkerPool? = null
 
+    val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
     fun korapxml2conllu(args: Array<String>) {
         val executor: ExecutorService = Executors.newFixedThreadPool(threads)
         val texts: ConcurrentHashMap<String, String> = ConcurrentHashMap()
@@ -274,9 +275,29 @@ class KorapXml2Conllu : Callable<Int> {
                                 }
                             }
 
-                            if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null && (!waitForMorpho || morpho[docId] != null)) {
+                            if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
+                                && (!waitForMorpho || morpho[docId] != null)
+                                && (extractMetadataRegex.isEmpty() || metadata.containsKey(docId))
+                                ) {
                                 processText(tokens, docId, sentences, texts, foundry, fname, waitForMorpho, morpho)
 
+                            }
+                        } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
+                            //LOGGER.info("Processing header file: " + zipEntry.name)
+                            val text = zipFile.getInputStream(zipEntry).bufferedReader().use { it.readText() }
+                            val docId =
+                                Regex("<textSigle>([^<]+)</textSigle>").find(text)?.destructured?.component1()
+                                    ?.replace(Regex("/"), "_")
+                            LOGGER.info("Processing header file: " + zipEntry.name + " docId: " + docId)
+                            val meta = ArrayList<String>()
+                            extractMetadataRegex.forEach { regex ->
+                                val match = Regex(regex).find(text)
+                                if (match != null) {
+                                    meta.add(match.destructured.component1())
+                                }
+                            }
+                            if (meta.isNotEmpty() && docId != null) {
+                                metadata[docId] = meta.toTypedArray()
                             }
                         }
                     } catch (e: Exception) {
@@ -305,7 +326,9 @@ class KorapXml2Conllu : Callable<Int> {
         val output: StringBuilder
         if (lmTrainingData) {
             output = StringBuilder()
-
+            if (extractMetadataRegex.isNotEmpty()) {
+                output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
+            }
             tokens[docId]?.forEach { span ->
                 token_index++
                 if (span.from >= sentences[docId]!![sentence_index].to) {
@@ -313,6 +336,9 @@ class KorapXml2Conllu : Callable<Int> {
                         output.setCharAt(output.length - 1, '\n')
                     } else {
                         output.append("\n")
+                    }
+                    if (extractMetadataRegex.isNotEmpty() && real_token_index < tokens[docId]!!.size - 1) {
+                        output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
                     }
                     sentence_index++
                 }
@@ -329,6 +355,9 @@ class KorapXml2Conllu : Callable<Int> {
                         sentences, docId, sentence_index, real_token_index, tokens
                     )
                 )
+            if (extractMetadataRegex.isNotEmpty()) {
+                output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
+            }
             tokens[docId]?.forEach { span ->
                 token_index++
                 if (span.from >= sentences[docId]!![sentence_index].to) {
@@ -377,7 +406,7 @@ class KorapXml2Conllu : Callable<Int> {
             }
         }
 
-        arrayOf(tokens, texts, sentences, morpho, fname).forEach { map ->
+        arrayOf(tokens, texts, sentences, morpho, fname, metadata).forEach { map ->
             map.remove(docId)
         }
     }
