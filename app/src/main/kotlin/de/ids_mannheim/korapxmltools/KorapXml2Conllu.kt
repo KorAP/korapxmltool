@@ -130,14 +130,15 @@ class KorapXml2Conllu : Callable<Int> {
 
     private var workerPool : WorkerPool? = null
 
+    val texts: ConcurrentHashMap<String, String> = ConcurrentHashMap()
+    val sentences: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
+    val tokens: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
+    val morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>> = ConcurrentHashMap()
+    val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
+    var waitForMorpho: Boolean = false
     fun korapxml2conllu(args: Array<String>) {
         val executor: ExecutorService = Executors.newFixedThreadPool(threads)
-        val texts: ConcurrentHashMap<String, String> = ConcurrentHashMap()
-        val sentences: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
-        val tokens: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
-        val morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>> = ConcurrentHashMap()
-        val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
 
         if (annotateWith != "") {
             workerPool = WorkerPool(annotateWith, threads, LOGGER)
@@ -151,17 +152,12 @@ class KorapXml2Conllu : Callable<Int> {
                 LOGGER.info("Processing base zip file: $baseZip")
             }
         }
+        waitForMorpho = zips.size > 1
         Arrays.stream(zips).forEach { zipFilePath ->
             executor.submit {
                 processZipFile(
                     (zipFilePath ?: "").toString(),
-                    texts,
-                    sentences,
-                    tokens,
-                    fnames,
-                    morpho,
-                    getFoundryFromZipFileNames(zips),
-                    zips.size > 1
+                    getFoundryFromZipFileNames(zips)
                 )
             }
         }
@@ -175,14 +171,9 @@ class KorapXml2Conllu : Callable<Int> {
                 tokens[docId] = getTokenSpansFromMorho(morpho[docId]!!)
             }
             processText(
-                tokens,
                 docId,
-                sentences,
-                texts,
                 getFoundryFromZipFileName(fnames[docId]!!),
-                fnames,
-                true,
-                morpho
+                true
             )
         }
         if (annotateWith.isNotEmpty()) {
@@ -220,16 +211,10 @@ class KorapXml2Conllu : Callable<Int> {
 
     private fun processZipFile(
         zipFilePath: String,
-        texts: ConcurrentHashMap<String, String>,
-        sentences: ConcurrentHashMap<String, Array<Span>>,
-        tokens: ConcurrentHashMap<String, Array<Span>>,
-        fname: ConcurrentHashMap<String, String>,
-        morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>>,
         foundry: String = "base",
-        waitForMorpho: Boolean = false,
+
     ) {
         try {
-            var waitForMorpho = waitForMorpho
             ZipFile(zipFilePath).use { zipFile ->
                 zipFile.stream().parallel().forEach { zipEntry ->
                     try {
@@ -260,8 +245,8 @@ class KorapXml2Conllu : Callable<Int> {
                                 }
 
                                 "tokens.xml" -> {
-                                    if (!fname.contains(docId)) {
-                                        fname[docId] = zipEntry.name
+                                    if (!fnames.contains(docId)) {
+                                        fnames[docId] = zipEntry.name
                                     }
                                     val tokenSpans: NodeList = doc.getElementsByTagName("span")
                                     tokens[docId] = extractSpans(tokenSpans)
@@ -269,7 +254,7 @@ class KorapXml2Conllu : Callable<Int> {
 
                                 "morpho.xml" -> {
                                     waitForMorpho = true
-                                    fname[docId] = zipEntry.name
+                                    fnames[docId] = zipEntry.name
                                     val fsSpans: NodeList = doc.getElementsByTagName("span")
                                     morpho[docId] = extractMorphoSpans(fsSpans)
                                         tokens[docId] = extractSpans(fsSpans)
@@ -280,7 +265,7 @@ class KorapXml2Conllu : Callable<Int> {
                                 && (!waitForMorpho || morpho[docId] != null)
                                 && (extractMetadataRegex.isEmpty() || metadata.containsKey(docId))
                                 ) {
-                                processText(tokens, docId, sentences, texts, foundry, fname, waitForMorpho, morpho)
+                                processText(docId, foundry, waitForMorpho)
 
                             }
                         } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
@@ -312,14 +297,9 @@ class KorapXml2Conllu : Callable<Int> {
     }
 
     private fun processText(
-        tokens: ConcurrentHashMap<String, Array<Span>>,
         docId: String,
-        sentences: ConcurrentHashMap<String, Array<Span>>,
-        texts: ConcurrentHashMap<String, String>,
         foundry: String,
-        fname: ConcurrentHashMap<String, String>,
         waitForMorpho: Boolean,
-        morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>>
     ) {
         var token_index = 0
         var real_token_index = 0
@@ -351,7 +331,7 @@ class KorapXml2Conllu : Callable<Int> {
             }
         } else {
             output =
-                StringBuilder("# foundry = $foundry\n# filename = ${fname[docId]}\n# text_id = $docId\n").append(
+                StringBuilder("# foundry = $foundry\n# filename = ${fnames[docId]}\n# text_id = $docId\n").append(
                     tokenOffsetsInSentence(
                         sentences, docId, sentence_index, real_token_index, tokens
                     )
@@ -407,7 +387,7 @@ class KorapXml2Conllu : Callable<Int> {
             }
         }
 
-        arrayOf(tokens, texts, sentences, morpho, fname, metadata).forEach { map ->
+        arrayOf(tokens, texts, sentences, morpho, fnames, metadata).forEach { map ->
             map.remove(docId)
         }
     }
@@ -508,9 +488,9 @@ class KorapXml2Conllu : Callable<Int> {
     }
 
 
-    internal class Span(var from: Int, var to: Int)
+    class Span(var from: Int, var to: Int)
 
-    internal class MorphoSpan(
+    class MorphoSpan(
         var lemma: String? = "_",
         var upos: String? = "_",
         var xpos: String? = "_",
