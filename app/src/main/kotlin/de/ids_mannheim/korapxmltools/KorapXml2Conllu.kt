@@ -471,6 +471,7 @@ class KorapXml2Conllu : Callable<Int> {
     private fun extractMorphoSpans(
         fsSpans: NodeList
     ): MutableMap<String, MorphoSpan> {
+        val UNKNOWN = Regex("(UNKNOWN|<unknown>)")
         val res: MutableMap<String, MorphoSpan> = HashMap()
         IntStream.range(0, fsSpans.length).mapToObj(fsSpans::item).filter { node -> node is Element && node.getAttribute("type") != "alt" }.forEach { node ->
                 val features = (node as Element).getElementsByTagName("f")
@@ -481,9 +482,9 @@ class KorapXml2Conllu : Callable<Int> {
                         val value = feature.textContent.trim()
                         if (value.isEmpty()) return@forEach
                         when (attr) {
-                            "lemma" -> if(fs.lemma == "_") fs.lemma = value.replace("UNKNOWN", "--")
+                            "lemma" -> if(fs.lemma == "_") fs.lemma = value.replace(UNKNOWN, "--")
                             "upos" -> fs.upos = value
-                            "xpos", "ctag", "pos" -> if(fs.xpos == "_") fs.xpos = value.replace("UNKNOWN", "--")
+                            "xpos", "ctag", "pos" -> if(fs.xpos == "_") fs.xpos = value.replace(UNKNOWN, "--")
                             "feats", "msd" -> if(fs.feats == "_" ) fs.feats = value
                             "type" -> if(fs.feats == "_") fs.feats = feature.getElementsByTagName("symbol").item(0).attributes.getNamedItem("value").textContent.trim()
                             // "subtype" -> if(fs.feats == "_") fs.feats += ":" + feature.getElementsByTagName("symbol").item(0).attributes.getNamedItem("value").textContent
