@@ -1,3 +1,5 @@
+package de.ids_mannheim.korapxmltools
+
 import java.io.*
 import java.lang.Thread.sleep
 import java.util.concurrent.BlockingQueue
@@ -127,7 +129,7 @@ class WorkerPool(private val command: String, private val numWorkers: Int, priva
 fun main() {
     val command = "cat"
     val numWorkers = 3
-    val workerPool = WorkerPool(command, numWorkers, Logger.getLogger("WorkerPool") )
+    val workerPool = WorkerPool(command, numWorkers, Logger.getLogger("de.ids_mannheim.korapxmltools.WorkerPool") )
 
     val texts = listOf("The", "World", "This", "Is", "A", "Test")
 

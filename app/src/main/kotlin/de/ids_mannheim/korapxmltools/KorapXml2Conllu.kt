@@ -1,6 +1,5 @@
 package de.ids_mannheim.korapxmltools
 
-import WorkerPool
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
