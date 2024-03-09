@@ -317,7 +317,7 @@ class KorapXml2Conllu : Callable<Int> {
             tokens[docId]?.forEach { span ->
                 token_index++
                 if (span.from >= sentences[docId]!![sentence_index].to) {
-                    if(output.length > 0) {
+                    if(output.isNotEmpty()) {
                         output.setCharAt(output.length - 1, '\n')
                     } else {
                         output.append("\n")
@@ -330,7 +330,7 @@ class KorapXml2Conllu : Callable<Int> {
                 output.append(texts[docId]!!.substring(span.from, span.to), " ")
                 real_token_index++
             }
-            if(output.length > 0) {
+            if(output.isNotEmpty()) {
                 output.deleteCharAt(output.length - 1)
             }
         } else {
@@ -422,10 +422,10 @@ class KorapXml2Conllu : Callable<Int> {
         columns: Int = 10
     ): String {
         val myUpos = if (COMPATIBILITY_MODE && upos == "_") xpos else upos
-        when (columns) {
-            1 -> return ("$token\n")
-            10 -> return ("$token_index\t$token\t$lemma\t$myUpos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc\n")
-            else -> return arrayOf(token_index, token, lemma, myUpos, xpos, feats, head, deprel, deps, misc).slice(0..min(columns, 10) - 1)
+        return when (columns) {
+            1 -> ("$token\n")
+            10 -> ("$token_index\t$token\t$lemma\t$myUpos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc\n")
+            else -> arrayOf(token_index, token, lemma, myUpos, xpos, feats, head, deprel, deps, misc).slice(0..<min(columns, 10))
                 .joinToString("\t") + "\n"
         }
     }
