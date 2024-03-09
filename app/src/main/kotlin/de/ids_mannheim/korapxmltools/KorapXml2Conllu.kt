@@ -49,7 +49,8 @@ class KorapXml2Conllu : Callable<Int> {
     @Option(
         names = ["--extract-attributes-regex", "-e"],
         paramLabel = "REGEX",
-        description = ["Not yet implemented: extract attributes regex"]
+        description = ["Extract additional attribute values from structure.xml and writes them as comment line in front of the first covered token.",
+            "Example: -e '(posting/id|div/id)'"]
     )
     var extractAttributesRegex: String = ""
 
@@ -136,6 +137,7 @@ class KorapXml2Conllu : Callable<Int> {
     val morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>> = ConcurrentHashMap()
     val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
+    val extraFeatures: ConcurrentHashMap<String, MutableMap<String, String>> = ConcurrentHashMap()
     var waitForMorpho: Boolean = false
     fun korapxml2conllu(args: Array<String>) {
         val executor: ExecutorService = Executors.newFixedThreadPool(threads)
@@ -241,7 +243,10 @@ class KorapXml2Conllu : Callable<Int> {
 
                                 "structure.xml" -> {
                                     val spans: NodeList = doc.getElementsByTagName("span")
+                                    if (extractAttributesRegex.isNotEmpty())
+                                        extraFeatures[docId] = extractMiscSpans(spans)
                                     sentences[docId] = extractSentenceSpans(spans)
+
                                 }
 
                                 "tokens.xml" -> {
@@ -339,6 +344,7 @@ class KorapXml2Conllu : Callable<Int> {
             if (extractMetadataRegex.isNotEmpty()) {
                 output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
             }
+            var previousSpanStart = 0
             tokens[docId]?.forEach { span ->
                 token_index++
                 if (span.from >= sentences[docId]!![sentence_index].to) {
@@ -351,8 +357,18 @@ class KorapXml2Conllu : Callable<Int> {
                         )
                     )
                 }
+                if (extractAttributesRegex.isNotEmpty() && extraFeatures[docId] != null) {
+                    for (i in previousSpanStart until span.from+1) {
+                        if (extraFeatures[docId]?.containsKey("$i") == true) {
+                            output.append(extraFeatures[docId]!!["$i"])
+                            extraFeatures[docId]!!.remove("$i")
+                        }
+                    }
+                    previousSpanStart = span.from+1
+                }
                 if (waitForMorpho && morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
                     val mfs = morpho[docId]!!["${span.from}-${span.to}"]
+
                     output.append(
                         printConlluToken(
                             token_index,
@@ -387,7 +403,7 @@ class KorapXml2Conllu : Callable<Int> {
             }
         }
 
-        arrayOf(tokens, texts, sentences, morpho, fnames, metadata).forEach { map ->
+        arrayOf(tokens, texts, sentences, morpho, fnames, metadata, extraFeatures).forEach { map ->
             map.remove(docId)
         }
     }
@@ -485,6 +501,57 @@ class KorapXml2Conllu : Callable<Int> {
                     Integer.parseInt((node as Element).getAttribute("from")), Integer.parseInt(node.getAttribute("to"))
                 )
             }.toArray { size -> arrayOfNulls(size) }
+    }
+
+    /*
+     <span id="s15" from="370" to="394" l="5">
+      <fs type="struct" xmlns="http://www.tei-c.org/ns/1.0">
+        <f name="name">posting</f>
+        <f name="attr">
+          <fs type="attr">
+            <f name="id">i.10894_1_3</f>
+            <f name="indentLevel">0</f>
+            <f name="who">WU00000000</f>
+          </fs>
+        </f>
+      </fs>
+    </span>
+
+     */
+    private fun extractMiscSpans(spans: NodeList): MutableMap<String, String> {
+        val miscLocal: MutableMap<String, String> = HashMap()
+
+        IntStream.range(0, spans.length).mapToObj(spans::item)
+            .filter { node ->
+                node is Element
+                        && node.getElementsByTagName("f").length > 1
+                        && (node.getElementsByTagName("f").item(0) as Element).getAttribute("name").equals("name")
+                        && (node.getElementsByTagName("f").item(1) as Element).getAttribute("name").equals("attr")
+            }
+            .forEach { node ->
+                if (node == null) return@forEach
+                val elementName = (node as Element).getElementsByTagName("f").item(0).textContent.trim()
+                val from = node.getAttribute("from")
+                val attributes = (node.getElementsByTagName("f").item(1) as Element).getElementsByTagName("f")
+                val res = StringBuilder()
+                IntStream.range(0, attributes.length).mapToObj(attributes::item).forEach { attr ->
+                    val attrName = "$elementName/${(attr as Element).getAttribute("name")}"
+                    if (attrName.matches(Regex(extractAttributesRegex))) {
+                         res.append("# $attrName = ${attr.textContent}\n")
+                        //LOGGER.info("" + from + ": $attrName = " + attr.textContent)
+                    }
+
+                }
+                if (res.isNotEmpty()) {
+                    if (miscLocal.containsKey(from)) {
+                        // LOGGER.info("ADDING TO $from: ${miscLocal[from]}")
+                        miscLocal[from] += res.toString()
+                    } else {
+                        miscLocal[from] = res.toString()
+                    }
+                }
+            }
+        return miscLocal
     }
 
 

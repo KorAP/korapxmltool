@@ -176,6 +176,20 @@ class KorapXml2ConlluTest {
         )
     }
 
+    @Test
+    fun canExtractExtraFeaturesByRegex() {
+        val args = arrayOf("-e" ,"(posting/id|div/id)",loadResource("wdf19.zip").path)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "12\t)\t_\t_\t_\t_\t_\t_\t_\t_\n" +
+                    "# div/id = i.14293_8\n" +
+                    "13\tDifférentiation\t_\t_\t_\t_\t_\t_\t_\t_\n" +
+                    "# posting/id = i.14293_8_1\n" +
+                    "14\tAinsi\t_\t_\t_\t_\t_\t_\t_\t_\n"
+        )
+    }
+
     @Ignore("for some reason not working")
     fun canConvertMorphoFeatureAnnotations() {
         val args = arrayOf(goe, goeMarmot)
