@@ -4,6 +4,7 @@ import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
 import org.xml.sax.InputSource
+import org.xml.sax.SAXParseException
 import picocli.CommandLine
 import picocli.CommandLine.*
 import java.io.File
@@ -224,7 +225,12 @@ class KorapXml2Conllu : Callable<Int> {
                             val inputStream: InputStream = zipFile.getInputStream(zipEntry)
                             val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
                             val dBuilder: DocumentBuilder = dbFactory.newDocumentBuilder()
-                            val doc: Document = dBuilder.parse(InputSource(InputStreamReader(inputStream, "UTF-8")))
+                            val doc: Document = try {
+                                dBuilder.parse(InputSource(InputStreamReader(inputStream, "UTF-8")))
+                            } catch (e: SAXParseException) {
+                                LOGGER.warning("Error parsing file: " + zipEntry.name + " " + e.message)
+                                return@forEach
+                            }
 
                             doc.documentElement.normalize()
                             val docId: String = doc.documentElement.getAttribute("docid")
