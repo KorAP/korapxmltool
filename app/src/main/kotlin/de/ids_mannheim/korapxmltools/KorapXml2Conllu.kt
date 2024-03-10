@@ -80,10 +80,11 @@ class KorapXml2Conllu : Callable<Int> {
 
     @Option(
         names = ["--token-separator", "-s"],
-        paramLabel = "SEPARATOR",
-        description = ["Not yet implemented: token separator"]
+        paramLabel = "STRING",
+        defaultValue = "\n",
+        description = ["Token separator. Default: new-line for CoNLL-U, space for word2vec format."]
     )
-    var tokenSeparator: String = "\n"
+    var tokenSeparator: String = if (lmTrainingData) " " else "\n"
 
     @Option(names = ["--offsets"], description = ["Not yet implemented: offsets"])
     var offsets: Boolean = false
@@ -424,9 +425,9 @@ class KorapXml2Conllu : Callable<Int> {
         val myUpos = if (COMPATIBILITY_MODE && upos == "_") xpos else upos
         return when (columns) {
             1 -> ("$token\n")
-            10 -> ("$token_index\t$token\t$lemma\t$myUpos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc\n")
+            10 -> ("$token_index\t$token\t$lemma\t$myUpos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc$tokenSeparator")
             else -> arrayOf(token_index, token, lemma, myUpos, xpos, feats, head, deprel, deps, misc).slice(0..<min(columns, 10))
-                .joinToString("\t") + "\n"
+                .joinToString("\t", postfix = tokenSeparator)
         }
     }
 
