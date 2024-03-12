@@ -112,7 +112,7 @@ class KorapXml2Conllu : Callable<Int> {
         paramLabel = "THREADS",
         description = ["Maximum number of threads to use. Default: ${"$"}{DEFAULT-VALUE}"]
     )
-    var threads: Int = Runtime.getRuntime().availableProcessors()
+    var threads: Int = Runtime.getRuntime().availableProcessors() / 2
 
     override fun call(): Int {
         LOGGER.level = try {
@@ -130,7 +130,7 @@ class KorapXml2Conllu : Callable<Int> {
 
     private val LOGGER: Logger = Logger.getLogger(KorapXml2Conllu::class.java.name)
 
-    private var workerPool : WorkerPool? = null
+    private var annotationWorkerPool : AnnotationWorkerPool? = null
 
     val texts: ConcurrentHashMap<String, String> = ConcurrentHashMap()
     val sentences: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
@@ -140,11 +140,12 @@ class KorapXml2Conllu : Callable<Int> {
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
     val extraFeatures: ConcurrentHashMap<String, MutableMap<String, String>> = ConcurrentHashMap()
     var waitForMorpho: Boolean = false
+
     fun korapxml2conllu(args: Array<String>) {
         val executor: ExecutorService = Executors.newFixedThreadPool(threads)
 
         if (annotateWith != "") {
-            workerPool = WorkerPool(annotateWith, threads, LOGGER)
+            annotationWorkerPool = AnnotationWorkerPool(annotateWith, threads, LOGGER)
         }
 
         var zips: Array<String> = args
@@ -181,7 +182,7 @@ class KorapXml2Conllu : Callable<Int> {
         }
         if (annotateWith.isNotEmpty()) {
             LOGGER.info("closing worker pool")
-            workerPool?.close()
+            annotationWorkerPool?.close()
         }
     }
 
@@ -402,7 +403,7 @@ class KorapXml2Conllu : Callable<Int> {
         }
 
         if (annotateWith != "") {
-            workerPool?.pushToQueue(output.append("\n# eot\n").toString())
+            annotationWorkerPool?.pushToQueue(output.append("\n# eot\n").toString())
         } else {
             synchronized(System.out) {
                 println(output.toString())
