@@ -15,7 +15,9 @@ import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.logging.ConsoleHandler
 import java.util.logging.Level
+import java.util.logging.LogManager
 import java.util.logging.Logger
 import java.util.stream.IntStream
 import java.util.zip.ZipFile
@@ -23,6 +25,7 @@ import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.min
 import kotlin.system.exitProcess
+
 
 @Command(
     name = "KorapXml2Conllu",
@@ -115,6 +118,14 @@ class KorapXml2Conllu : Callable<Int> {
     var threads: Int = Runtime.getRuntime().availableProcessors() / 2
 
     override fun call(): Int {
+        val handler = ConsoleHandler()
+        LogManager.getLogManager().reset()
+        handler.formatter = ColoredFormatter()
+
+        for (handler in LOGGER.handlers) {
+            LOGGER.removeHandler(handler)
+        }
+        LOGGER.addHandler(handler)
         LOGGER.level = try {
             Level.parse(logLevel.uppercase(Locale.getDefault()))
         } catch (e: IllegalArgumentException) {
