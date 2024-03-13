@@ -48,13 +48,18 @@ wikipedia ce prete parfaitement à ce genre de decryptage .
 ```shell script
 java  -jar ./app/build/libs/korapxml2conllu.jar  -m '<textSigle>([^<]+)' -m '<creatDate>([^<]+)' --word2vec t/data/wdf19.zip
 ```
-
 ```
 WDF19/A0000.10894	2014.08.28	Arts visuels Pourquoi toujours vouloir séparer BD et Manga ?
 WDF19/A0000.10894	2014.08.28	Ffx 18:20 fév 25 , 2003 ( CET ) soit on ne sépara pas , soit alors on distingue aussi , le comics , le manwa , le manga ..
 WDF19/A0000.10894	2014.08.28	la bd belge et touts les auteurs européens ..
 WDF19/A0000.10894	2014.08.28	on commence aussi a parlé de la bd africaine et donc ...
 WDF19/A0000.10894	2014.08.28	wikipedia ce prete parfaitement à ce genre de decryptage .
+```
+
+### Example for POS annotating the data on the fly, using 10 threads
+
+```shell script
+java  -jar app/build/libs/korapxml2conllu.jar -T 10 -A "docker run --rm -i korap/conllu2treetagger -l french" app/src/test/resources/wdf19.zip | conllu2korapxml wdf19.tree_tagger.zip
 ```
 
 ## Development and License
