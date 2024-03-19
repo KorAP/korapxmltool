@@ -162,8 +162,8 @@ class KorapXml2ConlluTest {
             outContent.toString(),
             "axtomatiqxe"
         )
-        assertTrue("Annotated CoNLL-U should have at least as many lines as the original, but only has ${outContent.toString().count { it == '\n'}} lines",
-            { outContent.toString().count { it == '\n'} >= 61511 })
+        assertTrue("Annotated CoNLL-U should have at least as many lines as the original, but only has ${outContent.toString().count { it == '\n'}} lines"
+        ) { outContent.toString().count { it == '\n' } >= 61511 }
     }
 
     @Test

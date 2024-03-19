@@ -97,7 +97,7 @@ class AnnotationWorkerPool(
                                 }
                                 printOutput(output.toString())
                                 output.clear()
-                                if (!inputGotEof) {
+                                if (!inputGotEof && process.isAlive) {
                                     LOGGER.info("Worker $it waiting for more output")
                                     sleep(10)
                                 }
@@ -174,6 +174,7 @@ class AnnotationWorkerPool(
         LOGGER.info("All workers finished")
     }
 }
+
 
 fun main() {
     val command = "cat"
