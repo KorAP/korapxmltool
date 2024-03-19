@@ -71,7 +71,7 @@ class AnnotationWorkerPool(
                                 LOGGER.severe("Worker $it failed to write to process: ${e.message}")
                                 threads.remove(currentThread())
                                 threadCount--
-                                return@launch //break
+                                cancel()
                             }
 
                         }
@@ -86,7 +86,7 @@ class AnnotationWorkerPool(
                                     when (line) {
                                         "# eof" -> {
                                             LOGGER.info("Worker $it got EOF in output")
-                                            inputGotEof = true;
+                                            inputGotEof = true
                                             return@forEach }
                                         "# eot" -> {
                                             printOutput(output.toString())
@@ -118,6 +118,7 @@ class AnnotationWorkerPool(
                     e.printStackTrace()
                     LOGGER.warning("Worker $it failed: ${e.message}")
                     threads.remove(currentThread())
+                    threadCount--
                 }
             }.start()
         }
