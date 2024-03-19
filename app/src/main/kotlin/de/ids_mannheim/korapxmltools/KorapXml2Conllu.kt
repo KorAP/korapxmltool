@@ -38,7 +38,6 @@ import kotlin.system.exitProcess
 
 class KorapXml2Conllu : Callable<Int> {
     val COMPATIBILITY_MODE = System.getenv("COMPATIBILITY_MODE") != null
-    val marmotBridge = null
 
     @Parameters(arity = "1..*", description = ["At least one zip file name"])
     var zipFileNames: Array<String>? = null
@@ -152,15 +151,12 @@ class KorapXml2Conllu : Callable<Int> {
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
     val extraFeatures: ConcurrentHashMap<String, MutableMap<String, String>> = ConcurrentHashMap()
     var waitForMorpho: Boolean = false
-    var annotationToolBridge: AnnotationToolBridge? = null
+    var annotationToolBridges: ConcurrentHashMap<Long, AnnotationToolBridge?> = ConcurrentHashMap()
     fun korapxml2conllu(args: Array<String>) {
         val executor: ExecutorService = Executors.newFixedThreadPool(threads)
 
         if (annotateWith.isNotEmpty()) {
-            if (annotateWith.contains(".jar")) {
-                LOGGER.info("Annotating with jar file: $annotateWith")
-                annotationToolBridge = AnnotationToolBridgeFactory.getAnnotationToolBridge(annotateWith, LOGGER)
-            } else {
+            if (!annotateWith.contains(".jar")) {
                 annotationWorkerPool = AnnotationWorkerPool(annotateWith, threads, LOGGER)
             }
         }
@@ -237,12 +233,17 @@ class KorapXml2Conllu : Callable<Int> {
     ) {
         try {
             ZipFile(zipFilePath).use { zipFile ->
-                zipFile.stream().filter({ !it.name.contains("header.xml") })
+                zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
                     //.sorted({ o1, o2 -> o1.name.compareTo(o2.name) })
-                    .forEachOrdered { zipEntry ->
-                    LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
+                    .parallel()
+                    .forEach { zipEntry ->
+                        LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
+                        if (annotateWith.contains(".jar") && !annotationToolBridges.containsKey(Thread.currentThread().id)) {
+                            annotationToolBridges[Thread.currentThread().id] =
+                                AnnotationToolBridgeFactory.getAnnotationToolBridge(annotateWith, LOGGER)
+                        }
 
-                    try {
+                        try {
                         if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho)\\.xml$"))) {
                             val inputStream: InputStream = zipFile.getInputStream(zipEntry)
                             val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
@@ -251,13 +252,13 @@ class KorapXml2Conllu : Callable<Int> {
                                 dBuilder.parse(InputSource(InputStreamReader(inputStream, "UTF-8")))
                             } catch (e: SAXParseException) {
                                 LOGGER.warning("Error parsing file: " + zipEntry.name + " " + e.message)
-                                return@forEachOrdered
+                                return@forEach
                             }
 
                             doc.documentElement.normalize()
                             val docId: String = doc.documentElement.getAttribute("docid")
                             if (siglePattern != null && !Regex(siglePattern!!).containsMatchIn(docId)) {
-                                return@forEachOrdered
+                                return@forEach
                             }
                             // LOGGER.info("Processing file: " + zipEntry.getName())
                             val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
@@ -373,8 +374,8 @@ class KorapXml2Conllu : Callable<Int> {
                 output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
             }
             var previousSpanStart = 0
-            if (annotationToolBridge != null) {
-                morpho[docId] = annotationToolBridge!!.tagText(tokens[docId]!!, sentences[docId], texts[docId]!!)
+            if (annotationToolBridges[Thread.currentThread().id] != null) {
+                morpho[docId] = annotationToolBridges[Thread.currentThread().id]!!.tagText(tokens[docId]!!, sentences[docId], texts[docId]!!)
             }
             tokens[docId]?.forEach { span ->
                 token_index++
