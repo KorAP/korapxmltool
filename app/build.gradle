@@ -44,6 +44,9 @@ dependencies {
     // Use the Kotlin JUnit integration.
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit'
     testImplementation "org.jetbrains.kotlin:kotlin-test:2.0.0-Beta4"
+
+    implementation fileTree(dir: '../libs', include: ['*.jar'])
+    //implementation file('libs/marmot.jar')
 }
 
 

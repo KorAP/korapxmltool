@@ -38,6 +38,7 @@ import kotlin.system.exitProcess
 
 class KorapXml2Conllu : Callable<Int> {
     val COMPATIBILITY_MODE = System.getenv("COMPATIBILITY_MODE") != null
+    val marmotBridge = null
 
     @Parameters(arity = "1..*", description = ["At least one zip file name"])
     var zipFileNames: Array<String>? = null
@@ -151,12 +152,17 @@ class KorapXml2Conllu : Callable<Int> {
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
     val extraFeatures: ConcurrentHashMap<String, MutableMap<String, String>> = ConcurrentHashMap()
     var waitForMorpho: Boolean = false
-
+    var annotationToolBridge: AnnotationToolBridge? = null
     fun korapxml2conllu(args: Array<String>) {
         val executor: ExecutorService = Executors.newFixedThreadPool(threads)
 
-        if (annotateWith != "") {
-            annotationWorkerPool = AnnotationWorkerPool(annotateWith, threads, LOGGER)
+        if (annotateWith.isNotEmpty()) {
+            if (annotateWith.contains(".jar")) {
+                LOGGER.info("Annotating with jar file: $annotateWith")
+                annotationToolBridge = AnnotationToolBridgeFactory.getAnnotationToolBridge(annotateWith, LOGGER)
+            } else {
+                annotationWorkerPool = AnnotationWorkerPool(annotateWith, threads, LOGGER)
+            }
         }
 
         var zips: Array<String> = args
@@ -191,7 +197,7 @@ class KorapXml2Conllu : Callable<Int> {
                 true
             )
         }
-        if (annotateWith.isNotEmpty()) {
+        if (annotationWorkerPool != null) {
             LOGGER.info("closing worker pool")
             annotationWorkerPool?.close()
         }
@@ -363,6 +369,9 @@ class KorapXml2Conllu : Callable<Int> {
                 output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
             }
             var previousSpanStart = 0
+            if (annotationToolBridge != null) {
+                morpho[docId] = annotationToolBridge!!.tagText(tokens[docId]!!, sentences[docId], texts[docId]!!)
+            }
             tokens[docId]?.forEach { span ->
                 token_index++
                 if (span.from >= sentences[docId]!![sentence_index].to) {
@@ -384,7 +393,7 @@ class KorapXml2Conllu : Callable<Int> {
                     }
                     previousSpanStart = span.from+1
                 }
-                if (waitForMorpho && morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
+                if (morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
                     val mfs = morpho[docId]!!["${span.from}-${span.to}"]
 
                     output.append(
@@ -413,7 +422,7 @@ class KorapXml2Conllu : Callable<Int> {
             }
         }
 
-        if (annotateWith != "") {
+        if (annotationWorkerPool != null) {
             annotationWorkerPool?.pushToQueue(output.append("\n# eot\n").toString())
         } else {
             synchronized(System.out) {
