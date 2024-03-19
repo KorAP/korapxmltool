@@ -237,7 +237,11 @@ class KorapXml2Conllu : Callable<Int> {
     ) {
         try {
             ZipFile(zipFilePath).use { zipFile ->
-                zipFile.stream().parallel().forEach { zipEntry ->
+                zipFile.stream().filter({ !it.name.contains("header.xml") })
+                    //.sorted({ o1, o2 -> o1.name.compareTo(o2.name) })
+                    .forEachOrdered { zipEntry ->
+                    LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
+
                     try {
                         if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho)\\.xml$"))) {
                             val inputStream: InputStream = zipFile.getInputStream(zipEntry)
@@ -247,13 +251,13 @@ class KorapXml2Conllu : Callable<Int> {
                                 dBuilder.parse(InputSource(InputStreamReader(inputStream, "UTF-8")))
                             } catch (e: SAXParseException) {
                                 LOGGER.warning("Error parsing file: " + zipEntry.name + " " + e.message)
-                                return@forEach
+                                return@forEachOrdered
                             }
 
                             doc.documentElement.normalize()
                             val docId: String = doc.documentElement.getAttribute("docid")
                             if (siglePattern != null && !Regex(siglePattern!!).containsMatchIn(docId)) {
-                                return@forEach
+                                return@forEachOrdered
                             }
                             // LOGGER.info("Processing file: " + zipEntry.getName())
                             val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
