@@ -32,9 +32,9 @@ import kotlin.system.exitProcess
 @Command(
     name = "KorapXml2Conllu",
     mixinStandardHelpOptions = true,
-    version = ["KorapXml2Conllu 2.0-alpha-01"],
+    version = ["KorapXml2Conllu 2.0-alpha-02"],
     description = ["Converts KorAP-XML <https://github.com/KorAP/KorAP-XML-Krill#about-korap-xml> base or " +
-            "morpho zips to CoNLL(-U) format with all information necessary for " +
+            "morpho zips to (annotated) CoNLL(-U) format with all information necessary for " +
             "reconstruction in comment lines."]
 )
 
