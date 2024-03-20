@@ -10,6 +10,7 @@ import java.util.logging.Logger
 import kotlin.jvm.Throws
 
 abstract class AnnotationToolBridge {
+    abstract val model: String
     abstract val logger: Logger
 
     @Throws(java.lang.ArrayIndexOutOfBoundsException::class, java.lang.Exception::class)
@@ -50,18 +51,22 @@ abstract class AnnotationToolBridge {
 
 class AnnotationToolBridgeFactory {
     companion object {
-        fun getAnnotationToolBridge(annotateWith: String, LOGGER: Logger): AnnotationToolBridge? {
-            return MarmotBridge(LOGGER)
+        fun getAnnotationToolBridge(taggerName: String, taggerModel: String, LOGGER: Logger): AnnotationToolBridge? {
+            if (taggerName == "marmot") {
+                return MarmotBridge(taggerModel, LOGGER)
+            } else {
+                LOGGER.warning("Unknown tagger $taggerName")
+                return null
+            }
         }
     }
 }
 
-class MarmotBridge(override val logger: Logger) : AnnotationToolBridge() {
+class MarmotBridge(override val model: String, override val logger: Logger) : AnnotationToolBridge() {
 
     val tagger: MorphTagger
 
     init {
-        val model = "/home/kupietz/KorAP/korapxml2conllu/libs/de.marmot"
         logger.info("Initializing MarMoT with model $model")
         tagger = FileUtils.loadFromFile(model)
         //tagger.setMaxLevel(100)

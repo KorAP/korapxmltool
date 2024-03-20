@@ -61,6 +61,20 @@ WDF19/A0000.10894	2014.08.28	wikipedia ce prete parfaitement à ce genre de decr
 ```shell script
 java  -jar app/build/libs/korapxml2conllu.jar -T 10 -A "docker run --rm -i korap/conllu2treetagger -l french" app/src/test/resources/wdf19.zip | conllu2korapxml wdf19.tree_tagger.zip
 ```
+### Tag with integrated MarMoT POS tagger
+
+```shell script
+$ java -jar ./app/build/libs/korapxml2conllu.jar -t marmot:models/de.marmot app/src/test/resources/goe.zip
+
+# foundry = base
+# filename = GOE/AGA/00000/base/tokens.xml
+# text_id = GOE_AGA.00000
+# start_offsets = 0 0 9 12
+# end_offsets = 22 8 11 22
+1       Campagne        _       _       NN      case=nom|number=sg|gender=fem   _       _       _       _
+2       in      _       _       APPR    _       _       _       _       _
+3       Frankreich      _       _       NE      case=dat|number=sg|gender=neut  _       _       _       _
+```
 
 ## Development and License
 

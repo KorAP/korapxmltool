@@ -19,6 +19,8 @@ import java.util.logging.ConsoleHandler
 import java.util.logging.Level
 import java.util.logging.LogManager
 import java.util.logging.Logger
+import java.util.regex.Matcher
+import java.util.regex.Pattern
 import java.util.stream.IntStream
 import java.util.zip.ZipFile
 import javax.xml.parsers.DocumentBuilder
@@ -38,6 +40,8 @@ import kotlin.system.exitProcess
 
 class KorapXml2Conllu : Callable<Int> {
     val COMPATIBILITY_MODE = System.getenv("COMPATIBILITY_MODE") != null
+
+    @Spec lateinit var spec : Model.CommandSpec
 
     @Parameters(arity = "1..*", description = ["At least one zip file name"])
     var zipFileNames: Array<String>? = null
@@ -117,6 +121,34 @@ class KorapXml2Conllu : Callable<Int> {
     )
     var threads: Int = Runtime.getRuntime().availableProcessors() / 2
 
+    private var taggerName: String? = null
+    private var taggerModel: String? = null
+    @Option(
+        names = ["--tag-with", "-t"],
+        paramLabel = "TAGGER:MODEL",
+        description = ["Specify a tagger and a model: marmot:<path/to/model>."]
+    )
+    fun setTagWith(tagWith: String) {
+        if (tagWith != null) {
+            val pattern: Pattern = Pattern.compile("(marmot):(.+)")
+            val matcher: Matcher = pattern.matcher(tagWith)
+            if (!matcher.matches()) {
+                throw ParameterException(spec.commandLine(),
+                    String.format("Invalid value '%s' for option '--tag-with':"+
+                        "value does not match the expected pattern marmot:<path/to/model>", tagWith))
+            } else {
+                taggerName = matcher.group(1)
+                taggerModel = matcher.group(2)
+                if (!File(taggerModel).exists()) {
+                    throw ParameterException(spec.commandLine(),
+                        String.format("Invalid value for option '--tag-with':"+
+                            "model file '%s' does not exist", taggerModel, taggerModel))
+                }
+            }
+        }
+    }
+
+
     override fun call(): Int {
         val handler = ConsoleHandler()
         LogManager.getLogManager().reset()
@@ -156,9 +188,7 @@ class KorapXml2Conllu : Callable<Int> {
         val executor: ExecutorService = Executors.newFixedThreadPool(threads)
 
         if (annotateWith.isNotEmpty()) {
-            if (!annotateWith.contains(".jar")) {
-                annotationWorkerPool = AnnotationWorkerPool(annotateWith, threads, LOGGER)
-            }
+            annotationWorkerPool = AnnotationWorkerPool(annotateWith, threads, LOGGER)
         }
 
         var zips: Array<String> = args
@@ -238,9 +268,9 @@ class KorapXml2Conllu : Callable<Int> {
                     .parallel()
                     .forEach { zipEntry ->
                         LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
-                        if (annotateWith.contains(".jar") && !annotationToolBridges.containsKey(Thread.currentThread().id)) {
+                        if (taggerName != null && !annotationToolBridges.containsKey(Thread.currentThread().id)) {
                             annotationToolBridges[Thread.currentThread().id] =
-                                AnnotationToolBridgeFactory.getAnnotationToolBridge(annotateWith, LOGGER)
+                                AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER)
                         }
 
                         try {
