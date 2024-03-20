@@ -88,7 +88,7 @@ This package is developed as part of the [KorAP](http://korap.ids-mannheim.de/)
 Corpus Analysis Platform at the Leibniz Institute for German Language
 ([IDS](http://www.ids-mannheim.de/)).
 
-It is published under the BSD 2-clause "Simplified" license.
+It is published under the GNU General Public License, Version 3, 29 June 2007.
 
 ## Contributions
 
