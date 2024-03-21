@@ -268,98 +268,98 @@ class KorapXml2Conllu : Callable<Int> {
         foundry: String = "base",
 
     ) {
-        try {
             ZipFile(zipFilePath).use { zipFile ->
                 zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
                     //.sorted({ o1, o2 -> o1.name.compareTo(o2.name) })
                     .parallel()
                     .forEach { zipEntry ->
-                        LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
-                        if (taggerName != null && !annotationToolBridges.containsKey(Thread.currentThread().id)) {
-                            annotationToolBridges[Thread.currentThread().id] =
-                                AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER)
-                        }
-
-                        try {
-                        if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho)\\.xml$"))) {
-                            val inputStream: InputStream = zipFile.getInputStream(zipEntry)
-                            val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
-                            val dBuilder: DocumentBuilder = dbFactory.newDocumentBuilder()
-                            val doc: Document = try {
-                                dBuilder.parse(InputSource(InputStreamReader(inputStream, "UTF-8")))
-                            } catch (e: SAXParseException) {
-                                LOGGER.warning("Error parsing file: " + zipEntry.name + " " + e.message)
-                                return@forEach
-                            }
-
-                            doc.documentElement.normalize()
-                            val docId: String = doc.documentElement.getAttribute("docid")
-                            if (siglePattern != null && !Regex(siglePattern!!).containsMatchIn(docId)) {
-                                return@forEach
-                            }
-                            // LOGGER.info("Processing file: " + zipEntry.getName())
-                            val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
-                            when (fileName) {
-                                "data.xml" -> {
-                                    val textsList: NodeList = doc.getElementsByTagName("text")
-                                    if (textsList.length > 0) {
-                                        texts[docId] = textsList.item(0).textContent
-                                    }
-                                }
-
-                                "structure.xml" -> {
-                                    val spans: NodeList = doc.getElementsByTagName("span")
-                                    if (extractAttributesRegex.isNotEmpty())
-                                        extraFeatures[docId] = extractMiscSpans(spans)
-                                    sentences[docId] = extractSentenceSpans(spans)
-
-                                }
-
-                                "tokens.xml" -> {
-                                    if (!fnames.contains(docId)) {
-                                        fnames[docId] = zipEntry.name
-                                    }
-                                    val tokenSpans: NodeList = doc.getElementsByTagName("span")
-                                    tokens[docId] = extractSpans(tokenSpans)
-                                }
-
-                                "morpho.xml" -> {
-                                    waitForMorpho = true
-                                    fnames[docId] = zipEntry.name
-                                    val fsSpans: NodeList = doc.getElementsByTagName("span")
-                                    morpho[docId] = extractMorphoSpans(fsSpans)
-                                        tokens[docId] = extractSpans(fsSpans)
-                                }
-                            }
-
-                            if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
-                                && (!waitForMorpho || morpho[docId] != null)
-                                && (extractMetadataRegex.isEmpty() || metadata.containsKey(docId))
-                                ) {
-                                processText(docId, foundry, waitForMorpho)
-
-                            }
-                        } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
-                            //LOGGER.info("Processing header file: " + zipEntry.name)
-                            val text = zipFile.getInputStream(zipEntry).bufferedReader().use { it.readText() }
-                            val docId =
-                                Regex("<textSigle>([^<]+)</textSigle>").find(text)?.destructured?.component1()
-                                    ?.replace(Regex("/"), "_")
-                            LOGGER.info("Processing header file: " + zipEntry.name + " docId: " + docId)
-                            val meta = ArrayList<String>()
-                            extractMetadataRegex.forEach { regex ->
-                                val match = Regex(regex).find(text)
-                                if (match != null) {
-                                    meta.add(match.destructured.component1())
-                                }
-                            }
-                            if (meta.isNotEmpty() && docId != null) {
-                                metadata[docId] = meta.toTypedArray()
-                            }
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                        processZipEntry(zipFile, foundry, zipEntry)
                     }
+            }
+    }
+
+    fun processZipEntry(zipFile: ZipFile, foundry: String, zipEntry: java.util.zip.ZipEntry) {
+        LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
+        if (taggerName != null && !annotationToolBridges.containsKey(Thread.currentThread().id)) {
+            annotationToolBridges[Thread.currentThread().id] =
+                AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER)
+        }
+
+        try {
+            if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho)\\.xml$"))) {
+                val inputStream: InputStream = zipFile.getInputStream(zipEntry)
+                val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
+                val dBuilder: DocumentBuilder = dbFactory.newDocumentBuilder()
+                val doc: Document = try {
+                    dBuilder.parse(InputSource(InputStreamReader(inputStream, "UTF-8")))
+                } catch (e: SAXParseException) {
+                    LOGGER.warning("Error parsing file: " + zipEntry.name + " " + e.message)
+                    return
+                }
+
+                doc.documentElement.normalize()
+                val docId: String = doc.documentElement.getAttribute("docid")
+                if (siglePattern != null && !Regex(siglePattern!!).containsMatchIn(docId)) {
+                    return
+                }
+                // LOGGER.info("Processing file: " + zipEntry.getName())
+                val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
+                when (fileName) {
+                    "data.xml" -> {
+                        val textsList: NodeList = doc.getElementsByTagName("text")
+                        if (textsList.length > 0) {
+                            texts[docId] = textsList.item(0).textContent
+                        }
+                    }
+
+                    "structure.xml" -> {
+                        val spans: NodeList = doc.getElementsByTagName("span")
+                        if (extractAttributesRegex.isNotEmpty())
+                            extraFeatures[docId] = extractMiscSpans(spans)
+                        sentences[docId] = extractSentenceSpans(spans)
+
+                    }
+
+                    "tokens.xml" -> {
+                        if (!fnames.contains(docId)) {
+                            fnames[docId] = zipEntry.name
+                        }
+                        val tokenSpans: NodeList = doc.getElementsByTagName("span")
+                        tokens[docId] = extractSpans(tokenSpans)
+                    }
+
+                    "morpho.xml" -> {
+                        waitForMorpho = true
+                        fnames[docId] = zipEntry.name
+                        val fsSpans: NodeList = doc.getElementsByTagName("span")
+                        morpho[docId] = extractMorphoSpans(fsSpans)
+                        tokens[docId] = extractSpans(fsSpans)
+                    }
+                }
+
+                if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
+                    && (!waitForMorpho || morpho[docId] != null)
+                    && (extractMetadataRegex.isEmpty() || metadata.containsKey(docId))
+                ) {
+                    processText(docId, foundry, waitForMorpho)
+
+                }
+            } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
+                //LOGGER.info("Processing header file: " + zipEntry.name)
+                val text = zipFile.getInputStream(zipEntry).bufferedReader().use { it.readText() }
+                val docId =
+                    Regex("<textSigle>([^<]+)</textSigle>").find(text)?.destructured?.component1()
+                        ?.replace(Regex("/"), "_")
+                LOGGER.info("Processing header file: " + zipEntry.name + " docId: " + docId)
+                val meta = ArrayList<String>()
+                extractMetadataRegex.forEach { regex ->
+                    val match = Regex(regex).find(text)
+                    if (match != null) {
+                        meta.add(match.destructured.component1())
+                    }
+                }
+                if (meta.isNotEmpty() && docId != null) {
+                    metadata[docId] = meta.toTypedArray()
                 }
             }
         } catch (e: Exception) {
