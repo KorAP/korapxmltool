@@ -119,7 +119,14 @@ class KorapXml2Conllu : Callable<Int> {
         paramLabel = "THREADS",
         description = ["Maximum number of threads to use. Default: ${"$"}{DEFAULT-VALUE}"]
     )
-    var threads: Int = Runtime.getRuntime().availableProcessors() / 2
+    fun setThreads(threads: Int) {
+        if (threads < 1) {
+            throw ParameterException(spec.commandLine(), String.format("Invalid value `%d' for option '--threads': must be at least 1", threads))
+        }
+        this.maxThreads = threads
+        System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", threads.toString())
+    }
+    var maxThreads: Int = Runtime.getRuntime().availableProcessors() / 2
 
     private var taggerName: String? = null
     private var taggerModel: String? = null
@@ -134,7 +141,7 @@ class KorapXml2Conllu : Callable<Int> {
             val matcher: Matcher = pattern.matcher(tagWith)
             if (!matcher.matches()) {
                 throw ParameterException(spec.commandLine(),
-                    String.format("Invalid value '%s' for option '--tag-with':"+
+                    String.format("Invalid value `%s' for option '--tag-with': "+
                         "value does not match the expected pattern marmot:<path/to/model>", tagWith))
             } else {
                 taggerName = matcher.group(1)
@@ -185,10 +192,10 @@ class KorapXml2Conllu : Callable<Int> {
     var waitForMorpho: Boolean = false
     var annotationToolBridges: ConcurrentHashMap<Long, AnnotationToolBridge?> = ConcurrentHashMap()
     fun korapxml2conllu(args: Array<String>) {
-        val executor: ExecutorService = Executors.newFixedThreadPool(threads)
+        val executor: ExecutorService = Executors.newFixedThreadPool(maxThreads)
 
         if (annotateWith.isNotEmpty()) {
-            annotationWorkerPool = AnnotationWorkerPool(annotateWith, threads, LOGGER)
+            annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER)
         }
 
         var zips: Array<String> = args
