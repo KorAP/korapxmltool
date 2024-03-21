@@ -25,6 +25,7 @@ import java.util.stream.IntStream
 import java.util.zip.ZipFile
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.system.exitProcess
 
@@ -207,29 +208,19 @@ class KorapXml2Conllu : Callable<Int> {
             }
         }
         waitForMorpho = zips.size > 1
-        Arrays.stream(zips).forEach { zipFilePath ->
-            executor.submit {
-                processZipFile(
-                    (zipFilePath ?: "").toString(),
-                    getFoundryFromZipFileNames(zips)
-                )
+
+        if (maxThreads > 1) {
+            LOGGER.info("Processing zip files in parallel with $maxThreads threads")
+            Arrays.stream(zips).parallel().forEach { zipFilePath ->
+                processZipFile((zipFilePath ?: "").toString(), getFoundryFromZipFileNames(zips))
+            }
+        } else {
+            LOGGER.info("Processing zip files sequentially")
+            Arrays.stream(zips).forEachOrdered { zipFilePath ->
+                processZipFileSequentially((zipFilePath ?: "").toString(), getFoundryFromZipFileNames(zips))
             }
         }
 
-        executor.shutdown()
-        while (!executor.isTerminated) {
-            // Wait for all tasks to finish
-        }
-        texts.keys.sorted().parallelStream().forEach { docId ->
-            if (!tokens.containsKey(docId)) {
-                tokens[docId] = getTokenSpansFromMorho(morpho[docId]!!)
-            }
-            processText(
-                docId,
-                getFoundryFromZipFileName(fnames[docId]!!),
-                true
-            )
-        }
         if (annotationWorkerPool != null) {
             LOGGER.info("closing worker pool")
             annotationWorkerPool?.close()
@@ -263,19 +254,22 @@ class KorapXml2Conllu : Callable<Int> {
         return "base"
     }
 
-    private fun processZipFile(
-        zipFilePath: String,
-        foundry: String = "base",
-
-    ) {
-            ZipFile(zipFilePath).use { zipFile ->
-                zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
-                    //.sorted({ o1, o2 -> o1.name.compareTo(o2.name) })
-                    .parallel()
-                    .forEach { zipEntry ->
-                        processZipEntry(zipFile, foundry, zipEntry)
-                    }
-            }
+    private fun processZipFile(zipFilePath: String, foundry: String = "base") {
+        ZipFile(zipFilePath).use { zipFile ->
+            zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
+                .parallel().forEach { zipEntry ->
+                    processZipEntry(zipFile, foundry, zipEntry)
+                }
+        }
+    }
+    private fun processZipFileSequentially(zipFilePath: String, foundry: String = "base") {
+        ZipFile(zipFilePath).use { zipFile ->
+            zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
+                //.sorted({ o1, o2 -> o1.name.compareTo(o2.name) })
+                .forEachOrdered() { zipEntry ->
+                    processZipEntry(zipFile, foundry, zipEntry)
+                }
+        }
     }
 
     fun processZipEntry(zipFile: ZipFile, foundry: String, zipEntry: java.util.zip.ZipEntry) {
