@@ -15,7 +15,6 @@ import java.io.InputStreamReader
 import java.util.*
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.logging.ConsoleHandler
 import java.util.logging.Level
@@ -25,7 +24,6 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.stream.IntStream
 import java.util.zip.ZipFile
-import javax.swing.text.html.parser.Parser
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.min
@@ -139,21 +137,19 @@ class KorapXml2Conllu : Callable<Int> {
         description = ["Specify a tagger and a model: ${taggerFoundries}:<path/to/model>."]
     )
     fun setTagWith(tagWith: String) {
-        if (tagWith != null) {
-            val pattern: Pattern = Pattern.compile("(${taggerFoundries}):(.+)")
-            val matcher: Matcher = pattern.matcher(tagWith)
-            if (!matcher.matches()) {
+        val pattern: Pattern = Pattern.compile("(${taggerFoundries}):(.+)")
+        val matcher: Matcher = pattern.matcher(tagWith)
+        if (!matcher.matches()) {
+            throw ParameterException(spec.commandLine(),
+                String.format("Invalid value `%s' for option '--tag-with': "+
+                    "value does not match the expected pattern ${taggerFoundries}:<path/to/model>", tagWith))
+        } else {
+            taggerName = matcher.group(1)
+            taggerModel = matcher.group(2)
+            if (!File(taggerModel).exists()) {
                 throw ParameterException(spec.commandLine(),
-                    String.format("Invalid value `%s' for option '--tag-with': "+
-                        "value does not match the expected pattern ${taggerFoundries}:<path/to/model>", tagWith))
-            } else {
-                taggerName = matcher.group(1)
-                taggerModel = matcher.group(2)
-                if (!File(taggerModel).exists()) {
-                    throw ParameterException(spec.commandLine(),
-                        String.format("Invalid value for option '--tag-with':"+
-                            "model file '%s' does not exist", taggerModel, taggerModel))
-                }
+                    String.format("Invalid value for option '--tag-with':"+
+                        "model file '%s' does not exist", taggerModel, taggerModel))
             }
         }
     }
@@ -166,21 +162,19 @@ class KorapXml2Conllu : Callable<Int> {
         description = ["Specify a parser and a model: ${parserFoundries}:<path/to/model>."]
     )
     fun setParseWith(parseWith: String) {
-        if (parseWith != null) {
-            val pattern: Pattern = Pattern.compile("(${parserFoundries}):(.+)")
-            val matcher: Matcher = pattern.matcher(parseWith)
-            if (!matcher.matches()) {
+        val pattern: Pattern = Pattern.compile("(${parserFoundries}):(.+)")
+        val matcher: Matcher = pattern.matcher(parseWith)
+        if (!matcher.matches()) {
+            throw ParameterException(spec.commandLine(),
+                String.format("Invalid value `%s' for option '--parse-with': "+
+                        "value does not match the expected pattern (${parserFoundries}):<path/to/model>", parseWith))
+        } else {
+            parserName = matcher.group(1)
+            parserModel = matcher.group(2)
+            if (!File(parserModel).exists()) {
                 throw ParameterException(spec.commandLine(),
-                    String.format("Invalid value `%s' for option '--parse-with': "+
-                            "value does not match the expected pattern (${parserFoundries}):<path/to/model>", parseWith))
-            } else {
-                parserName = matcher.group(1)
-                parserModel = matcher.group(2)
-                if (!File(parserModel).exists()) {
-                    throw ParameterException(spec.commandLine(),
-                        String.format("Invalid value for option '--parse-with':"+
-                                "model file '%s' does not exist", parserModel, parserModel))
-                }
+                    String.format("Invalid value for option '--parse-with':"+
+                            "model file '%s' does not exist", parserModel, parserModel))
             }
         }
     }
@@ -302,15 +296,23 @@ class KorapXml2Conllu : Callable<Int> {
         }
     }
 
-    fun processZipEntry(zipFile: ZipFile, foundry: String, zipEntry: java.util.zip.ZipEntry) {
+    fun processZipEntry(zipFile: ZipFile, _foundry: String, zipEntry: java.util.zip.ZipEntry) {
+        var foundry = _foundry
         LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
         if (taggerName != null && !taggerToolBridges.containsKey(Thread.currentThread().id)) {
-            taggerToolBridges[Thread.currentThread().id] =
-                AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
+            val tagger = AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
+            taggerToolBridges[Thread.currentThread().id] = tagger
+            if (tagger != null) {
+                foundry = tagger.foundry
+            }
+
         }
         if (parserName != null && !parserToolBridges.containsKey(Thread.currentThread().id)) {
-            parserToolBridges[Thread.currentThread().id] =
-                AnnotationToolBridgeFactory.getAnnotationToolBridge(parserName!!, parserModel!!, LOGGER) as ParserToolBridge?
+            val parser = AnnotationToolBridgeFactory.getAnnotationToolBridge(parserName!!, parserModel!!, LOGGER) as ParserToolBridge?
+            parserToolBridges[Thread.currentThread().id] = parser
+            if (parser != null) {
+                foundry = "$foundry dependency:${parser.foundry}"
+            }
         }
 
         try {
