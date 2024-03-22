@@ -413,7 +413,7 @@ class KorapXml2Conllu : Callable<Int> {
             }
             tokens[docId]?.forEach { span ->
                 token_index++
-                if (span.from >= sentences[docId]!![sentence_index].to) {
+                if (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to) {
                     if(output.isNotEmpty()) {
                         output.setCharAt(output.length - 1, '\n')
                     } else {
@@ -449,7 +449,7 @@ class KorapXml2Conllu : Callable<Int> {
             }
             tokens[docId]?.forEach { span ->
                 token_index++
-                if (span.from >= sentences[docId]!![sentence_index].to) {
+                if (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to) {
                     output.append("\n")
                     sentence_index++
                     token_index = 1
