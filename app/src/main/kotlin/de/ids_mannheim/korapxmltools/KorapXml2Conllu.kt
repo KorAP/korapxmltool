@@ -1,5 +1,7 @@
 package de.ids_mannheim.korapxmltools
 
+import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.parserFoundries
+import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.taggerFoundries
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
@@ -23,9 +25,9 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.stream.IntStream
 import java.util.zip.ZipFile
+import javax.swing.text.html.parser.Parser
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.system.exitProcess
 
@@ -134,16 +136,16 @@ class KorapXml2Conllu : Callable<Int> {
     @Option(
         names = ["--tag-with", "-t"],
         paramLabel = "TAGGER:MODEL",
-        description = ["Specify a tagger and a model: marmot:<path/to/model>."]
+        description = ["Specify a tagger and a model: ${taggerFoundries}:<path/to/model>."]
     )
     fun setTagWith(tagWith: String) {
         if (tagWith != null) {
-            val pattern: Pattern = Pattern.compile("(marmot):(.+)")
+            val pattern: Pattern = Pattern.compile("(${taggerFoundries}):(.+)")
             val matcher: Matcher = pattern.matcher(tagWith)
             if (!matcher.matches()) {
                 throw ParameterException(spec.commandLine(),
                     String.format("Invalid value `%s' for option '--tag-with': "+
-                        "value does not match the expected pattern marmot:<path/to/model>", tagWith))
+                        "value does not match the expected pattern ${taggerFoundries}:<path/to/model>", tagWith))
             } else {
                 taggerName = matcher.group(1)
                 taggerModel = matcher.group(2)
@@ -151,6 +153,33 @@ class KorapXml2Conllu : Callable<Int> {
                     throw ParameterException(spec.commandLine(),
                         String.format("Invalid value for option '--tag-with':"+
                             "model file '%s' does not exist", taggerModel, taggerModel))
+                }
+            }
+        }
+    }
+
+    private var parserName: String? = null
+    private var parserModel: String? = null
+    @Option(
+        names = ["--parse-with", "-P"],
+        paramLabel = "parser:MODEL",
+        description = ["Specify a parser and a model: ${parserFoundries}:<path/to/model>."]
+    )
+    fun setParseWith(parseWith: String) {
+        if (parseWith != null) {
+            val pattern: Pattern = Pattern.compile("(${parserFoundries}):(.+)")
+            val matcher: Matcher = pattern.matcher(parseWith)
+            if (!matcher.matches()) {
+                throw ParameterException(spec.commandLine(),
+                    String.format("Invalid value `%s' for option '--parse-with': "+
+                            "value does not match the expected pattern (${parserFoundries}):<path/to/model>", parseWith))
+            } else {
+                parserName = matcher.group(1)
+                parserModel = matcher.group(2)
+                if (!File(parserModel).exists()) {
+                    throw ParameterException(spec.commandLine(),
+                        String.format("Invalid value for option '--parse-with':"+
+                                "model file '%s' does not exist", parserModel, parserModel))
                 }
             }
         }
@@ -191,9 +220,10 @@ class KorapXml2Conllu : Callable<Int> {
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
     val extraFeatures: ConcurrentHashMap<String, MutableMap<String, String>> = ConcurrentHashMap()
     var waitForMorpho: Boolean = false
-    var annotationToolBridges: ConcurrentHashMap<Long, AnnotationToolBridge?> = ConcurrentHashMap()
+    var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge?> = ConcurrentHashMap()
+    var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge?> = ConcurrentHashMap()
     fun korapxml2conllu(args: Array<String>) {
-        val executor: ExecutorService = Executors.newFixedThreadPool(maxThreads)
+        Executors.newFixedThreadPool(maxThreads)
 
         if (annotateWith.isNotEmpty()) {
             annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER)
@@ -274,9 +304,13 @@ class KorapXml2Conllu : Callable<Int> {
 
     fun processZipEntry(zipFile: ZipFile, foundry: String, zipEntry: java.util.zip.ZipEntry) {
         LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
-        if (taggerName != null && !annotationToolBridges.containsKey(Thread.currentThread().id)) {
-            annotationToolBridges[Thread.currentThread().id] =
-                AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER)
+        if (taggerName != null && !taggerToolBridges.containsKey(Thread.currentThread().id)) {
+            taggerToolBridges[Thread.currentThread().id] =
+                AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
+        }
+        if (parserName != null && !parserToolBridges.containsKey(Thread.currentThread().id)) {
+            parserToolBridges[Thread.currentThread().id] =
+                AnnotationToolBridgeFactory.getAnnotationToolBridge(parserName!!, parserModel!!, LOGGER) as ParserToolBridge?
         }
 
         try {
@@ -405,8 +439,11 @@ class KorapXml2Conllu : Callable<Int> {
                 output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
             }
             var previousSpanStart = 0
-            if (annotationToolBridges[Thread.currentThread().id] != null) {
-                morpho[docId] = annotationToolBridges[Thread.currentThread().id]!!.tagText(tokens[docId]!!, sentences[docId], texts[docId]!!)
+            if (taggerToolBridges[Thread.currentThread().id] != null) {
+                morpho[docId] = taggerToolBridges[Thread.currentThread().id]!!.tagText(tokens[docId]!!, sentences[docId], texts[docId]!!)
+                if (parserToolBridges[Thread.currentThread().id] != null) {
+                    morpho[docId] = parserToolBridges[Thread.currentThread().id]!!.parseText(tokens[docId]!!, morpho[docId], sentences[docId], texts[docId]!!)
+                }
             }
             tokens[docId]?.forEach { span ->
                 token_index++
