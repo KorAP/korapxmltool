@@ -11,7 +11,6 @@ import picocli.CommandLine
 import picocli.CommandLine.*
 import java.io.File
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.util.*
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
@@ -320,8 +319,9 @@ class KorapXml2Conllu : Callable<Int> {
                 val inputStream: InputStream = zipFile.getInputStream(zipEntry)
                 val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
                 val dBuilder: DocumentBuilder = dbFactory.newDocumentBuilder()
+
                 val doc: Document = try {
-                    dBuilder.parse(InputSource(InputStreamReader(inputStream, "UTF-8")))
+                    dBuilder.parse(InputSource(XMLCommentFilterReader(inputStream, "UTF-8")))
                 } catch (e: SAXParseException) {
                     LOGGER.warning("Error parsing file: " + zipEntry.name + " " + e.message)
                     return

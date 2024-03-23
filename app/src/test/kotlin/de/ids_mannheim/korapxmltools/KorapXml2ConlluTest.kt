@@ -20,6 +20,7 @@ class KorapXml2ConlluTest {
     val goe = loadResource("goe.zip").path
     val goeMarmot = loadResource("goe.marmot.zip").path
     val goeTreeTagger = loadResource("goe.tree_tagger.zip").path
+    val zca20scrambled = loadResource("zca20-scrambled.zip").path
 
     @Before
     fun setUpStreams() {
@@ -142,6 +143,16 @@ class KorapXml2ConlluTest {
             "\nje ne suis pas du tout d'accord !\n"
         )
         assertFalse { outContent.toString().contains("WDF19_A0000.13865") }
+    }
+
+    @Test
+    fun canConvertXMLwithInvalidComments() {
+        val args = arrayOf("-w", zca20scrambled)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "\nDys est yuch dyr Grund dyfür , dyss ys schon myl myhryry Wochyn dyuyrn kynn .\n"
+        )
     }
 
     @Test
