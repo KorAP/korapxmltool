@@ -44,7 +44,7 @@ dependencies {
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit'
     testImplementation "org.jetbrains.kotlin:kotlin-test:2.0.0-Beta5"
 
-    implementation 'com.github.kupietz:cistern:v1.0.2'
+    implementation 'com.github.kupietz:cistern:v1.0.4'
     implementation 'org.maltparser:maltparser:1.9.2'
 }
 
