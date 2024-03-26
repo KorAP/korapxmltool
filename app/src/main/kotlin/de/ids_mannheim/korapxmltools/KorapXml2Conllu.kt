@@ -369,10 +369,9 @@ class KorapXml2Conllu : Callable<Int> {
 
                 if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
                     && (!waitForMorpho || morpho[docId] != null)
-                    && (extractMetadataRegex.isEmpty() || metadata.containsKey(docId))
+                    && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
                 ) {
                     processText(docId, foundry, waitForMorpho)
-
                 }
             } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
                 //LOGGER.info("Processing header file: " + zipEntry.name)
@@ -390,6 +389,11 @@ class KorapXml2Conllu : Callable<Int> {
                 }
                 if (meta.isNotEmpty() && docId != null) {
                     metadata[docId] = meta.toTypedArray()
+                    if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
+                        && (!waitForMorpho || morpho[docId] != null)
+                    ) {
+                        processText(docId, foundry, waitForMorpho)
+                    }
                 }
             }
         } catch (e: Exception) {
