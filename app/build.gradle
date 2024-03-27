@@ -22,6 +22,12 @@ repositories {
     maven { url 'https://jitpack.io' }
 }
 
+test {
+    minHeapSize = "1000m" // initial heap size
+    maxHeapSize = "8000m" // maximum heap size
+    jvmArgs '-XX:MaxMetaspaceSize=8000m' // mem argument for the test JVM
+}
+
 dependencies {
     // Align versions of all Kotlin components
     implementation platform('org.jetbrains.kotlin:kotlin-bom')

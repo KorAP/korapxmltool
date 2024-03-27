@@ -22,6 +22,7 @@ import java.util.logging.Logger
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.stream.IntStream
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
@@ -212,9 +213,21 @@ class KorapXml2Conllu : Callable<Int> {
     val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
     val extraFeatures: ConcurrentHashMap<String, MutableMap<String, String>> = ConcurrentHashMap()
-    var waitForMorpho: Boolean = false
     var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge?> = ConcurrentHashMap()
     var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge?> = ConcurrentHashMap()
+
+    fun String.hasCorrespondingBaseZip(): Boolean {
+        if (!this.matches(Regex(".*\\.([^/.]+)\\.zip$"))) return false
+        val baseZip = this.replace(Regex("\\.([^/.]+)\\.zip$"), ".zip")
+        return File(baseZip).exists()
+    }
+
+    fun String.correspondingBaseZip(): String? {
+        if (!this.matches(Regex(".*\\.([^/.]+)\\.zip$"))) return null
+        val baseZip = this.replace(Regex("\\.([^/.]+)\\.zip$"), ".zip")
+        return if (File(baseZip).exists()) baseZip else null
+    }
+
     fun korapxml2conllu(args: Array<String>) {
         Executors.newFixedThreadPool(maxThreads)
 
@@ -223,14 +236,6 @@ class KorapXml2Conllu : Callable<Int> {
         }
 
         var zips: Array<String> = args
-        if (args.size == 1 && args[0].matches(Regex(".*\\.([^/.]+)\\.zip$"))) {
-            val baseZip = args[0].replace(Regex("\\.([^/.]+)\\.zip$"), ".zip")
-            if (File(baseZip).exists()) {
-                zips = arrayOf(baseZip, zips[0])
-                LOGGER.info("Processing base zip file: $baseZip")
-            }
-        }
-        waitForMorpho = zips.size > 1
 
         if (maxThreads > 1) {
             LOGGER.info("Processing zip files in parallel with $maxThreads threads")
@@ -278,25 +283,51 @@ class KorapXml2Conllu : Callable<Int> {
     }
 
     private fun processZipFile(zipFilePath: String, foundry: String = "base") {
-        ZipFile(zipFilePath).use { zipFile ->
-            zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
-                .parallel().forEach { zipEntry ->
-                    processZipEntry(zipFile, foundry, zipEntry)
+        if (zipFilePath.hasCorrespondingBaseZip()) {
+            val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
+            Arrays.stream(zips).parallel().forEach { zip ->
+                ZipFile(zip).use { zipFile ->
+                    zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
+                        .parallel().forEach { zipEntry ->
+                            processZipEntry(zipFile, foundry, zipEntry, true)
+                        }
                 }
-        }
-    }
-    private fun processZipFileSequentially(zipFilePath: String, foundry: String = "base") {
-        ZipFile(zipFilePath).use { zipFile ->
-            zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
-                //.sorted({ o1, o2 -> o1.name.compareTo(o2.name) })
-                .forEachOrdered() { zipEntry ->
-                    processZipEntry(zipFile, foundry, zipEntry)
-                }
+            }
+        } else {
+            ZipFile(zipFilePath).use { zipFile ->
+                zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
+                    .parallel().forEach { zipEntry ->
+                        processZipEntry(zipFile, foundry, zipEntry, false)
+                    }
+            }
         }
     }
 
-    fun processZipEntry(zipFile: ZipFile, _foundry: String, zipEntry: java.util.zip.ZipEntry) {
+    private fun processZipFileSequentially(zipFilePath: String, foundry: String = "base") {
+        if (zipFilePath.hasCorrespondingBaseZip()) {
+            val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
+            Arrays.stream(zips).parallel().forEach { zip ->
+                ZipFile(zip).use { zipFile ->
+                    zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
+                        .parallel().forEach { zipEntry ->
+                            processZipEntry(zipFile, foundry, zipEntry, true)
+                        }
+                }
+            }
+        } else {
+            ZipFile(zipFilePath).use { zipFile ->
+                zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
+                    //.sorted({ o1, o2 -> o1.name.compareTo(o2.name) })
+                    .forEachOrdered() { zipEntry ->
+                        processZipEntry(zipFile, foundry, zipEntry, false)
+                    }
+            }
+        }
+    }
+
+    fun processZipEntry(zipFile: ZipFile, _foundry: String, zipEntry: ZipEntry, passedWaitForMorpho: Boolean) {
         var foundry = _foundry
+        var waitForMorpho = passedWaitForMorpho
         LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
         if (taggerName != null && !taggerToolBridges.containsKey(Thread.currentThread().id)) {
             val tagger = AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
@@ -371,7 +402,7 @@ class KorapXml2Conllu : Callable<Int> {
                     && (!waitForMorpho || morpho[docId] != null)
                     && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
                 ) {
-                    processText(docId, foundry, waitForMorpho)
+                    processText(docId, foundry)
                 }
             } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
                 //LOGGER.info("Processing header file: " + zipEntry.name)
@@ -392,7 +423,7 @@ class KorapXml2Conllu : Callable<Int> {
                     if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
                         && (!waitForMorpho || morpho[docId] != null)
                     ) {
-                        processText(docId, foundry, waitForMorpho)
+                        processText(docId, foundry)
                     }
                 }
             }
@@ -404,7 +435,6 @@ class KorapXml2Conllu : Callable<Int> {
     private fun processText(
         docId: String,
         foundry: String,
-        waitForMorpho: Boolean,
     ) {
         var token_index = 0
         var real_token_index = 0

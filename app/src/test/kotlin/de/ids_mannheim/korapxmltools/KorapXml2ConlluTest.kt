@@ -21,6 +21,7 @@ class KorapXml2ConlluTest {
     val goeMarmot = loadResource("goe.marmot.zip").path
     val goeTreeTagger = loadResource("goe.tree_tagger.zip").path
     val zca20scrambled = loadResource("zca20-scrambled.zip").path
+    val wdf19 = loadResource("wdf19.zip").path
 
     @Before
     fun setUpStreams() {
@@ -55,7 +56,7 @@ class KorapXml2ConlluTest {
     }
     @Test
     fun canConvertWithMorphoAnnotations() {
-        val args = arrayOf(loadResource("goe.zip").path, loadResource("goe.tree_tagger.zip").path)
+        val args = arrayOf(loadResource("goe.tree_tagger.zip").path)
         debug(args)
         assertContains(
             outContent.toString(),
@@ -82,7 +83,7 @@ class KorapXml2ConlluTest {
 
     @Test
     fun canConvertWfdWithMorphoAnnotations() {
-        val args = arrayOf(loadResource("wdf19.zip").path, loadResource("wdf19.tree_tagger.zip").path)
+        val args = arrayOf(loadResource("wdf19.tree_tagger.zip").path)
         debug(args)
         assertContains(
             outContent.toString(),
@@ -202,6 +203,20 @@ class KorapXml2ConlluTest {
     }
 
     @Ignore("for some reason not working")
+    @Test
+    fun canConvertMultipleZips() {
+        val args = arrayOf(wdf19, goe)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "6\tautomatique\t_\t_\t_\t_\t_\t_\t_\t_\n"
+        )
+        assertContains(
+            outContent.toString(),
+            "36\tGedanken\t_\t_\t_\t_\t_\t_\t_\t_\n"
+        )
+    }
+
     fun canConvertMorphoFeatureAnnotations() {
         val args = arrayOf(goe, goeMarmot)
         debug(args)
