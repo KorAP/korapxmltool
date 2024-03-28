@@ -504,7 +504,10 @@ class KorapXml2Conllu : Callable<Int> {
                 }
                 if (morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
                     val mfs = morpho[docId]!!["${span.from}-${span.to}"]
-
+                    if (span.to > texts[docId]!!.length) {
+                        span.to = texts[docId]!!.length
+                        LOGGER.warning("Offset error: could not retrieve token at ${span.from}-${span.to} – ending with: ${texts[docId]!!.substring(span.from, span.to)}")
+                    }
                     output.append(
                         printConlluToken(
                             token_index,
