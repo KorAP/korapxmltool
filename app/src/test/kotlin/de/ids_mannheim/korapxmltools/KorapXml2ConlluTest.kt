@@ -7,7 +7,6 @@ import java.io.PrintStream
 import java.net.URL
 import kotlin.test.Test
 import kotlin.test.assertContains
-import org.junit.Ignore
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -202,7 +201,6 @@ class KorapXml2ConlluTest {
         )
     }
 
-    @Ignore("for some reason not working")
     @Test
     fun canConvertMultipleZips() {
         val args = arrayOf(wdf19, goe)
@@ -217,12 +215,13 @@ class KorapXml2ConlluTest {
         )
     }
 
+    @Test
     fun canConvertMorphoFeatureAnnotations() {
-        val args = arrayOf(goe, goeMarmot)
+        val args = arrayOf(goeMarmot)
         debug(args)
         assertContains(
             outContent.toString(),
-            "9\tentzücke\tentzücken\t_\tVVFIN\tnumber=sg|person=3|tense=pres|mood=subj\t_\t_\t_\t1.000000"
+            "9\tentzücke\t_\t_\tVVFIN\tnumber=sg|person=3|tense=pres|mood=subj\t_\t_\t_\t_\n"
         )
     }
 }
