@@ -283,6 +283,7 @@ class KorapXml2Conllu : Callable<Int> {
     }
 
     private fun processZipFile(zipFilePath: String, foundry: String = "base") {
+        LOGGER.info("Processing ${zipFilePath} in thread ${Thread.currentThread().id}")
         if (zipFilePath.hasCorrespondingBaseZip()) {
             val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
             Arrays.stream(zips).parallel().forEach { zip ->
@@ -304,6 +305,7 @@ class KorapXml2Conllu : Callable<Int> {
     }
 
     private fun processZipFileSequentially(zipFilePath: String, foundry: String = "base") {
+        LOGGER.info("Processing ${zipFilePath} in thread ${Thread.currentThread().id}")
         if (zipFilePath.hasCorrespondingBaseZip()) {
             val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
             Arrays.stream(zips).parallel().forEach { zip ->
@@ -328,7 +330,7 @@ class KorapXml2Conllu : Callable<Int> {
     fun processZipEntry(zipFile: ZipFile, _foundry: String, zipEntry: ZipEntry, passedWaitForMorpho: Boolean) {
         var foundry = _foundry
         var waitForMorpho = passedWaitForMorpho
-        LOGGER.info("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
+        LOGGER.finer("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
         if (taggerName != null && !taggerToolBridges.containsKey(Thread.currentThread().id)) {
             val tagger = AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
             taggerToolBridges[Thread.currentThread().id] = tagger
