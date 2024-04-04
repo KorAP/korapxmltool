@@ -438,102 +438,11 @@ class KorapXml2Conllu : Callable<Int> {
         docId: String,
         foundry: String,
     ) {
-        var token_index = 0
-        var real_token_index = 0
-        var sentence_index = 0
-        val output: StringBuilder
+        var output =
         if (lmTrainingData) {
-            output = StringBuilder()
-            if (extractMetadataRegex.isNotEmpty()) {
-                output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
-            }
-            tokens[docId]?.forEach { span ->
-                token_index++
-                if (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to) {
-                    if(output.isNotEmpty()) {
-                        output.setCharAt(output.length - 1, '\n')
-                    } else {
-                        output.append("\n")
-                    }
-                    if (extractMetadataRegex.isNotEmpty() && real_token_index < tokens[docId]!!.size - 1) {
-                        output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
-                    }
-                    sentence_index++
-                }
-                output.append(texts[docId]!!.substring(span.from, span.to), " ")
-                real_token_index++
-            }
-            if(output.isNotEmpty()) {
-                output.deleteCharAt(output.length - 1)
-            }
+            lmTrainingOutput(docId)
         } else {
-            output =
-                StringBuilder("# foundry = $foundry\n# filename = ${fnames[docId]}\n# text_id = $docId\n").append(
-                    tokenOffsetsInSentence(
-                        sentences, docId, sentence_index, real_token_index, tokens
-                    )
-                )
-            if (extractMetadataRegex.isNotEmpty()) {
-                output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
-            }
-            var previousSpanStart = 0
-            if (taggerToolBridges[Thread.currentThread().id] != null) {
-                morpho[docId] = taggerToolBridges[Thread.currentThread().id]!!.tagText(tokens[docId]!!, sentences[docId], texts[docId]!!)
-                if (parserToolBridges[Thread.currentThread().id] != null) {
-                    morpho[docId] = parserToolBridges[Thread.currentThread().id]!!.parseText(tokens[docId]!!, morpho[docId], sentences[docId], texts[docId]!!)
-                }
-            }
-            tokens[docId]?.forEach { span ->
-                token_index++
-                if (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to) {
-                    output.append("\n")
-                    sentence_index++
-                    token_index = 1
-                    output.append(
-                        tokenOffsetsInSentence(
-                            sentences, docId, sentence_index, real_token_index, tokens
-                        )
-                    )
-                }
-                if (extractAttributesRegex.isNotEmpty() && extraFeatures[docId] != null) {
-                    for (i in previousSpanStart until span.from+1) {
-                        if (extraFeatures[docId]?.containsKey("$i") == true) {
-                            output.append(extraFeatures[docId]!!["$i"])
-                            extraFeatures[docId]!!.remove("$i")
-                        }
-                    }
-                    previousSpanStart = span.from+1
-                }
-                if (morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
-                    val mfs = morpho[docId]!!["${span.from}-${span.to}"]
-                    if (span.to > texts[docId]!!.length) {
-                        span.to = texts[docId]!!.length
-                        LOGGER.warning("Offset error: could not retrieve token at ${span.from}-${span.to} – ending with: ${texts[docId]!!.substring(span.from, span.to)}")
-                    }
-                    output.append(
-                        printConlluToken(
-                            token_index,
-                            texts[docId]!!.substring(span.from, span.to),
-                            mfs!!.lemma!!,
-                            mfs.upos!!,
-                            mfs.xpos!!,
-                            mfs.feats!!,
-                            mfs.head!!,
-                            mfs.deprel!!,
-                            mfs.deps!!,
-                            mfs.misc!!,
-                            columns
-                        )
-                    )
-                } else {
-                    output.append(
-                        printConlluToken(
-                            token_index, texts[docId]!!.substring(span.from, span.to), columns = columns
-                        )
-                    )
-                }
-                real_token_index++
-            }
+            conlluOutput(foundry, docId)
         }
 
         if (annotationWorkerPool != null) {
@@ -547,6 +456,128 @@ class KorapXml2Conllu : Callable<Int> {
         arrayOf(tokens, texts, sentences, morpho, fnames, metadata, extraFeatures).forEach { map ->
             map.remove(docId)
         }
+    }
+
+    private fun conlluOutput(foundry: String, docId: String): StringBuilder {
+        var token_index = 0
+        var real_token_index = 0
+        var sentence_index = 0
+        val output: StringBuilder
+        output =
+            StringBuilder("# foundry = $foundry\n# filename = ${fnames[docId]}\n# text_id = $docId\n").append(
+                tokenOffsetsInSentence(
+                    sentences, docId, sentence_index, real_token_index, tokens
+                )
+            )
+        if (extractMetadataRegex.isNotEmpty()) {
+            output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
+        }
+        var previousSpanStart = 0
+        if (taggerToolBridges[Thread.currentThread().id] != null) {
+            morpho[docId] = taggerToolBridges[Thread.currentThread().id]!!.tagText(
+                tokens[docId]!!,
+                sentences[docId],
+                texts[docId]!!
+            )
+            if (parserToolBridges[Thread.currentThread().id] != null) {
+                morpho[docId] = parserToolBridges[Thread.currentThread().id]!!.parseText(
+                    tokens[docId]!!,
+                    morpho[docId],
+                    sentences[docId],
+                    texts[docId]!!
+                )
+            }
+        }
+        tokens[docId]?.forEach { span ->
+            token_index++
+            if (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to) {
+                output.append("\n")
+                sentence_index++
+                token_index = 1
+                output.append(
+                    tokenOffsetsInSentence(
+                        sentences, docId, sentence_index, real_token_index, tokens
+                    )
+                )
+            }
+            if (extractAttributesRegex.isNotEmpty() && extraFeatures[docId] != null) {
+                for (i in previousSpanStart until span.from + 1) {
+                    if (extraFeatures[docId]?.containsKey("$i") == true) {
+                        output.append(extraFeatures[docId]!!["$i"])
+                        extraFeatures[docId]!!.remove("$i")
+                    }
+                }
+                previousSpanStart = span.from + 1
+            }
+            if (morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
+                val mfs = morpho[docId]!!["${span.from}-${span.to}"]
+                if (span.to > texts[docId]!!.length) {
+                    span.to = texts[docId]!!.length
+                    LOGGER.warning(
+                        "Offset error: could not retrieve token at ${span.from}-${span.to} – ending with: ${
+                            texts[docId]!!.substring(
+                                span.from,
+                                span.to
+                            )
+                        }"
+                    )
+                }
+                output.append(
+                    printConlluToken(
+                        token_index,
+                        texts[docId]!!.substring(span.from, span.to),
+                        mfs!!.lemma!!,
+                        mfs.upos!!,
+                        mfs.xpos!!,
+                        mfs.feats!!,
+                        mfs.head!!,
+                        mfs.deprel!!,
+                        mfs.deps!!,
+                        mfs.misc!!,
+                        columns
+                    )
+                )
+            } else {
+                output.append(
+                    printConlluToken(
+                        token_index, texts[docId]!!.substring(span.from, span.to), columns = columns
+                    )
+                )
+            }
+            real_token_index++
+        }
+        return output
+    }
+
+    private fun lmTrainingOutput(docId: String): StringBuilder {
+        var token_index = 0
+        var real_token_index = 0
+        var sentence_index = 0
+        val output: StringBuilder
+        output = StringBuilder()
+        if (extractMetadataRegex.isNotEmpty()) {
+            output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
+        }
+        tokens[docId]?.forEach { span ->
+            token_index++
+            if (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to) {
+                if (output.isNotEmpty()) {
+                    output.setCharAt(output.length - 1, '\n')
+                } else {
+                    output.append("\n")
+                }
+                if (extractMetadataRegex.isNotEmpty() && real_token_index < tokens[docId]!!.size - 1) {
+                    output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
+                }
+                sentence_index++
+            }
+            output.append(texts[docId]!!.substring(span.from, span.to), " ")
+            real_token_index++
+        }
+        if (output.isNotEmpty()) {
+            output.deleteCharAt(output.length - 1)
+        }
+        return output
     }
 
 
