@@ -136,8 +136,19 @@ class KorapXml2ConlluTest {
     }
 
     @Test
-    fun w2vOptionWorks() {
+    fun deprecatedW2vOptionWorks() {
         val args = arrayOf("-w", loadResource("wdf19.zip").path)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "\nje ne suis pas du tout d'accord !\n"
+        )
+        assertFalse { outContent.toString().contains("WDF19_A0000.13865") }
+    }
+
+    @Test
+    fun w2vOptionWorks() {
+        val args = arrayOf("-f", "w2v", loadResource("wdf19.zip").path)
         debug(args)
         assertContains(
             outContent.toString(),

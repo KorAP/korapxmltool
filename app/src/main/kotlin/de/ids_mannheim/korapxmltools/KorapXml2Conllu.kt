@@ -9,8 +9,11 @@ import org.xml.sax.InputSource
 import org.xml.sax.SAXParseException
 import picocli.CommandLine
 import picocli.CommandLine.*
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
+import java.io.StringWriter
+import java.lang.Integer.parseInt
 import java.util.*
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
@@ -23,12 +26,19 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.stream.IntStream
 import java.util.zip.ZipEntry
+
 import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.transform.OutputKeys
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.dom.DOMSource
+import javax.xml.transform.stream.StreamResult
 import kotlin.math.min
 import kotlin.system.exitProcess
 
+val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
 
 @Command(
     name = "KorapXml2Conllu",
@@ -46,6 +56,27 @@ class KorapXml2Conllu : Callable<Int> {
 
     @Parameters(arity = "1..*", description = ["At least one zip file name"])
     var zipFileNames: Array<String>? = null
+
+    @Option(
+        names = ["-f", "--output-format"],
+        description = ["Output format: ${ConlluOutputFormat.NAME}, ${Word2VecOutputFormat.NAME}, ${KorapXmlOutputFormat.NAME}",
+            "conllu: CoNLL-U format",
+            "korapxml, xml, zip: KorAP-XML format zip",
+            "word2vec, w2v: Print text in LM training format: tokens separated by space, sentences separated by newlines",
+        ],
+        converter = [OutputFormatConverter::class]
+    )
+    var outputFormat: OutputFormat = OutputFormat.CONLLU
+    class OutputFormatConverter : ITypeConverter<OutputFormat> {
+        override fun convert(value: String?): OutputFormat {
+            return when (value?.lowercase(Locale.getDefault())) {
+                "conllu", "conll" -> OutputFormat.CONLLU
+                "word2vec", "w2v" -> OutputFormat.WORD2VEC
+                "korapxml", "korap", "xml", "zip" -> OutputFormat.KORAPXML
+                else -> throw IllegalArgumentException("Unknown output format: `$value'. Use one of: ${OutputFormat.entries.joinToString(", ") { it.name }}")
+            }
+        }
+    }
 
     @Option(
         names = ["--sigle-pattern", "-p"],
@@ -83,9 +114,14 @@ class KorapXml2Conllu : Callable<Int> {
 
     @Option(
         names = ["--word2vec", "-w"],
-        description = ["Print text in LM training format: tokens separated by space, sentences separated by newline"]
+        description = ["Print text in LM training format: tokens separated by space, sentences separated by newline",
+            "Deprecated: use -f word2vec"]
     )
-    var lmTrainingData: Boolean = false
+    fun setWord2Vec(word2vec: Boolean) {
+        if (word2vec) {
+            outputFormat = OutputFormat.WORD2VEC
+        }
+    }
 
     @Option(
         names = ["--token-separator", "-s"],
@@ -93,7 +129,7 @@ class KorapXml2Conllu : Callable<Int> {
         defaultValue = "\n",
         description = ["Token separator. Default: new-line for CoNLL-U, space for word2vec format."]
     )
-    var tokenSeparator: String = if (lmTrainingData) " " else "\n"
+    var tokenSeparator: String = if (outputFormat == OutputFormat.WORD2VEC) " " else "\n"
 
     @Option(names = ["--offsets"], description = ["Not yet implemented: offsets"])
     var offsets: Boolean = false
@@ -120,6 +156,7 @@ class KorapXml2Conllu : Callable<Int> {
         paramLabel = "THREADS",
         description = ["Maximum number of threads to use. Default: ${"$"}{DEFAULT-VALUE}"]
     )
+    var maxThreads: Int = Runtime.getRuntime().availableProcessors() / 2
     fun setThreads(threads: Int) {
         if (threads < 1) {
             throw ParameterException(spec.commandLine(), String.format("Invalid value `%d' for option '--threads': must be at least 1", threads))
@@ -127,7 +164,6 @@ class KorapXml2Conllu : Callable<Int> {
         this.maxThreads = threads
         System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", threads.toString())
     }
-    var maxThreads: Int = Runtime.getRuntime().availableProcessors() / 2
 
     private var taggerName: String? = null
     private var taggerModel: String? = null
@@ -216,6 +252,11 @@ class KorapXml2Conllu : Callable<Int> {
     var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge?> = ConcurrentHashMap()
     var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge?> = ConcurrentHashMap()
 
+    var dbFactory: DocumentBuilderFactory? = null
+    var dBuilder: DocumentBuilder? = null
+    var byteArrayOutputStream: ByteArrayOutputStream? = null
+    var morphoZipOutputStream: ZipOutputStream? = null
+
     fun String.hasCorrespondingBaseZip(): Boolean {
         if (!this.matches(Regex(".*\\.([^/.]+)\\.zip$"))) return false
         val baseZip = this.replace(Regex("\\.([^/.]+)\\.zip$"), ".zip")
@@ -229,6 +270,10 @@ class KorapXml2Conllu : Callable<Int> {
     }
 
     fun korapxml2conllu(args: Array<String>) {
+        if (outputFormat == OutputFormat.KORAPXML && annotateWith.isNotEmpty()) {
+            LOGGER.severe("Shell command annotation is not yet supported with output format $outputFormat")
+            exitProcess(1)
+        }
         Executors.newFixedThreadPool(maxThreads)
 
         if (annotateWith.isNotEmpty()) {
@@ -284,6 +329,12 @@ class KorapXml2Conllu : Callable<Int> {
 
     private fun processZipFile(zipFilePath: String, foundry: String = "base") {
         LOGGER.info("Processing ${zipFilePath} in thread ${Thread.currentThread().id}")
+        if (outputFormat == OutputFormat.KORAPXML && dbFactory == null) {
+            dbFactory = DocumentBuilderFactory.newInstance()
+            dBuilder = dbFactory!!.newDocumentBuilder()
+            byteArrayOutputStream = ByteArrayOutputStream()
+            morphoZipOutputStream = ZipOutputStream(byteArrayOutputStream!!)
+        }
         if (zipFilePath.hasCorrespondingBaseZip()) {
             val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
             Arrays.stream(zips).parallel().forEach { zip ->
@@ -301,6 +352,11 @@ class KorapXml2Conllu : Callable<Int> {
                         processZipEntry(zipFile, foundry, zipEntry, false)
                     }
             }
+        }
+        if (outputFormat == OutputFormat.KORAPXML) {
+            morphoZipOutputStream!!.close()
+            val outputMorphoZipFileName = zipFilePath.replace(Regex("\\.zip$"), ".".plus(getMorphoFoundry()).plus(".zip"))
+            File(outputMorphoZipFileName).writeBytes(byteArrayOutputStream!!.toByteArray())
         }
     }
 
@@ -438,24 +494,143 @@ class KorapXml2Conllu : Callable<Int> {
         docId: String,
         foundry: String,
     ) {
-        var output =
-        if (lmTrainingData) {
+        var morphoFoundry = getMorphoFoundry()
+        val output =
+        if (outputFormat == OutputFormat.WORD2VEC) {
             lmTrainingOutput(docId)
         } else {
-            conlluOutput(foundry, docId)
+            if (taggerToolBridges[Thread.currentThread().id] != null) {
+                morpho[docId] = taggerToolBridges[Thread.currentThread().id]!!.tagText(
+                    tokens[docId]!!,
+                    sentences[docId],
+                    texts[docId]!!
+                )
+                if (parserToolBridges[Thread.currentThread().id] != null) {
+                    morpho[docId] = parserToolBridges[Thread.currentThread().id]!!.parseText(
+                        tokens[docId]!!,
+                        morpho[docId],
+                        sentences[docId],
+                        texts[docId]!!
+                    )
+                }
+            }
+            if (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null) {
+                korapXmlOutput(getMorphoFoundry(), docId)
+            } else {
+                conlluOutput(foundry, docId)
+            }
         }
 
         if (annotationWorkerPool != null) {
             annotationWorkerPool?.pushToQueue(output.append("\n# eot\n").toString())
-        } else {
+        } else if (outputFormat != OutputFormat.KORAPXML) {
             synchronized(System.out) {
                 println(output.toString())
             }
+        } else {
+            korapXmlOutput(foundry, docId)
         }
+
 
         arrayOf(tokens, texts, sentences, morpho, fnames, metadata, extraFeatures).forEach { map ->
             map.remove(docId)
         }
+
+        if (outputFormat == OutputFormat.KORAPXML) {
+            val entryPath = docId.replace(Regex("[_.]"), "/").plus("/$morphoFoundry/").plus("morpho.xml")
+            val zipEntry = ZipEntry(entryPath)
+            // val zipEntry = org.apache.tools.zip.ZipEntry(entryPath)
+            // zipEntry.unixMode = 65535
+            synchronized(morphoZipOutputStream!!) {
+                morphoZipOutputStream!!.putNextEntry(zipEntry)
+                morphoZipOutputStream!!.write(output.toString().toByteArray())
+                morphoZipOutputStream!!.closeEntry()
+            }
+            output.clear()
+        }
+    }
+
+    private fun getMorphoFoundry() = taggerToolBridges[Thread.currentThread().id]?.foundry ?: "base"
+
+    private fun korapXmlOutput(foundry: String, docId: String): StringBuilder {
+        val doc: Document = dBuilder!!.newDocument()
+
+        // Root element
+        val layer = doc.createElement("layer")
+        layer.setAttribute("xmlns", "http://ids-mannheim.de/ns/KorAP")
+        layer.setAttribute("version", "KorAP-0.4")
+        layer.setAttribute("docid", docId)
+        doc.appendChild(layer)
+
+        val spanList = doc.createElement("spanList")
+        layer.appendChild(spanList)
+
+        var i = 0
+        morpho[docId]?.forEach { (spanString, mfs) ->
+            i++
+            val offsets = spanString.split("-")
+            val spanNode = doc.createElement("span")
+            spanNode.setAttribute("id", "t_$i")
+            spanNode.setAttribute("from", offsets[0])
+            spanNode.setAttribute("to", offsets[1])
+
+            // fs element
+            val fs = doc.createElement("fs")
+            fs.setAttribute("type", "lex")
+            fs.setAttribute("xmlns", "http://www.tei-c.org/ns/1.0")
+            spanNode.appendChild(fs)
+            val f = doc.createElement("f")
+            f.setAttribute("name", "lex")
+            fs.appendChild(f)
+
+            // Inner fs element
+            val innerFs = doc.createElement("fs")
+            f.appendChild(innerFs)
+
+            if (mfs.lemma != "_") {
+                val innerF = doc.createElement("f")
+                innerF.setAttribute("name", "lemma")
+                innerF.textContent = mfs.lemma
+                innerFs.appendChild(innerF)
+            }
+            if (mfs.upos != "_") {
+                val innerF = doc.createElement("f")
+                innerF.setAttribute("name", "upos")
+                innerF.textContent = mfs.upos
+                innerFs.appendChild(innerF)
+            }
+            if (mfs.xpos != "_") {
+                val innerF = doc.createElement("f")
+                innerF.setAttribute("name", "pos")
+                innerF.textContent = mfs.xpos
+                innerFs.appendChild(innerF)
+            }
+            if (mfs.feats != "_") {
+                val innerF = doc.createElement("f")
+                innerF.setAttribute("name", "msd")
+                innerF.textContent = mfs.feats
+                innerFs.appendChild(innerF)
+            }
+            if (mfs.misc != "_" && mfs.misc!!.matches(Regex("^[0-9.]+$"))) {
+                val innerF = doc.createElement("f")
+                innerF.setAttribute("name", "certainty")
+                innerF.textContent = mfs.misc
+                innerFs.appendChild(innerF)
+            }
+
+            spanList.appendChild(spanNode)
+        }
+        val transformerFactory = TransformerFactory.newInstance()
+        val transformer = transformerFactory.newTransformer()
+        transformer.setOutputProperty(OutputKeys.INDENT, "yes")
+        transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no")
+        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "1")
+        val domSource = DOMSource(doc)
+        val streamResult = StreamResult(StringWriter())
+        transformer.transform(domSource, streamResult)
+
+        return StringBuilder(streamResult.writer.toString())
+
     }
 
     private fun conlluOutput(foundry: String, docId: String): StringBuilder {
@@ -473,21 +648,6 @@ class KorapXml2Conllu : Callable<Int> {
             output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
         }
         var previousSpanStart = 0
-        if (taggerToolBridges[Thread.currentThread().id] != null) {
-            morpho[docId] = taggerToolBridges[Thread.currentThread().id]!!.tagText(
-                tokens[docId]!!,
-                sentences[docId],
-                texts[docId]!!
-            )
-            if (parserToolBridges[Thread.currentThread().id] != null) {
-                morpho[docId] = parserToolBridges[Thread.currentThread().id]!!.parseText(
-                    tokens[docId]!!,
-                    morpho[docId],
-                    sentences[docId],
-                    texts[docId]!!
-                )
-            }
-        }
         tokens[docId]?.forEach { span ->
             token_index++
             if (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to) {
@@ -747,3 +907,21 @@ fun main(args: Array<String>): Unit = exitProcess(CommandLine(KorapXml2Conllu())
 fun debug(args: Array<String>): Int {
     return (CommandLine(KorapXml2Conllu()).execute(*args))
 }
+
+enum class OutputFormat {
+    CONLLU, WORD2VEC, KORAPXML
+}
+
+object ConlluOutputFormat {
+    const val NAME = "conllu"
+}
+
+object Word2VecOutputFormat {
+    const val NAME = "word2vec"
+}
+
+object KorapXmlOutputFormat {
+    const val NAME = "korapxml"
+}
+
+
