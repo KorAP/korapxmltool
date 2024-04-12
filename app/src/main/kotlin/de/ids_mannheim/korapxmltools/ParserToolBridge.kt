@@ -5,7 +5,7 @@ abstract class ParserToolBridge : AnnotationToolBridge {
         tokens: Array<KorapXml2Conllu.Span>,
         morpho: MutableMap<String, KorapXml2Conllu.MorphoSpan>?,
         sentenceSpans: Array<KorapXml2Conllu.Span>?,
-        text: String
+        text: NonBmpString
     ): MutableMap<String, KorapXml2Conllu.MorphoSpan> {
         val sentence_tokens = mutableListOf<String>()
         val sentence_token_offsets = mutableListOf<String>()

@@ -206,7 +206,7 @@ class KorapXml2Conllu : Callable<Int> {
 
     private var annotationWorkerPool : AnnotationWorkerPool? = null
 
-    val texts: ConcurrentHashMap<String, String> = ConcurrentHashMap()
+    val texts: ConcurrentHashMap<String, NonBmpString> = ConcurrentHashMap()
     val sentences: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
     val tokens: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
     val morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>> = ConcurrentHashMap()
@@ -371,7 +371,7 @@ class KorapXml2Conllu : Callable<Int> {
                     "data.xml" -> {
                         val textsList: NodeList = doc.getElementsByTagName("text")
                         if (textsList.length > 0) {
-                            texts[docId] = textsList.item(0).textContent
+                            texts[docId] = NonBmpString(textsList.item(0).textContent)
                         }
                     }
 

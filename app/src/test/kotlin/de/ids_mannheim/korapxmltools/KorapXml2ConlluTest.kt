@@ -21,6 +21,7 @@ class KorapXml2ConlluTest {
     val goeTreeTagger = loadResource("goe.tree_tagger.zip").path
     val zca20scrambled = loadResource("zca20-scrambled.zip").path
     val wdf19 = loadResource("wdf19.zip").path
+    val wdd17 = loadResource("wdd17sample.zip").path
 
     @Before
     fun setUpStreams() {
@@ -184,6 +185,20 @@ class KorapXml2ConlluTest {
         assertContains(
             outContent.toString(),
             "WDF19/A0000.12006\t2011.08.11\tmerci pour l'info je suis curieux !"
+        )
+    }
+
+    @Test
+    fun canHandleNonBmpText() {
+        val args = arrayOf("--word2vec", wdd17)
+        debug(args)
+        assertContains(
+            outContent.toString(),
+            "\n-- mach \uD83D\uDE48 \uD83D\uDE49 \uD83D\uDE4A 20 : 45 , 1. Feb .\n" // 🙈 🙉 🙊
+        )
+        assertContains(
+            outContent.toString(),
+            "\nBereinige wenigstens die allergröbsten Sachen .\n"
         )
     }
 
