@@ -39,7 +39,7 @@ class MaltParserBridge(override val model: String, override val logger: Logger) 
             val head = edge.target.index
             val label = edge.toString()
             if (label.contains("DEPREL:")) {
-                val rel = edge.toString().substringAfter("DEPREL:")
+                val rel = edge.toString().substringAfter("DEPREL:").trim()
                 val old = morpho?.get(sentenceTokenOffsets[head - 1])
                 morpho?.set(
                     sentenceTokenOffsets[head - 1], KorapXml2Conllu.MorphoSpan(
