@@ -9,12 +9,12 @@
 
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
-    id 'org.jetbrains.kotlin.jvm' version '2.0.0-Beta5'
+    id 'org.jetbrains.kotlin.jvm' version '2.0.20'
 
     // Apply the application plugin to add support for building a CLI application in Java.
     id 'application'
     id 'com.github.johnrengelman.shadow' version '8.1.1'
-    id ("org.jetbrains.kotlin.kapt") version "2.0.0-Beta5"
+    id ("org.jetbrains.kotlin.kapt") version "2.0.20"
 }
 
 repositories {
@@ -34,27 +34,27 @@ dependencies {
 
     // Use the Kotlin JDK 8 standard library.
     implementation 'org.jetbrains.kotlin:kotlin-stdlib'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0'
 
     // This dependency is used by the application.
-    implementation 'com.google.guava:guava:33.1.0-jre'
+    implementation 'com.google.guava:guava:33.3.0-jre'
 
 
-    kapt("info.picocli:picocli-codegen:4.7.5")
-    implementation ("info.picocli:picocli:4.7.5")
+    kapt("info.picocli:picocli-codegen:4.7.6")
+    implementation ("info.picocli:picocli:4.7.6")
 
     // Use the Kotlin test library.
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
 
     // Use the Kotlin JUnit integration.
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit'
-    testImplementation "org.jetbrains.kotlin:kotlin-test:2.0.0-Beta5"
+    testImplementation "org.jetbrains.kotlin:kotlin-test:2.0.20"
 
     implementation 'com.github.kupietz:cistern:v1.0.4'
     implementation 'org.maltparser:maltparser:1.9.2'
-    implementation 'org.apache.opennlp:opennlp-tools:2.3.2'
+    implementation 'org.apache.opennlp:opennlp-tools:2.3.3'
     implementation 'org.slf4j:slf4j-simple:2.1.0-alpha1'
-    implementation 'org.apache.ant:ant:1.10.14'
+    implementation 'org.apache.ant:ant:1.10.15'
 
 }
 
