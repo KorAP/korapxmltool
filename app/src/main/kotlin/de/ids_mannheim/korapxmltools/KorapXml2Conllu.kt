@@ -504,6 +504,7 @@ class KorapXml2Conllu : Callable<Int> {
         docId: String,
         foundry: String,
     ) {
+        LOGGER.fine("Processing text: $docId in thread ${Thread.currentThread().id}")
         var morphoFoundry = getMorphoFoundry()
         val output =
         if (outputFormat == OutputFormat.WORD2VEC) {
