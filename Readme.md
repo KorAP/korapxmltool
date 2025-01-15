@@ -76,6 +76,12 @@ $ java -jar ./app/build/libs/korapxml2conllu.jar -t marmot:models/de.marmot app/
 3       Frankreich      _       _       NE      case=dat|number=sg|gender=neut  _       _       _       _
 ```
 
+### Tag with integrated OpenNLP POS tagger directly to a new KorAP-XML zip file
+
+```shell script
+java -jar ./app/build/libs/korapxml2conllu.jar -f zip -t opennlp:/usr/local/kl/korap/Ingestion/lib/models/opennlp/de-pos-maxent.bin /tmp/zca24.zip
+```
+
 ## Development and License
 
 **Author**:
