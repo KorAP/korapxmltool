@@ -728,9 +728,12 @@ class KorapXml2Conllu : Callable<Int> {
         if (extractMetadataRegex.isNotEmpty()) {
             output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
         }
+        if (texts[docId] == null) {
+            return output
+        }
         tokens[docId]?.forEach { span ->
             token_index++
-            if (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to) {
+            if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
                 if (output.isNotEmpty()) {
                     output.setCharAt(output.length - 1, '\n')
                 } else {
