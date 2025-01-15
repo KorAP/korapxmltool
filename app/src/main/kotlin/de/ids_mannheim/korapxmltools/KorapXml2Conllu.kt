@@ -336,10 +336,17 @@ class KorapXml2Conllu : Callable<Int> {
     private fun processZipFile(zipFilePath: String, foundry: String = "base") {
         LOGGER.info("Processing ${zipFilePath} in thread ${Thread.currentThread().id}")
         if (outputFormat == OutputFormat.KORAPXML && dbFactory == null) {
+            var targetFoundry = "base"
+            if (taggerName != null) {
+                val tagger = AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
+                if (tagger != null) {
+                    targetFoundry = tagger.foundry
+                }
+            }
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
             val outputMorphoZipFileName =
-                zipFilePath.replace(Regex("\\.zip$"), ".".plus(getMorphoFoundry()).plus(".zip"))
+                zipFilePath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
             if (File(outputMorphoZipFileName).exists() && !overwrite) {
                 LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
                 exitProcess(1)
