@@ -11,6 +11,7 @@ import picocli.CommandLine
 import picocli.CommandLine.*
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.StringWriter
 import java.lang.Integer.parseInt
@@ -260,7 +261,6 @@ class KorapXml2Conllu : Callable<Int> {
 
     var dbFactory: DocumentBuilderFactory? = null
     var dBuilder: DocumentBuilder? = null
-    var byteArrayOutputStream: ByteArrayOutputStream? = null
     var morphoZipOutputStream: ZipOutputStream? = null
 
     fun String.hasCorrespondingBaseZip(): Boolean {
@@ -338,8 +338,14 @@ class KorapXml2Conllu : Callable<Int> {
         if (outputFormat == OutputFormat.KORAPXML && dbFactory == null) {
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
-            byteArrayOutputStream = ByteArrayOutputStream()
-            morphoZipOutputStream = ZipOutputStream(byteArrayOutputStream!!)
+            val outputMorphoZipFileName =
+                zipFilePath.replace(Regex("\\.zip$"), ".".plus(getMorphoFoundry()).plus(".zip"))
+            if (File(outputMorphoZipFileName).exists() && !overwrite) {
+                LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
+                exitProcess(1)
+            }
+            val fileOutputStream = FileOutputStream(outputMorphoZipFileName)
+            morphoZipOutputStream = ZipOutputStream(fileOutputStream)
         }
         if (zipFilePath.hasCorrespondingBaseZip()) {
             val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
@@ -361,12 +367,6 @@ class KorapXml2Conllu : Callable<Int> {
         }
         if (outputFormat == OutputFormat.KORAPXML) {
             morphoZipOutputStream!!.close()
-            val outputMorphoZipFileName = zipFilePath.replace(Regex("\\.zip$"), ".".plus(getMorphoFoundry()).plus(".zip"))
-            if (File(outputMorphoZipFileName).exists() && !overwrite) {
-                LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
-                exitProcess(1)
-            }
-            File(outputMorphoZipFileName).writeBytes(byteArrayOutputStream!!.toByteArray())
         }
     }
 
