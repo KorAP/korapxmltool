@@ -165,6 +165,12 @@ class KorapXml2Conllu : Callable<Int> {
         System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", threads.toString())
     }
 
+    @Option(
+        names = ["--overwrite", "-o"],
+        description = ["Overwrite existing files"]
+    )
+    var overwrite: Boolean = false
+
     private var taggerName: String? = null
     private var taggerModel: String? = null
     @Option(
@@ -356,6 +362,10 @@ class KorapXml2Conllu : Callable<Int> {
         if (outputFormat == OutputFormat.KORAPXML) {
             morphoZipOutputStream!!.close()
             val outputMorphoZipFileName = zipFilePath.replace(Regex("\\.zip$"), ".".plus(getMorphoFoundry()).plus(".zip"))
+            if (File(outputMorphoZipFileName).exists() && !overwrite) {
+                LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
+                exitProcess(1)
+            }
             File(outputMorphoZipFileName).writeBytes(byteArrayOutputStream!!.toByteArray())
         }
     }

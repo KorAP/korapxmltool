@@ -3,6 +3,7 @@ package de.ids_mannheim.korapxmltools
 import org.junit.After
 import org.junit.Before
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.PrintStream
 import java.net.URL
 import kotlin.test.Test
@@ -250,4 +251,30 @@ class KorapXml2ConlluTest {
             "9\tentzücke\t_\t_\tVVFIN\tnumber=sg|person=3|tense=pres|mood=subj\t_\t_\t_\t_\n"
         )
     }
+
+    @Test
+    fun korapXmlOutputWorks() {
+        val sourceFile = loadResource("wdf19.zip").path
+        val tmpSourceFileName = createTempFile("tmp", ".zip", null).absolutePath
+        File(sourceFile).copyTo(File(tmpSourceFileName), true)
+
+        val args = arrayOf("-o", "-f", "zip", tmpSourceFileName)
+        debug(args)
+
+        val resultFile = tmpSourceFileName.toString().replace(".zip", ".base.zip")
+        assert(File(resultFile).exists())
+    }
+
+    @Test
+    fun overwriteWorks() {
+        val sourceFile = loadResource("wdf19.zip").path
+        val tmpSourceFileName = createTempFile("tmp", ".zip", null).absolutePath
+        File(sourceFile).copyTo(File(tmpSourceFileName), true)
+        val resultFile = tmpSourceFileName.toString().replace(".zip", ".base.zip")
+        File(resultFile).createNewFile()
+        val args = arrayOf("-o", "-f", "zip", tmpSourceFileName)
+        debug(args)
+        assert(File(resultFile).exists())
+        assert(File(resultFile).length() > 0)
+     }
 }
