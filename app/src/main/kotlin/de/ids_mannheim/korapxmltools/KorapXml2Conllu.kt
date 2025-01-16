@@ -9,7 +9,6 @@ import org.xml.sax.InputSource
 import org.xml.sax.SAXParseException
 import picocli.CommandLine
 import picocli.CommandLine.*
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -335,6 +334,7 @@ class KorapXml2Conllu : Callable<Int> {
 
     private fun processZipFile(zipFilePath: String, foundry: String = "base") {
         LOGGER.info("Processing ${zipFilePath} in thread ${Thread.currentThread().id}")
+        LOGGER.info("Foundry: $foundry $dbFactory")
         if (outputFormat == OutputFormat.KORAPXML && dbFactory == null) {
             var targetFoundry = "base"
             if (taggerName != null) {
@@ -343,13 +343,15 @@ class KorapXml2Conllu : Callable<Int> {
                     targetFoundry = tagger.foundry
                 }
             } else {
-                LOGGER.severe("KorAP-XML output currently only supports morphosyntactic annotations. Use CoNLL-U (default) output format instead, and pipe through conllu2korapxml.")
-                exitProcess(1)
+                targetFoundry = parserName!!
             }
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
             val outputMorphoZipFileName =
-                zipFilePath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
+                if (parserName != null)
+                    zipFilePath.replace(Regex("(\\.(opennlp|marmot|tree_tagger|corenlp|spacy))?\\.zip$"), ".".plus(parserName).plus(".zip"))
+                else
+                    zipFilePath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
             if (File(outputMorphoZipFileName).exists() && !overwrite) {
                 LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
                 exitProcess(1)
@@ -420,6 +422,7 @@ class KorapXml2Conllu : Callable<Int> {
             parserToolBridges[Thread.currentThread().id] = parser
             if (parser != null) {
                 foundry = "$foundry dependency:${parser.foundry}"
+                LOGGER.fine("Initialized parser ${parserName} with foundry $foundry in thread ${Thread.currentThread().id}")
             }
         }
 
@@ -480,6 +483,7 @@ class KorapXml2Conllu : Callable<Int> {
                     && (!waitForMorpho || morpho[docId] != null)
                     && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
                 ) {
+                    LOGGER.info("Processing text: $docId in thread ${Thread.currentThread().id}")
                     processText(docId, foundry)
                 }
             } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
@@ -526,14 +530,21 @@ class KorapXml2Conllu : Callable<Int> {
                     sentences[docId],
                     texts[docId]!!
                 )
-                if (parserToolBridges[Thread.currentThread().id] != null) {
-                    morpho[docId] = parserToolBridges[Thread.currentThread().id]!!.parseText(
-                        tokens[docId]!!,
-                        morpho[docId],
-                        sentences[docId],
-                        texts[docId]!!
-                    )
+
+            }
+            if (parserToolBridges[Thread.currentThread().id] != null) {
+                if (morpho[docId] == null) {
+                    LOGGER.severe("No morpho data for $docId")
+                    //exitProcess(1)
                 }
+                LOGGER.finer("Parsing text: $docId in thread ${Thread.currentThread().id}")
+                morpho[docId] = parserToolBridges[Thread.currentThread().id]!!.parseText(
+                    tokens[docId]!!,
+                    morpho[docId],
+                    sentences[docId],
+                    texts[docId]!!
+                )
+                LOGGER.finer("Parsed text: $docId in thread ${Thread.currentThread().id}")
             }
             if (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null) {
                 korapXmlOutput(getMorphoFoundry(), docId)
@@ -558,7 +569,9 @@ class KorapXml2Conllu : Callable<Int> {
         }
 
         if (outputFormat == OutputFormat.KORAPXML) {
-            val entryPath = docId.replace(Regex("[_.]"), "/").plus("/$morphoFoundry/").plus("morpho.xml")
+            val entryPath = if (parserName != null)  docId.replace(Regex("[_.]"), "/").plus("/$parserName/").plus("dependency.xml")
+            else
+                docId.replace(Regex("[_.]"), "/").plus("/$morphoFoundry/").plus("morpho.xml")
             val zipEntry = ZipEntry(entryPath)
             // val zipEntry = org.apache.tools.zip.ZipEntry(entryPath)
             // zipEntry.unixMode = 65535
@@ -573,8 +586,88 @@ class KorapXml2Conllu : Callable<Int> {
 
     private fun getMorphoFoundry() = taggerToolBridges[Thread.currentThread().id]?.foundry ?: "base"
 
-    private fun korapXmlOutput(foundry: String, docId: String): StringBuilder {
+    private fun korapXmlDependencyOutput(foundry: String, docId: String): StringBuilder {
         val doc: Document = dBuilder!!.newDocument()
+
+        // Root element
+        val layer = doc.createElement("layer")
+        layer.setAttribute("xmlns", "http://ids-mannheim.de/ns/KorAP")
+        layer.setAttribute("version", "KorAP-0.4")
+        layer.setAttribute("docid", docId)
+        doc.appendChild(layer)
+
+        val spanList = doc.createElement("spanList")
+        layer.appendChild(spanList)
+
+        var i = 0
+        var s = 0
+        var n = 0
+        val sortedKeys = morpho[docId]?.keys?.sortedBy { it.split("-")[0].toInt() }
+
+        sortedKeys?.forEach { spanString ->
+            val mfs = morpho[docId]?.get(spanString)
+            val offsets = spanString.split("-")
+            if (offsets[0].toInt() > sentences[docId]!!.elementAt(s).to) {
+                s++
+                n = i
+            }
+            i++
+            if (mfs!!.deprel == "_") {
+                return@forEach
+            }
+
+            val spanNode = doc.createElement("span")
+            spanNode.setAttribute("id", "s${s + 1}_n${i - n}")
+            spanNode.setAttribute("from", offsets[0])
+            spanNode.setAttribute("to", offsets[1])
+
+            // rel element
+            val rel = doc.createElement("rel")
+            rel.setAttribute("label", mfs.deprel)
+
+            // inner span element
+            val innerSpan = doc.createElement("span")
+            val headInt = if(mfs.head == "_") 0 else parseInt(mfs.head) - 1
+            if (headInt < 0) {
+                innerSpan.setAttribute("from", sentences[docId]!!.elementAt(s).from.toString())
+                innerSpan.setAttribute("to",  sentences[docId]!!.elementAt(s).to.toString())
+            } else {
+                if (headInt + n >= morpho[docId]!!.size) {
+                    LOGGER.warning("Head index out of bounds: ${headInt+n} >= ${morpho[docId]!!.size} in $docId")
+                    return@forEach
+                } else {
+                    val destSpanString = sortedKeys.elementAt(headInt + n)
+                    val destOffsets = destSpanString.split("-")
+                    innerSpan.setAttribute("from", destOffsets[0])
+                    innerSpan.setAttribute("to", destOffsets[1])
+                }
+            }
+            rel.appendChild(innerSpan)
+            spanNode.appendChild(rel)
+            spanList.appendChild(spanNode)
+        }
+        val transformerFactory = TransformerFactory.newInstance()
+        val transformer = transformerFactory.newTransformer()
+        transformer.setOutputProperty(OutputKeys.INDENT, "yes")
+        transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no")
+        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "1")
+        val domSource = DOMSource(doc)
+        val streamResult = StreamResult(StringWriter())
+        transformer.transform(domSource, streamResult)
+
+        return StringBuilder(streamResult.writer.toString())
+    }
+
+    private fun korapXmlOutput(foundry: String, docId: String): StringBuilder {
+        return if (parserName != null) {
+            korapXmlDependencyOutput(foundry, docId)
+        } else {
+            korapXmlMorphoOutput(foundry, docId)
+        }
+    }
+
+    private fun korapXmlMorphoOutput(foundry: String, docId: String): StringBuilder {
+            val doc: Document = dBuilder!!.newDocument()
 
         // Root element
         val layer = doc.createElement("layer")
