@@ -342,6 +342,9 @@ class KorapXml2Conllu : Callable<Int> {
                 if (tagger != null) {
                     targetFoundry = tagger.foundry
                 }
+            } else {
+                LOGGER.severe("KorAP-XML output currently only supports morphosyntactic annotations. Use CoNLL-U (default) output format instead, and pipe through conllu2korapxml.")
+                exitProcess(1)
             }
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
