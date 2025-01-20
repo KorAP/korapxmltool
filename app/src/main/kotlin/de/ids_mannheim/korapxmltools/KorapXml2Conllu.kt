@@ -2,6 +2,8 @@ package de.ids_mannheim.korapxmltools
 
 import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.parserFoundries
 import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.taggerFoundries
+import org.apache.commons.compress.archivers.zip.Zip64Mode
+import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
@@ -28,7 +30,7 @@ import java.util.stream.IntStream
 import java.util.zip.ZipEntry
 
 import java.util.zip.ZipFile
-import java.util.zip.ZipOutputStream
+import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.transform.OutputKeys
@@ -260,7 +262,7 @@ class KorapXml2Conllu : Callable<Int> {
 
     var dbFactory: DocumentBuilderFactory? = null
     var dBuilder: DocumentBuilder? = null
-    var morphoZipOutputStream: ZipOutputStream? = null
+    var morphoZipOutputStream: ZipArchiveOutputStream? = null
 
     fun String.hasCorrespondingBaseZip(): Boolean {
         if (!this.matches(Regex(".*\\.([^/.]+)\\.zip$"))) return false
@@ -342,7 +344,7 @@ class KorapXml2Conllu : Callable<Int> {
                 if (tagger != null) {
                     targetFoundry = tagger.foundry
                 }
-            } else {
+            } else if (parserName != null) {
                 targetFoundry = parserName!!
             }
             dbFactory = DocumentBuilderFactory.newInstance()
@@ -357,7 +359,9 @@ class KorapXml2Conllu : Callable<Int> {
                 exitProcess(1)
             }
             val fileOutputStream = FileOutputStream(outputMorphoZipFileName)
-            morphoZipOutputStream = ZipOutputStream(fileOutputStream)
+            morphoZipOutputStream = ZipArchiveOutputStream(fileOutputStream).apply {
+                setUseZip64(Zip64Mode.Always)
+            }
         }
         if (zipFilePath.hasCorrespondingBaseZip()) {
             val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
@@ -572,13 +576,12 @@ class KorapXml2Conllu : Callable<Int> {
             val entryPath = if (parserName != null)  docId.replace(Regex("[_.]"), "/").plus("/$parserName/").plus("dependency.xml")
             else
                 docId.replace(Regex("[_.]"), "/").plus("/$morphoFoundry/").plus("morpho.xml")
-            val zipEntry = ZipEntry(entryPath)
-            // val zipEntry = org.apache.tools.zip.ZipEntry(entryPath)
-            // zipEntry.unixMode = 65535
+            val zipEntry = ZipArchiveEntry(entryPath)
+            zipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
             synchronized(morphoZipOutputStream!!) {
-                morphoZipOutputStream!!.putNextEntry(zipEntry)
+                morphoZipOutputStream!!.putArchiveEntry(zipEntry)
                 morphoZipOutputStream!!.write(output.toString().toByteArray())
-                morphoZipOutputStream!!.closeEntry()
+                morphoZipOutputStream!!.closeArchiveEntry()
             }
             output.clear()
         }

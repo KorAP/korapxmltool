@@ -46,6 +46,7 @@ dependencies {
     implementation 'org.apache.opennlp:opennlp-tools:2.5.3'
     implementation 'org.slf4j:slf4j-simple:2.1.0-alpha1'
     implementation 'org.apache.ant:ant:1.10.15'
+    implementation 'org.apache.commons:commons-compress:1.27.1'
 
 }
 
