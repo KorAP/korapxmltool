@@ -68,7 +68,7 @@ class AnnotationWorkerPool(
                                 outputStreamWriter.flush()
                                 writtenBytes += text.length
                             } catch (e: IOException) {
-                                LOGGER.severe("Worker $it failed to write to process: ${e.message}")
+                                LOGGER.severe("Worker $it failed to write to process in thread ${currentThread().id}: ${e.message}")
                                 threads.remove(currentThread())
                                 threadCount--
                                 cancel()
@@ -110,10 +110,13 @@ class AnnotationWorkerPool(
                     //    sleep(1000)
                    // }
                     //outputStreamWriter.close()
-                    process.waitFor()
-                    LOGGER.info("Worker $it finished")
-
-
+                    val exitCode = process.waitFor()
+                    if (exitCode != 0) {
+                        LOGGER.warning("Worker $it exited with code $exitCode")
+                    } else {
+                        LOGGER.info("Worker $it finished")
+                    }
+                    threads.remove(currentThread())
                 } catch (e: IOException) {
                     e.printStackTrace()
                     LOGGER.warning("Worker $it failed: ${e.message}")
