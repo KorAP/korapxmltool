@@ -30,7 +30,7 @@ class MaltParserBridge(override val model: String, override val logger: Logger) 
     override fun tagSentence(
         sentenceTokens: MutableList<String>,
         sentenceTokenOffsets: MutableList<String>,
-        morpho: MutableMap<String, KorapXml2Conllu.MorphoSpan>?
+        morpho: MutableMap<String, KorapXmlTool.MorphoSpan>?
     ) {
         val result = tagger.parse(sentenceTokens.toTypedArray())
 
@@ -42,7 +42,7 @@ class MaltParserBridge(override val model: String, override val logger: Logger) 
                 val rel = edge.toString().substringAfter("DEPREL:").trim()
                 val old = morpho?.get(sentenceTokenOffsets[head - 1])
                 morpho?.set(
-                    sentenceTokenOffsets[head - 1], KorapXml2Conllu.MorphoSpan(
+                    sentenceTokenOffsets[head - 1], KorapXmlTool.MorphoSpan(
                         lemma = old?.lemma, xpos = old?.xpos, feats = old?.feats, head = from.toString(), deprel = rel
                     )
                 )

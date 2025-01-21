@@ -21,13 +21,13 @@ class MarmotBridge(override val model: String, override val logger: Logger) : Ta
     override fun tagSentence(
         sentenceTokens: MutableList<String>,
         sentenceTokenOffsets: MutableList<String>,
-        morphoMap: MutableMap<String, KorapXml2Conllu.MorphoSpan>?
+        morphoMap: MutableMap<String, KorapXmlTool.MorphoSpan>?
     ) {
         val sentence = Sentence(sentenceTokens.map { Word(it) })
         var result: List<List<String>>
         result = tagger.tag(sentence)  // LOGGER.info("Marmot tagger finished")// return
         for (i in 0 until result.size) {
-            val taggedWord = KorapXml2Conllu.MorphoSpan(
+            val taggedWord = KorapXmlTool.MorphoSpan(
                 xpos = result[i][0].split("|")[0], feats = result[i][1]
             )
             morphoMap?.set(sentenceTokenOffsets[i], taggedWord)

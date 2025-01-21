@@ -33,14 +33,14 @@ class OpenNlpBridge(override val model: String, override val logger: Logger) : T
     override fun tagSentence(
         sentenceTokens: MutableList<String>,
         sentenceTokenOffsets: MutableList<String>,
-        morphoMap: MutableMap<String, KorapXml2Conllu.MorphoSpan>?
+        morphoMap: MutableMap<String, KorapXmlTool.MorphoSpan>?
     ) {
 
         // Perform POS tagging
         val result = tagger.tag(sentenceTokens.toTypedArray())
         val probs = tagger.probs()
         for (i in 0 until result.size) {
-            val taggedWord = KorapXml2Conllu.MorphoSpan(
+            val taggedWord = KorapXmlTool.MorphoSpan(
                 xpos = result[i],
                 misc = String.format(locale = Locale.ROOT, "%.5f", probs[i])
             )

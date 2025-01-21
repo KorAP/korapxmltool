@@ -11,7 +11,7 @@ interface AnnotationToolBridge {
     fun tagSentence(
         sentenceTokens: MutableList<String>,
         sentenceTokenOffsets: MutableList<String>,
-        morphoMap: MutableMap<String, KorapXml2Conllu.MorphoSpan>?
+        morphoMap: MutableMap<String, KorapXmlTool.MorphoSpan>?
     )
 }
 

@@ -11,7 +11,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class KorapXml2ConlluTest {
+class KorapXmlToolTest {
     private val outContent = ByteArrayOutputStream(10000000)
     private val errContent = ByteArrayOutputStream()
     private val originalOut: PrintStream = System.out

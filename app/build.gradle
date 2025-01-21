@@ -54,7 +54,7 @@ dependencies {
 
 application {
     // Define the main class for the application.
-    mainClass = 'de.ids_mannheim.korapxmltools.KorapXml2ConlluKt'
+    mainClass = 'de.ids_mannheim.korapxmltools.KorapXmlToolKt'
 }
 
 jar {
@@ -64,10 +64,10 @@ jar {
 
     manifest.attributes(
             'Class-Path': configurations.compileClasspath.collect { it.getName() }.join(' '),
-            'Main-Class': "de.ids_mannheim.korapxmltools.KorapXml2ConlluKt"
+            'Main-Class': "de.ids_mannheim.korapxmltools.KorapXmlToolKt"
     )
     shadowJar {
-        archiveBaseName.set('korapxml2conllu')
+        archiveBaseName.set('korapxmltool')
         archiveClassifier.set('')
         archiveVersion.set('')
     }

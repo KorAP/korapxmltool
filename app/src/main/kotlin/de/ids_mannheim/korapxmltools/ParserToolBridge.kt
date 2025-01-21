@@ -2,11 +2,11 @@ package de.ids_mannheim.korapxmltools
 
 abstract class ParserToolBridge : AnnotationToolBridge {
     fun parseText(
-        tokens: Array<KorapXml2Conllu.Span>,
-        morpho: MutableMap<String, KorapXml2Conllu.MorphoSpan>?,
-        sentenceSpans: Array<KorapXml2Conllu.Span>?,
+        tokens: Array<KorapXmlTool.Span>,
+        morpho: MutableMap<String, KorapXmlTool.MorphoSpan>?,
+        sentenceSpans: Array<KorapXmlTool.Span>?,
         text: NonBmpString
-    ): MutableMap<String, KorapXml2Conllu.MorphoSpan> {
+    ): MutableMap<String, KorapXmlTool.MorphoSpan> {
         val sentence_tokens = mutableListOf<String>()
         val sentence_token_offsets = mutableListOf<String>()
         var token_index = 1

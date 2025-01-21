@@ -3,11 +3,11 @@ package de.ids_mannheim.korapxmltools
 abstract class TaggerToolBridge : AnnotationToolBridge {
 
     fun tagText(
-        tokens: Array<KorapXml2Conllu.Span>, sentenceSpans: Array<KorapXml2Conllu.Span>?, text: NonBmpString
-    ): MutableMap<String, KorapXml2Conllu.MorphoSpan> {
+        tokens: Array<KorapXmlTool.Span>, sentenceSpans: Array<KorapXmlTool.Span>?, text: NonBmpString
+    ): MutableMap<String, KorapXmlTool.MorphoSpan> {
         val sentence_tokens = mutableListOf<String>()
         val sentence_token_offsets = mutableListOf<String>()
-        val morphoMap = mutableMapOf<String, KorapXml2Conllu.MorphoSpan>()
+        val morphoMap = mutableMapOf<String, KorapXmlTool.MorphoSpan>()
         var token_index = 0
         var sentence_index = 0
         tokens.forEach { span ->

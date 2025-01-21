@@ -43,15 +43,15 @@ import kotlin.system.exitProcess
 val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
 
 @Command(
-    name = "KorapXml2Conllu",
+    name = "KorapXmlTool",
     mixinStandardHelpOptions = true,
-    version = ["KorapXml2Conllu 2.0-beta-01"],
+    version = ["KorapXmlTool 2.0-beta-01"],
     description = ["Converts KorAP-XML <https://github.com/KorAP/KorAP-XML-Krill#about-korap-xml> base or " +
             "morpho zips to (annotated) CoNLL(-U) format with all information necessary for " +
             "reconstruction in comment lines."]
 )
 
-class KorapXml2Conllu : Callable<Int> {
+class KorapXmlTool : Callable<Int> {
     val COMPATIBILITY_MODE = System.getenv("COMPATIBILITY_MODE") != null
 
     @Spec lateinit var spec : Model.CommandSpec
@@ -246,7 +246,7 @@ class KorapXml2Conllu : Callable<Int> {
         return 0
     }
 
-    private val LOGGER: Logger = Logger.getLogger(KorapXml2Conllu::class.java.name)
+    private val LOGGER: Logger = Logger.getLogger(KorapXmlTool::class.java.name)
 
     private var annotationWorkerPool : AnnotationWorkerPool? = null
 
@@ -1022,10 +1022,10 @@ class KorapXml2Conllu : Callable<Int> {
 
 }
 
-fun main(args: Array<String>): Unit = exitProcess(CommandLine(KorapXml2Conllu()).execute(*args))
+fun main(args: Array<String>): Unit = exitProcess(CommandLine(KorapXmlTool()).execute(*args))
 
 fun debug(args: Array<String>): Int {
-    return (CommandLine(KorapXml2Conllu()).execute(*args))
+    return (CommandLine(KorapXmlTool()).execute(*args))
 }
 
 enum class OutputFormat {
