@@ -1,10 +1,10 @@
-# korapxml2conllu
+# korapxmltool
 
-Tool package to convert from KorAP XML format to [CoNLL-U format](https://universaldependencies.org/format.html), as
-well as other simple formats, including token boundary information.
+Tool package to convert and annotate KorAP-XML ZIP files.
 
 Up to 200 times faster and more accurate drop-in replacement for the korapxml2conllu part of [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U).
 
+For some conversion tasks, however you currently need the conllu2korapxml part of [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U)
 
 ## Build
 
@@ -12,10 +12,10 @@ Up to 200 times faster and more accurate drop-in replacement for the korapxml2co
 ./gradlew build
 ```
 
-## Run
+## Conversion to [CoNLL-U format](https://universaldependencies.org/format.html)
 
 ```shell script
-$ java  -jar ./app/build/libs/korapxml2conllu.jar app/src/test/resources/wdf19.zip | head -10
+$ java  -jar ./app/build/libs/korapxmltool.jar app/src/test/resources/wdf19.zip | head -10
 
 # foundry = base
 # filename = WDF19/A0000/13072/base/tokens.xml
@@ -30,10 +30,10 @@ $ java  -jar ./app/build/libs/korapxml2conllu.jar app/src/test/resources/wdf19.z
 
 ```
 
-### Example producing language model training input from KorAP-XML
+## Conversion to language model training data input format from KorAP-XML
 
 ```shell script
-$ java  -jar ./app/build/libs/korapxml2conllu.jar --word2vec t/data/wdf19.zip
+$ java  -jar ./app/build/libs/korapxmltool.jar --word2vec t/data/wdf19.zip
 
 Arts visuels Pourquoi toujours vouloir séparer BD et Manga ?
 Ffx 18:20 fév 25 , 2003 ( CET ) soit on ne sépara pas , soit alors on distingue aussi , le comics , le manwa , le manga ..
@@ -46,7 +46,7 @@ wikipedia ce prete parfaitement à ce genre de decryptage .
 ### Example producing language model training input with preceding metadata columns
 
 ```shell script
-java  -jar ./app/build/libs/korapxml2conllu.jar  -m '<textSigle>([^<]+)' -m '<creatDate>([^<]+)' --word2vec t/data/wdf19.zip
+java  -jar ./app/build/libs/korapxmltool.jar  -m '<textSigle>([^<]+)' -m '<creatDate>([^<]+)' --word2vec t/data/wdf19.zip
 ```
 ```
 WDF19/A0000.10894	2014.08.28	Arts visuels Pourquoi toujours vouloir séparer BD et Manga ?
@@ -56,30 +56,49 @@ WDF19/A0000.10894	2014.08.28	on commence aussi a parlé de la bd africaine et do
 WDF19/A0000.10894	2014.08.28	wikipedia ce prete parfaitement à ce genre de decryptage .
 ```
 
-### Example for POS annotating the data on the fly, using 10 threads
+## Annotation
+
+### Tagging with integrated MarMoT POS tagger directly to a new KorAP-XML ZIP file
+
+You need to download the pre-trained MarMoT models from the [here](http://cistern.cis.lmu.de/marmot/models/CURRENT/).
 
 ```shell script
-java  -jar app/build/libs/korapxml2conllu.jar -T 10 -A "docker run --rm -i korap/conllu2treetagger -l french" app/src/test/resources/wdf19.zip | conllu2korapxml wdf19.tree_tagger.zip
-```
-### Tag with integrated MarMoT POS tagger
-
-```shell script
-$ java -jar ./app/build/libs/korapxml2conllu.jar -t marmot:models/de.marmot app/src/test/resources/goe.zip
-
-# foundry = base
-# filename = GOE/AGA/00000/base/tokens.xml
-# text_id = GOE_AGA.00000
-# start_offsets = 0 0 9 12
-# end_offsets = 22 8 11 22
-1       Campagne        _       _       NN      case=nom|number=sg|gender=fem   _       _       _       _
-2       in      _       _       APPR    _       _       _       _       _
-3       Frankreich      _       _       NE      case=dat|number=sg|gender=neut  _       _       _       _
+$ java -jar ./app/build/libs/korapxmltool.jar -f zip -t marmot:models/de.marmot app/src/test/resources/goe.zip
 ```
 
-### Tag with integrated OpenNLP POS tagger directly to a new KorAP-XML zip file
+### Tagging with integrated OpenNLP POS tagger directly to a new KorAP-XML ZIP file
+
+You need to download the pre-trained OpenNLP models from [here](https://opennlp.apache.org/models.html#part_of_speech_tagging) or older models from  [here](http://opennlp.sourceforge.net/models-1.5/).
+```shell script
+java -jar ./app/build/libs/korapxmltool.jar -f zip -t opennlp:/usr/local/kl/korap/Ingestion/lib/models/opennlp/de-pos-maxent.bin /tmp/zca24.zip
+```
+
+### Tag and lemmatize with TreeTagger
+
+This requires the [TreeTagger Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/CoNLL-U-Treetagger). 
+Language models are downloaded automatically.
 
 ```shell script
-java -jar ./app/build/libs/korapxml2conllu.jar -f zip -t opennlp:/usr/local/kl/korap/Ingestion/lib/models/opennlp/de-pos-maxent.bin /tmp/zca24.zip
+java  -jar app/build/libs/korapxmltool.jar app/src/test/resources/wdf19.zip | docker run --rm -i korap/conllu2treetagger -l french | conllu2korapxml
+```
+
+### Tag and lemmatize with spaCy
+
+This requires the [spaCy Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/sota-pos-lemmatizers) and is only available for German.
+
+```shell script
+java  -jar app/build/libs/korapxmltool.jar app/src/test/resources/goe.zip | docker run --rm -i korap/conllu2spacy | conllu2korapxml > goe.spacy.zip
+```
+
+## Parsing
+
+### Using the integrated Maltparser
+
+You need to download the pre-trained MaltParser models from the [here](http://www.maltparser.org/mco/mco.html).
+Note that parsers take POS tagged input.
+
+```shell script
+java -jar ./app/build/libs/korapxmltool.jar -f zip -T2 -P malt:libs/german.mco goe.tree_tagger.zip
 ```
 
 ## Development and License
@@ -88,7 +107,7 @@ java -jar ./app/build/libs/korapxml2conllu.jar -f zip -t opennlp:/usr/local/kl/k
 
 * [Marc Kupietz](https://www.ids-mannheim.de/digspra/personal/kupietz.html)
 
-Copyright (c) 2024, [Leibniz Institute for the German Language](http://www.ids-mannheim.de/), Mannheim, Germany
+Copyright (c) 2024-2025, [Leibniz Institute for the German Language](http://www.ids-mannheim.de/), Mannheim, Germany
 
 This package is developed as part of the [KorAP](http://korap.ids-mannheim.de/)
 Corpus Analysis Platform at the Leibniz Institute for German Language
