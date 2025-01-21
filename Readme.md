@@ -4,12 +4,16 @@ Tool package to convert and annotate KorAP-XML ZIP files.
 
 Up to 200 times faster and more accurate drop-in replacement for the korapxml2conllu part of [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U).
 
-For some conversion tasks, however you currently need the conllu2korapxml part of [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U)
+For some conversion tasks, however, you currently need the conllu2korapxml part of [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U).
 
-## Build
+## Download
+
+You can download the latest jar build from the build artifacts [here]([here](https://gitlab.ids-mannheim.de/KorAP/korapxml2conllu/-/jobs/artifacts/master/raw/build/libs/korapxmltool.jar?job=build))
+
+## Build it yourself
 
 ```shell script
-./gradlew build
+./gradlew shadowJar
 ```
 
 ## Conversion to [CoNLL-U format](https://universaldependencies.org/format.html)
