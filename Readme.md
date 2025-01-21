@@ -8,7 +8,7 @@ For some conversion tasks, however, you currently need the conllu2korapxml part 
 
 ## Download
 
-You can download the latest jar build from the build artifacts [here]([here](https://gitlab.ids-mannheim.de/KorAP/korapxml2conllu/-/jobs/artifacts/master/raw/build/libs/korapxmltool.jar?job=build))
+You can download the latest jar build from the build artifacts [here](https://gitlab.ids-mannheim.de/KorAP/korapxml2conllu/-/jobs/artifacts/master/raw/app/build/libs/korapxmltool.jar?job=build).
 
 ## Build it yourself
 
