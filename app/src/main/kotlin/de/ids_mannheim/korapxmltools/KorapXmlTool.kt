@@ -610,6 +610,10 @@ class KorapXmlTool : Callable<Int> {
         sortedKeys?.forEach { spanString ->
             val mfs = morpho[docId]?.get(spanString)
             val offsets = spanString.split("-")
+            if(offsets.size != 2) {
+                LOGGER.warning("Invalid span: $spanString in $docId")
+                return@forEach
+            }
             if (offsets[0].toInt() > sentences[docId]!!.elementAt(s).to) {
                 s++
                 n = i
