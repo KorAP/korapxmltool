@@ -173,7 +173,9 @@ class AnnotationWorkerPool(
             sleep(100) // Wait for queue to empty
         }
         LOGGER.info("Queue is empty, waiting for workers to finish")
-        threads.forEach(Thread::join)
+        // Create a copy of the threads list to avoid ConcurrentModificationException
+        val threadsCopy = threads.toList()
+        threadsCopy.forEach(Thread::join)
         LOGGER.info("All workers finished")
     }
 }
