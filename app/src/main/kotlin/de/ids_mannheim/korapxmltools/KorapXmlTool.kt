@@ -61,10 +61,11 @@ class KorapXmlTool : Callable<Int> {
 
     @Option(
         names = ["-f", "--output-format"],
-        description = ["Output format: ${ConlluOutputFormat.NAME}, ${Word2VecOutputFormat.NAME}, ${KorapXmlOutputFormat.NAME}",
+        description = ["Output format: ${ConlluOutputFormat.NAME}, ${Word2VecOutputFormat.NAME}, ${KorapXmlOutputFormat.NAME}, ${NowOutputFormat.NAME}",
             "conllu: CoNLL-U format",
             "korapxml, xml, zip: KorAP-XML format zip",
             "word2vec, w2v: Print text in LM training format: tokens separated by space, sentences separated by newlines",
+            "now, NOW: NOW corpus export format: w2v-like format with <p> tags for sentence ends and @@<text-sigle> prefix",
         ],
         converter = [OutputFormatConverter::class]
     )
@@ -75,6 +76,7 @@ class KorapXmlTool : Callable<Int> {
                 "conllu", "conll" -> OutputFormat.CONLLU
                 "word2vec", "w2v" -> OutputFormat.WORD2VEC
                 "korapxml", "korap", "xml", "zip" -> OutputFormat.KORAPXML
+                "now", "NOW" -> OutputFormat.NOW
                 else -> throw IllegalArgumentException("Unknown output format: `$value'. Use one of: ${OutputFormat.entries.joinToString(", ") { it.name }}")
             }
         }
@@ -131,7 +133,7 @@ class KorapXmlTool : Callable<Int> {
         defaultValue = "\n",
         description = ["Token separator. Default: new-line for CoNLL-U, space for word2vec format."]
     )
-    var tokenSeparator: String = if (outputFormat == OutputFormat.WORD2VEC) " " else "\n"
+    var tokenSeparator: String = if (outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) " " else "\n"
 
     @Option(names = ["--offsets"], description = ["Not yet implemented: offsets"])
     var offsets: Boolean = false
@@ -527,6 +529,8 @@ class KorapXmlTool : Callable<Int> {
         val output =
         if (outputFormat == OutputFormat.WORD2VEC) {
             lmTrainingOutput(docId)
+        } else if (outputFormat == OutputFormat.NOW) {
+            nowOutput(docId)
         } else {
             if (taggerToolBridges[Thread.currentThread().id] != null) {
                 morpho[docId] = taggerToolBridges[Thread.currentThread().id]!!.tagText(
@@ -864,6 +868,40 @@ class KorapXmlTool : Callable<Int> {
         return output
     }
 
+    private fun nowOutput(docId: String): StringBuilder {
+        var token_index = 0
+        var real_token_index = 0
+        var sentence_index = 0
+        val output: StringBuilder = StringBuilder()
+        
+        // Add the text sigle prefix
+        output.append("@@$docId ")
+        
+        if (texts[docId] == null) {
+            return output
+        }
+        
+        tokens[docId]?.forEach { span ->
+            token_index++
+            if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
+                // Replace sentence end with <p> tag instead of newline
+                if (output.isNotEmpty() && !output.endsWith("@@$docId ")) {
+                    output.append(" <p> ")
+                }
+                sentence_index++
+            }
+            output.append(texts[docId]!!.substring(span.from, span.to), " ")
+            real_token_index++
+        }
+        
+        // Remove trailing space and add final newline
+        if (output.isNotEmpty() && output.endsWith(" ")) {
+            output.deleteCharAt(output.length - 1)
+        }
+        
+        return output
+    }
+
 
     private fun printConlluToken(
         token_index: Int,
@@ -1033,7 +1071,7 @@ fun debug(args: Array<String>): Int {
 }
 
 enum class OutputFormat {
-    CONLLU, WORD2VEC, KORAPXML
+    CONLLU, WORD2VEC, KORAPXML, NOW
 }
 
 object ConlluOutputFormat {
@@ -1046,6 +1084,10 @@ object Word2VecOutputFormat {
 
 object KorapXmlOutputFormat {
     const val NAME = "korapxml"
+}
+
+object NowOutputFormat {
+    const val NAME = "now"
 }
 
 

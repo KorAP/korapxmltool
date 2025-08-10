@@ -159,6 +159,24 @@ class KorapXmlToolTest {
     }
 
     @Test
+    fun nowOptionWorks() {
+        val args = arrayOf("-f", "now", loadResource("wdf19.zip").path)
+        debug(args)
+        val output = outContent.toString()
+        // Check that output starts with @@<text-sigle>
+        assertContains(output, "@@WDF19_A0000.")
+        // Check that sentence boundaries are replaced with <p> tags
+        assertContains(output, " <p> ")
+        // Check that it contains the expected text content
+        assertContains(output, "Arts visuels Pourquoi toujours vouloir")
+        // Check that it doesn't contain CoNLL-U format markers
+        assertFalse(output.contains("# foundry"))
+        // Check that each text is on one line (no newlines within text except at end)
+        val lines = output.trim().split('\n')
+        assertTrue(lines.all { it.startsWith("@@") })
+    }
+
+    @Test
     fun canConvertXMLwithInvalidComments() {
         val args = arrayOf("-w", zca20scrambled)
         debug(args)
