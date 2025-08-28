@@ -68,26 +68,40 @@ One text per line with `<p>` as sentence delimiter.
 java -jar korapxmltool.jar -f now /vol/corpora/DeReKo/current/KorAP/zip/*24.zip | pv > dach24.txt
 ```
 
+### Using lemmas instead of surface forms in word2vec / NOW output
+
+If lemma annotations (morpho layer) are present alongside the base tokens, you can output lemmas instead of surface tokens with `--lemma`.
+
+```shell script
+# Word2Vec style output with lemmas where available
+java -jar ./app/build/libs/korapxmltool.jar --lemma -f w2v app/src/test/resources/goe.tree_tagger.zip | head -3
+
+# NOW corpus style output with lemmas
+java -jar ./app/build/libs/korapxmltool.jar --lemma -f now app/src/test/resources/goe.tree_tagger.zip | head -1
+```
+
+If a lemma for a token is missing (`_`) the surface form is used as fallback.
+
 ## Annotation
 
 ### Tagging with integrated MarMoT POS tagger directly to a new KorAP-XML ZIP file
 
-You need to download the pre-trained MarMoT models from the [here](http://cistern.cis.lmu.de/marmot/models/CURRENT/).
+You need to download the pre-trained MarMoT models from the [MarMoT models repository](http://cistern.cis.lmu.de/marmot/models/CURRENT/).
 
 ```shell script
-$ java -jar ./app/build/libs/korapxmltool.jar -f zip -t marmot:models/de.marmot app/src/test/resources/goe.zip
+java -jar ./app/build/libs/korapxmltool.jar -f zip -t marmot:models/de.marmot app/src/test/resources/goe.zip
 ```
 
 ### Tagging with integrated OpenNLP POS tagger directly to a new KorAP-XML ZIP file
 
-You need to download the pre-trained OpenNLP models from [here](https://opennlp.apache.org/models.html#part_of_speech_tagging) or older models from  [here](http://opennlp.sourceforge.net/models-1.5/).
+You need to download the pre-trained OpenNLP models from the [OpenNLP model download page](https://opennlp.apache.org/models.html#part_of_speech_tagging) or older models from the [legacy OpenNLP models archive](http://opennlp.sourceforge.net/models-1.5/).
 ```shell script
 java -jar ./app/build/libs/korapxmltool.jar -f zip -t opennlp:/usr/local/kl/korap/Ingestion/lib/models/opennlp/de-pos-maxent.bin /tmp/zca24.zip
 ```
 
 ### Tag and lemmatize with TreeTagger
 
-This requires the [TreeTagger Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/CoNLL-U-Treetagger). 
+This requires the [TreeTagger Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/CoNLL-U-Treetagger).
 Language models are downloaded automatically.
 
 ```shell script
@@ -106,7 +120,7 @@ java  -jar app/build/libs/korapxmltool.jar app/src/test/resources/goe.zip | dock
 
 ### Using the integrated Maltparser
 
-You need to download the pre-trained MaltParser models from the [here](http://www.maltparser.org/mco/mco.html).
+You need to download the pre-trained MaltParser models from the [MaltParser model repository](http://www.maltparser.org/mco/mco.html).
 Note that parsers take POS tagged input.
 
 ```shell script

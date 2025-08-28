@@ -295,4 +295,23 @@ class KorapXmlToolTest {
         assert(File(resultFile).exists())
         assert(File(resultFile).length() > 0)
      }
+
+    @Test
+    fun canWord2VecLemma() {
+        val args = arrayOf("--lemma", "-f", "w2v", loadResource("goe.tree_tagger.zip").path)
+        debug(args)
+        val out = outContent.toString()
+        // Expect lemma sequence containing "mein Ankunft" (surface would include inflected form elsewhere)
+        assertContains(out, " mein Ankunft ")
+    }
+
+    @Test
+    fun canNowLemma() {
+        val args = arrayOf("--lemma", "-f", "now", loadResource("goe.tree_tagger.zip").path)
+        debug(args)
+        val out = outContent.toString()
+        assertContains(out, "@@")
+        assertContains(out, " <p> ")
+        assertContains(out, " mein Ankunft ")
+    }
 }

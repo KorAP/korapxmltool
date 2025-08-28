@@ -175,6 +175,12 @@ class KorapXmlTool : Callable<Int> {
     )
     var overwrite: Boolean = false
 
+    @Option(
+        names = ["--lemma"],
+        description = ["In word2vec/now output modes, output lemmas instead of surface tokens when lemma annotations are available (requires corresponding morpho annotation XML)"]
+    )
+    var useLemma: Boolean = false
+
     private var taggerName: String? = null
     private var taggerModel: String? = null
     @Option(
@@ -859,7 +865,17 @@ class KorapXmlTool : Callable<Int> {
                 }
                 sentence_index++
             }
-            output.append(texts[docId]!!.substring(span.from, span.to), " ")
+            if (useLemma && morpho[docId] != null) {
+                val key = "${span.from}-${span.to}"
+                val lemmaVal = morpho[docId]!![key]?.lemma
+                if (lemmaVal != null && lemmaVal != "_") {
+                    output.append(lemmaVal, " ")
+                } else {
+                    output.append(texts[docId]!!.substring(span.from, span.to), " ")
+                }
+            } else {
+                output.append(texts[docId]!!.substring(span.from, span.to), " ")
+            }
             real_token_index++
         }
         if (output.isNotEmpty()) {
@@ -890,7 +906,17 @@ class KorapXmlTool : Callable<Int> {
                 }
                 sentence_index++
             }
-            output.append(texts[docId]!!.substring(span.from, span.to), " ")
+            if (useLemma && morpho[docId] != null) {
+                val key = "${span.from}-${span.to}"
+                val lemmaVal = morpho[docId]!![key]?.lemma
+                if (lemmaVal != null && lemmaVal != "_") {
+                    output.append(lemmaVal, " ")
+                } else {
+                    output.append(texts[docId]!!.substring(span.from, span.to), " ")
+                }
+            } else {
+                output.append(texts[docId]!!.substring(span.from, span.to), " ")
+            }
             real_token_index++
         }
         
