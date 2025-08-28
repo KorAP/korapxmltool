@@ -60,6 +60,14 @@ WDF19/A0000.10894	2014.08.28	on commence aussi a parlé de la bd africaine et do
 WDF19/A0000.10894	2014.08.28	wikipedia ce prete parfaitement à ce genre de decryptage .
 ```
 
+### Conversion to a NOW corpus format variant (example)
+
+One text per line with `<p>` as sentence delimiter.
+
+```shell script
+java -jar korapxmltool.jar -f now /vol/corpora/DeReKo/current/KorAP/zip/*24.zip | pv > dach24.txt
+```
+
 ## Annotation
 
 ### Tagging with integrated MarMoT POS tagger directly to a new KorAP-XML ZIP file
