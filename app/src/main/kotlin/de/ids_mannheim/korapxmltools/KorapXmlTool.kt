@@ -853,6 +853,7 @@ class KorapXmlTool : Callable<Int> {
             return output
         }
         tokens[docId]?.forEach { span ->
+            if (span == null) return@forEach
             token_index++
             if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
                 if (output.isNotEmpty()) {
@@ -865,16 +866,19 @@ class KorapXmlTool : Callable<Int> {
                 }
                 sentence_index++
             }
+            // Bounds safety
+            val safeFrom = span.from.coerceIn(0, texts[docId]!!.length)
+            val safeTo = span.to.coerceIn(safeFrom, texts[docId]!!.length)
             if (useLemma && morpho[docId] != null) {
                 val key = "${span.from}-${span.to}"
                 val lemmaVal = morpho[docId]!![key]?.lemma
                 if (lemmaVal != null && lemmaVal != "_") {
                     output.append(lemmaVal, " ")
                 } else {
-                    output.append(texts[docId]!!.substring(span.from, span.to), " ")
+                    output.append(texts[docId]!!.substring(safeFrom, safeTo), " ")
                 }
             } else {
-                output.append(texts[docId]!!.substring(span.from, span.to), " ")
+                output.append(texts[docId]!!.substring(safeFrom, safeTo), " ")
             }
             real_token_index++
         }
@@ -898,6 +902,7 @@ class KorapXmlTool : Callable<Int> {
         }
         
         tokens[docId]?.forEach { span ->
+            if (span == null) return@forEach
             token_index++
             if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
                 // Replace sentence end with <p> tag instead of newline
@@ -906,16 +911,19 @@ class KorapXmlTool : Callable<Int> {
                 }
                 sentence_index++
             }
+            // Bounds safety
+            val safeFrom = span.from.coerceIn(0, texts[docId]!!.length)
+            val safeTo = span.to.coerceIn(safeFrom, texts[docId]!!.length)
             if (useLemma && morpho[docId] != null) {
                 val key = "${span.from}-${span.to}"
                 val lemmaVal = morpho[docId]!![key]?.lemma
                 if (lemmaVal != null && lemmaVal != "_") {
                     output.append(lemmaVal, " ")
                 } else {
-                    output.append(texts[docId]!!.substring(span.from, span.to), " ")
+                    output.append(texts[docId]!!.substring(safeFrom, safeTo), " ")
                 }
             } else {
-                output.append(texts[docId]!!.substring(span.from, span.to), " ")
+                output.append(texts[docId]!!.substring(safeFrom, safeTo), " ")
             }
             real_token_index++
         }
@@ -978,11 +986,26 @@ class KorapXmlTool : Callable<Int> {
     }
 
     private fun extractSpans(spans: NodeList): Array<Span> {
-        return IntStream.range(0, spans.length).mapToObj(spans::item).filter { node -> node is Element }.map { node ->
-                Span(
-                    Integer.parseInt((node as Element).getAttribute("from")), Integer.parseInt(node.getAttribute("to"))
-                )
-            }.toArray { size -> arrayOfNulls(size) }
+        val list = ArrayList<Span>()
+        IntStream.range(0, spans.length).forEach { idx ->
+            val node = spans.item(idx)
+            if (node is Element) {
+                val fromAttr = node.getAttribute("from")
+                val toAttr = node.getAttribute("to")
+                if (fromAttr.isNullOrEmpty() || toAttr.isNullOrEmpty()) {
+                    LOGGER.warning("Skipping span with empty from/to attribute: from='$fromAttr' to='$toAttr'")
+                } else {
+                    try {
+                        val from = Integer.parseInt(fromAttr)
+                        val to = Integer.parseInt(toAttr)
+                        list.add(Span(from, to))
+                    } catch (e: NumberFormatException) {
+                        LOGGER.warning("Skipping span with invalid numeric offsets: from='$fromAttr' to='$toAttr' : ${e.message}")
+                    }
+                }
+            }
+        }
+        return list.toTypedArray()
     }
 
     private fun extractMorphoSpans(
