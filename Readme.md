@@ -82,6 +82,27 @@ java -jar ./app/build/libs/korapxmltool.jar --lemma -f now app/src/test/resource
 
 If a lemma for a token is missing (`_`) the surface form is used as fallback.
 
+### Lemma-only mode and I/O scheduling
+
+- `--lemma-only`: For `-f w2v` and `-f now`, skip loading `data.xml` and output only lemmas from `morpho.xml`. This reduces memory and speeds up throughput.
+- `--sequential`: Process entries inside each zip sequentially (zips can still run in parallel). Recommended for `w2v`/`now` to keep locality and lower memory.
+- `--zip-parallelism N`: Limit how many zips are processed concurrently (defaults to `--threads`). Helps avoid disk thrash and native inflater pressure.
+- `--exclude-zip-glob GLOB` (repeatable): Skip zip basenames that match the glob (e.g., `--exclude-zip-glob 'w?d24.tree_tagger.zip'`).
+
+Example for large NOW export with progress and exclusions:
+
+```
+java -Xmx64G -XX:+UseG1GC -Djdk.util.zip.disableMemoryMapping=true -Djdk.util.zip.reuseInflater=true \
+     -jar korapxmltool.jar -l info --threads 100 --zip-parallelism 8 \
+     --lemma-only --sequential -f now \
+     --exclude-zip-glob 'w?d24.tree_tagger.zip' \
+     /vol/corpora/DeReKo/current/KorAP/zip/*24.tree_tagger.zip | pv > dach2024.lemma.txt
+```
+
+At INFO level the tool logs:
+- The zip processing order with file sizes (largest-first in `--lemma-only`).
+- For each zip: start message including its size and a completion line with cumulative progress, ETA and average MB/s.
+
 ## Annotation
 
 ### Tagging with integrated MarMoT POS tagger directly to a new KorAP-XML ZIP file

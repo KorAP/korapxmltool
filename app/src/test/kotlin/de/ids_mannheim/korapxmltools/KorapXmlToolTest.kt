@@ -314,4 +314,42 @@ class KorapXmlToolTest {
         assertContains(out, " <p> ")
         assertContains(out, " mein Ankunft ")
     }
+
+    @Test
+    fun lemmaOnlyWord2VecWorks() {
+        val args = arrayOf("--lemma-only", "-f", "w2v", loadResource("goe.tree_tagger.zip").path)
+        debug(args)
+        val out = outContent.toString()
+        // Should produce some lemma tokens without requiring data.xml
+        assertTrue(out.contains(" mein ") || out.contains(" Ankunft "))
+    }
+
+    @Test
+    fun lemmaOnlyNowWorks() {
+        val args = arrayOf("--lemma-only", "-f", "now", loadResource("goe.tree_tagger.zip").path)
+        debug(args)
+        val out = outContent.toString()
+        assertContains(out, "@@")
+        assertContains(out, " <p> ")
+    }
+
+    @Test
+    fun excludeZipGlobSkipsFiles() {
+        val args = arrayOf("--exclude-zip-glob", "goe.zip", loadResource("wdf19.zip").path, loadResource("goe.zip").path)
+        debug(args)
+        val out = outContent.toString()
+        // Expect French content, but not the German token from GOE
+        assertContains(out, "automatique")
+        assertFalse(out.contains("Gedanken"))
+    }
+
+    @Test
+    fun sequentialOnlyForNowAndW2V() {
+        val args = arrayOf("--sequential", loadResource("wdf19.zip").path)
+        // Default format is conllu; this should error
+        val rc = debug(args)
+        // Non-zero is expected; and error message should be present
+        assertTrue(rc != 0)
+        assertContains(errContent.toString(), "--sequential is supported only with -f word2vec or -f now")
+    }
 }

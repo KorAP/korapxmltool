@@ -48,6 +48,23 @@ class NonBmpString : CharSequence {
         return stringBuilder.toString()
     }
 
+    fun appendRangeTo(sb: StringBuilder, startIndex: Int, endIndex: Int) {
+        if (startIndex < 0 || endIndex > length || startIndex > endIndex) {
+            throw IndexOutOfBoundsException("Invalid range $startIndex..$endIndex for NonBmpString length $length")
+        }
+        var i = startIndex
+        while (i < endIndex) {
+            val cp = utf32Chars[i]
+            if (Character.isBmpCodePoint(cp)) {
+                sb.append(cp.toChar())
+            } else {
+                sb.append(Character.highSurrogate(cp))
+                sb.append(Character.lowSurrogate(cp))
+            }
+            i++
+        }
+    }
+
     private fun String.toUtf32Array(): IntArray {
         val codePoints = IntArray(Character.codePointCount(this, 0, length))
         var index = 0

@@ -20,6 +20,7 @@ import java.util.*
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 import java.util.logging.ConsoleHandler
 import java.util.logging.Level
 import java.util.logging.LogManager
@@ -128,6 +129,16 @@ class KorapXmlTool : Callable<Int> {
     }
 
     @Option(
+        names = ["--exclude-zip-glob"],
+        paramLabel = "GLOB",
+        description = [
+            "Exclude zip files whose basename matches the glob (e.g., 'w?d24.tree_tagger.zip').",
+            "May be repeated. Applied to basenames, not full paths."
+        ]
+    )
+    var excludeZipGlobs: MutableList<String> = mutableListOf()
+
+    @Option(
         names = ["--token-separator", "-s"],
         paramLabel = "STRING",
         defaultValue = "\n",
@@ -170,16 +181,47 @@ class KorapXmlTool : Callable<Int> {
     }
 
     @Option(
+        names = ["--zip-parallelism"],
+        paramLabel = "N",
+        description = ["Maximum number of zip files to process concurrently. Defaults to --threads."]
+    )
+    var zipParallelism: Int? = null
+
+    @Option(
+        names = ["--sequential"],
+        description = [
+            "Process entries inside each zip sequentially; zips processed in parallel (only for word2vec/now)."
+        ]
+    )
+    var sequentialInZip: Boolean = false
+
+    @Option(
         names = ["--overwrite", "-o"],
         description = ["Overwrite existing files"]
     )
     var overwrite: Boolean = false
 
     @Option(
+        names = ["--mem-stats-interval"],
+        paramLabel = "N",
+        description = ["Log memory and cache statistics every N processed documents (0 disables; default: 0)"]
+    )
+    var memStatsInterval: Int = 0
+
+    @Option(
         names = ["--lemma"],
         description = ["In word2vec/now output modes, output lemmas instead of surface tokens when lemma annotations are available (requires corresponding morpho annotation XML)"]
     )
     var useLemma: Boolean = false
+
+    @Option(
+        names = ["--lemma-only"],
+        description = [
+            "Do not load texts from data.xml and output only lemmas (requires morpho.xml).",
+            "Only valid with -f word2vec or -f now; implies --lemma."
+        ]
+    )
+    var lemmaOnly: Boolean = false
 
     private var taggerName: String? = null
     private var taggerModel: String? = null
@@ -248,6 +290,13 @@ class KorapXmlTool : Callable<Int> {
             Level.WARNING
         }
 
+        if (lemmaOnly) {
+            useLemma = true
+            if (outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW) {
+                throw ParameterException(spec.commandLine(), "--lemma-only is supported only with -f word2vec or -f now")
+            }
+        }
+
         LOGGER.info("Processing zip files: " + zipFileNames!!.joinToString(", "))
 
         korapxml2conllu(zipFileNames!!)
@@ -265,8 +314,17 @@ class KorapXmlTool : Callable<Int> {
     val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
     val extraFeatures: ConcurrentHashMap<String, MutableMap<String, String>> = ConcurrentHashMap()
+    private val processedDocs = java.util.concurrent.atomic.AtomicInteger(0)
     var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge?> = ConcurrentHashMap()
     var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge?> = ConcurrentHashMap()
+
+    // Zip progress tracking for logging (zipNumber/zipTotal)
+    private val zipOrdinals: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
+    private var totalZips: Int = 0
+    private val zipSizes: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
+    private val processedZipBytes: AtomicLong = AtomicLong(0)
+    private var totalZipBytes: Long = 0
+    private var startTimeMillis: Long = 0
 
     var dbFactory: DocumentBuilderFactory? = null
     var dBuilder: DocumentBuilder? = null
@@ -296,12 +354,51 @@ class KorapXmlTool : Callable<Int> {
         }
 
         var zips: Array<String> = args
+        if (excludeZipGlobs.isNotEmpty()) {
+            val before = zips.size
+            val patterns = excludeZipGlobs.map { globToRegex(it) }
+            zips = zips.filter { zipPath ->
+                val base = File(zipPath).name
+                patterns.none { rx -> rx.matches(base) }
+            }.toTypedArray()
+            val excluded = before - zips.size
+            if (excluded > 0) {
+                LOGGER.info("Excluded $excluded of $before zip(s) by glob(s): ${excludeZipGlobs.joinToString(", ")}")
+            }
+        }
+        // Initialize zip progress tracking and sizes
+        startTimeMillis = System.currentTimeMillis()
+        processedZipBytes.set(0)
+        totalZips = zips.size
+        zipOrdinals.clear()
+        zipSizes.clear()
+        zips.forEach { zip -> zipSizes[zip] = try { File(zip).length() } catch (_: Exception) { 0L } }
+        totalZipBytes = zipSizes.values.sum()
+        // In lemma-only mode, process largest zips first
+        if (lemmaOnly) {
+            zips = zips.sortedByDescending { zipSizes[it] ?: 0L }.toTypedArray()
+        }
+        zips.forEachIndexed { index, zip -> zipOrdinals[zip] = index + 1 }
+
+        // Log zip order with sizes so the user can verify sorting
+        val totalHuman = humanBytes(totalZipBytes)
+        LOGGER.info("Zip processing order (${zips.size} file(s), total ${totalHuman}):")
+        zips.forEachIndexed { idx, zip ->
+            val size = zipSizes[zip] ?: 0L
+            LOGGER.info(String.format(Locale.ROOT, "%d/%d: %s (%s)", idx + 1, zips.size, zip, humanBytes(size)))
+        }
+
+        if (sequentialInZip) {
+            if (outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW) {
+                throw ParameterException(spec.commandLine(), "--sequential is supported only with -f word2vec or -f now")
+            }
+        }
 
         if (maxThreads > 1) {
-            LOGGER.info("Processing zip files in parallel with $maxThreads threads")
-            Arrays.stream(zips).parallel().forEach { zipFilePath ->
-                processZipFile((zipFilePath ?: "").toString(), getFoundryFromZipFileNames(zips))
-            }
+            val foundry = getFoundryFromZipFileNames(zips)
+            val parallelism = (zipParallelism ?: maxThreads).coerceAtLeast(1)
+            LOGGER.info("Processing zips with ordered queue; parallelism=$parallelism; entries ${if (sequentialInZip) "sequential" else "parallel"}")
+            processZipsWithQueue(zips, foundry, parallelism)
         } else {
             LOGGER.info("Processing zip files sequentially")
             Arrays.stream(zips).forEachOrdered { zipFilePath ->
@@ -313,6 +410,54 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.info("closing worker pool")
             annotationWorkerPool?.close()
         }
+    }
+
+    private fun processZipsWithQueue(zips: Array<String>, foundry: String, parallelism: Int) {
+        val queue: java.util.concurrent.BlockingQueue<String> = java.util.concurrent.LinkedBlockingQueue()
+        zips.forEach { queue.put(it) }
+        val executor = Executors.newFixedThreadPool(parallelism)
+        val active = java.util.concurrent.atomic.AtomicInteger(0)
+        repeat(parallelism) {
+            executor.submit {
+                active.incrementAndGet()
+                try {
+                    while (true) {
+                        val zipPath = queue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        if (zipPath == null) {
+                            if (queue.isEmpty()) break else continue
+                        }
+                        if (sequentialInZip) {
+                            processZipFileSequentially(zipPath, foundry)
+                        } else {
+                            processZipFile(zipPath, foundry)
+                        }
+                    }
+                } finally {
+                    active.decrementAndGet()
+                }
+            }
+        }
+        executor.shutdown()
+        try {
+            executor.awaitTermination(7, java.util.concurrent.TimeUnit.DAYS)
+        } catch (ie: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    // Convert a shell-like glob to a Regex: '*' -> ".*", '?' -> '.', anchored full match
+    private fun globToRegex(glob: String): Regex {
+        val sb = StringBuilder("^")
+        glob.forEach { ch ->
+            when (ch) {
+                '*' -> sb.append(".*")
+                '?' -> sb.append('.')
+                '.', '(', ')', '+', '|', '^', '$', '@', '%', '{', '}', '[', ']', '\\' -> sb.append('\\').append(ch)
+                else -> sb.append(ch)
+            }
+        }
+        sb.append('$')
+        return Regex(sb.toString())
     }
 
 
@@ -343,7 +488,9 @@ class KorapXmlTool : Callable<Int> {
     }
 
     private fun processZipFile(zipFilePath: String, foundry: String = "base") {
-        LOGGER.info("Processing ${zipFilePath} in thread ${Thread.currentThread().id}")
+        val ord = zipOrdinals[zipFilePath] ?: 0
+        val size = zipSizes[zipFilePath] ?: 0L
+        LOGGER.info("Processing zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} (${humanBytes(size)}) in thread ${Thread.currentThread().id}")
         LOGGER.info("Foundry: $foundry $dbFactory")
         if (outputFormat == OutputFormat.KORAPXML && dbFactory == null) {
             var targetFoundry = "base"
@@ -392,29 +539,78 @@ class KorapXmlTool : Callable<Int> {
         if (outputFormat == OutputFormat.KORAPXML) {
             morphoZipOutputStream!!.close()
         }
+        logZipProgress(zipFilePath)
     }
 
     private fun processZipFileSequentially(zipFilePath: String, foundry: String = "base") {
-        LOGGER.info("Processing ${zipFilePath} in thread ${Thread.currentThread().id}")
+        val ord = zipOrdinals[zipFilePath] ?: 0
+        val size = zipSizes[zipFilePath] ?: 0L
+        LOGGER.info("Processing zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} (${humanBytes(size)}) in thread ${Thread.currentThread().id}")
         if (zipFilePath.hasCorrespondingBaseZip()) {
+            // Process the two related zips strictly sequentially to limit memory growth
             val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
-            Arrays.stream(zips).parallel().forEach { zip ->
+            zips.forEach { zip ->
                 ZipFile(zip).use { zipFile ->
-                    zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
-                        .parallel().forEach { zipEntry ->
+                    // Iterate entries in a deterministic order to keep related files close together
+                    zipFile.stream()
+                        .filter { extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") }
+                        .sorted(Comparator.comparing(ZipEntry::getName))
+                        .forEachOrdered { zipEntry ->
                             processZipEntry(zipFile, foundry, zipEntry, true)
                         }
                 }
             }
         } else {
             ZipFile(zipFilePath).use { zipFile ->
-                zipFile.stream().filter({ extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") })
-                    //.sorted({ o1, o2 -> o1.name.compareTo(o2.name) })
-                    .forEachOrdered() { zipEntry ->
+                zipFile.stream()
+                    .filter { extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") }
+                    .sorted(Comparator.comparing(ZipEntry::getName))
+                    .forEachOrdered { zipEntry ->
                         processZipEntry(zipFile, foundry, zipEntry, false)
                     }
             }
         }
+        logZipProgress(zipFilePath)
+    }
+
+    private fun logZipProgress(zipFilePath: String) {
+        try {
+            val size = zipSizes[zipFilePath] ?: 0L
+            val done = processedZipBytes.addAndGet(size)
+            val total = if (totalZipBytes > 0) totalZipBytes else 1L
+            val elapsedMs = (System.currentTimeMillis() - startTimeMillis).coerceAtLeast(1)
+            val speedBytesPerSec = (done * 1000.0) / elapsedMs
+            val remaining = (total - done).coerceAtLeast(0)
+            val etaSeconds = if (speedBytesPerSec > 0.0) (remaining / speedBytesPerSec).toLong() else -1L
+            val ord = zipOrdinals[zipFilePath] ?: 0
+            val pct = (done * 100.0 / total).coerceIn(0.0, 100.0)
+            val humanSpeed = String.format(Locale.ROOT, "%.2f MB/s", speedBytesPerSec / (1024.0 * 1024.0))
+            val etaStr = if (etaSeconds >= 0) formatDuration(etaSeconds) else "unknown"
+            LOGGER.info(
+                "Finished zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} " +
+                        "(${humanBytes(size)}). Progress: ${String.format(Locale.ROOT, "%.1f", pct)}%%, " +
+                        "ETA ${etaStr} at ${humanSpeed}"
+            )
+        } catch (e: Exception) {
+            LOGGER.fine("Failed to log zip progress for $zipFilePath: ${e.message}")
+        }
+    }
+
+    private fun humanBytes(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format(Locale.ROOT, "%.1f KB", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format(Locale.ROOT, "%.1f MB", mb)
+        val gb = mb / 1024.0
+        return String.format(Locale.ROOT, "%.1f GB", gb)
+    }
+
+    private fun formatDuration(seconds: Long): String {
+        var s = seconds
+        val h = s / 3600; s %= 3600
+        val m = s / 60; val sec = s % 60
+        return String.format(Locale.ROOT, "%02d:%02d:%02d", h, m, sec)
     }
 
     fun processZipEntry(zipFile: ZipFile, _foundry: String, zipEntry: ZipEntry, passedWaitForMorpho: Boolean) {
@@ -440,12 +636,19 @@ class KorapXmlTool : Callable<Int> {
 
         try {
             if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho)\\.xml$"))) {
-                val inputStream: InputStream = zipFile.getInputStream(zipEntry)
+                // Ensure the entry stream and reader are closed to avoid native memory buildup
                 val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
                 val dBuilder: DocumentBuilder = dbFactory.newDocumentBuilder()
-
+                // In lemma-only mode, skip parsing data.xml entirely to reduce memory pressure
+                if (lemmaOnly && zipEntry.name.endsWith("data.xml")) {
+                    return
+                }
                 val doc: Document = try {
-                    dBuilder.parse(InputSource(XMLCommentFilterReader(inputStream, "UTF-8")))
+                    zipFile.getInputStream(zipEntry).use { inputStream ->
+                        XMLCommentFilterReader(inputStream, "UTF-8").use { reader ->
+                            dBuilder.parse(InputSource(reader))
+                        }
+                    }
                 } catch (e: SAXParseException) {
                     LOGGER.warning("Error parsing file: " + zipEntry.name + " " + e.message)
                     return
@@ -460,9 +663,11 @@ class KorapXmlTool : Callable<Int> {
                 val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
                 when (fileName) {
                     "data.xml" -> {
-                        val textsList: NodeList = doc.getElementsByTagName("text")
-                        if (textsList.length > 0) {
-                            texts[docId] = NonBmpString(textsList.item(0).textContent)
+                        if (!lemmaOnly) {
+                            val textsList: NodeList = doc.getElementsByTagName("text")
+                            if (textsList.length > 0) {
+                                texts[docId] = NonBmpString(textsList.item(0).textContent)
+                            }
                         }
                     }
 
@@ -491,11 +696,18 @@ class KorapXmlTool : Callable<Int> {
                     }
                 }
 
-                if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
-                    && (!waitForMorpho || morpho[docId] != null)
+                val morphoRequired = waitForMorpho || useLemma || taggerName != null || parserName != null || outputFormat == OutputFormat.KORAPXML
+                // For lemma-only/lemma-based word2vec/now, we can proceed without full text
+                val textRequired = when (outputFormat) {
+                    OutputFormat.WORD2VEC, OutputFormat.NOW -> !(useLemma || lemmaOnly)
+                    else -> true
+                }
+                if ((texts[docId] != null || !textRequired) && sentences[docId] != null && tokens[docId] != null
+                    && (!morphoRequired || morpho[docId] != null)
                     && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
                 ) {
-                    LOGGER.info("Processing text: $docId in thread ${Thread.currentThread().id}")
+                    // Be quiet on INFO; per-text logs only on FINE and below
+                    LOGGER.fine("Processing text: $docId in thread ${Thread.currentThread().id}")
                     processText(docId, foundry)
                 }
             } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
@@ -504,7 +716,7 @@ class KorapXmlTool : Callable<Int> {
                 val docId =
                     Regex("<textSigle>([^<]+)</textSigle>").find(text)?.destructured?.component1()
                         ?.replace(Regex("/"), "_")
-                LOGGER.info("Processing header file: " + zipEntry.name + " docId: " + docId)
+                LOGGER.fine("Processing header file: " + zipEntry.name + " docId: " + docId)
                 val meta = ArrayList<String>()
                 extractMetadataRegex.forEach { regex ->
                     val match = Regex(regex).find(text)
@@ -514,9 +726,16 @@ class KorapXmlTool : Callable<Int> {
                 }
                 if (meta.isNotEmpty() && docId != null) {
                     metadata[docId] = meta.toTypedArray()
-                    if (texts[docId] != null && sentences[docId] != null && tokens[docId] != null
-                        && (!waitForMorpho || morpho[docId] != null)
-                    ) {
+                    val morphoRequired = waitForMorpho || useLemma || taggerName != null || parserName != null || outputFormat == OutputFormat.KORAPXML
+                    val textRequired = when (outputFormat) {
+                        OutputFormat.WORD2VEC, OutputFormat.NOW -> !(useLemma || lemmaOnly)
+                        else -> true
+                    }
+                    if ((texts[docId] != null || !textRequired) && sentences[docId] != null && tokens[docId] != null
+                         && (!morphoRequired || morpho[docId] != null)
+                     ) {
+                        // Be quiet on INFO; per-text logs only on FINE and below
+                        LOGGER.fine("Processing text (meta-ready): $docId in thread ${Thread.currentThread().id}")
                         processText(docId, foundry)
                     }
                 }
@@ -569,17 +788,38 @@ class KorapXmlTool : Callable<Int> {
 
         if (annotationWorkerPool != null) {
             annotationWorkerPool?.pushToQueue(output.append("\n# eot\n").toString())
+            // Release internal char[] early
+            output.setLength(0)
         } else if (outputFormat != OutputFormat.KORAPXML) {
             synchronized(System.out) {
                 println(output.toString())
             }
+            // Release internal char[] early
+            output.setLength(0)
         } else {
             korapXmlOutput(foundry, docId)
         }
 
 
         arrayOf(tokens, texts, sentences, morpho, fnames, metadata, extraFeatures).forEach { map ->
+            if (map === morpho) {
+                // Clear inner map to release references early
+                morpho[docId]?.clear()
+            }
             map.remove(docId)
+        }
+
+        // Periodic GC hint after processing many docs (lightweight safeguard)
+        if ((processedDocs.incrementAndGet() % 2000) == 0) {
+            LOGGER.fine("Processed ${processedDocs.get()} docs – requesting GC hint")
+            System.gc()
+        }
+        // Memory / cache statistics logging
+        if (memStatsInterval > 0) {
+            val count = processedDocs.get()
+            if (count % memStatsInterval == 0) {
+                logMemoryStats(count)
+            }
         }
 
         if (outputFormat == OutputFormat.KORAPXML) {
@@ -598,6 +838,21 @@ class KorapXmlTool : Callable<Int> {
     }
 
     private fun getMorphoFoundry() = taggerToolBridges[Thread.currentThread().id]?.foundry ?: "base"
+
+    private fun logMemoryStats(count: Int) {
+        try {
+            val rt = Runtime.getRuntime()
+            val used = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+            val total = rt.totalMemory() / (1024 * 1024)
+            val max = rt.maxMemory() / (1024 * 1024)
+            LOGGER.info(
+                "MEM-STATS docs=${count} usedMB=${used} totalMB=${total} maxMB=${max} " +
+                        "maps{texts=${texts.size},tokens=${tokens.size},sentences=${sentences.size},morpho=${morpho.size}}"
+            )
+        } catch (e: Exception) {
+            LOGGER.warning("Failed to log memory stats: ${e.message}")
+        }
+    }
 
     private fun korapXmlDependencyOutput(foundry: String, docId: String): StringBuilder {
         val doc: Document = dBuilder!!.newDocument()
@@ -849,7 +1104,15 @@ class KorapXmlTool : Callable<Int> {
         if (extractMetadataRegex.isNotEmpty()) {
             output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
         }
+        // If no text is available (e.g., lemma-only mode), emit lemmas
         if (texts[docId] == null) {
+            tokens[docId]?.forEach { span ->
+                if (span == null) return@forEach
+                val key = "${span.from}-${span.to}"
+                val lemmaVal = morpho[docId]?.get(key)?.lemma
+                output.append((lemmaVal?.takeIf { it != "_" } ?: "_"), " ")
+            }
+            if (output.isNotEmpty()) output.deleteCharAt(output.length - 1)
             return output
         }
         tokens[docId]?.forEach { span ->
@@ -873,12 +1136,15 @@ class KorapXmlTool : Callable<Int> {
                 val key = "${span.from}-${span.to}"
                 val lemmaVal = morpho[docId]!![key]?.lemma
                 if (lemmaVal != null && lemmaVal != "_") {
-                    output.append(lemmaVal, " ")
+                    output.append(lemmaVal)
+                    output.append(' ')
                 } else {
-                    output.append(texts[docId]!!.substring(safeFrom, safeTo), " ")
+                    texts[docId]!!.appendRangeTo(output, safeFrom, safeTo)
+                    output.append(' ')
                 }
             } else {
-                output.append(texts[docId]!!.substring(safeFrom, safeTo), " ")
+                texts[docId]!!.appendRangeTo(output, safeFrom, safeTo)
+                output.append(' ')
             }
             real_token_index++
         }
@@ -898,6 +1164,22 @@ class KorapXmlTool : Callable<Int> {
         output.append("@@$docId ")
         
         if (texts[docId] == null) {
+            // Lemma-only fallback when original text is not loaded
+            tokens[docId]?.forEach { span ->
+                if (span == null) return@forEach
+                if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
+                    if (output.isNotEmpty() && !output.endsWith("@@$docId ")) {
+                        output.append(" <p> ")
+                    }
+                    sentence_index++
+                }
+                val key = "${span.from}-${span.to}"
+                val lemmaVal = morpho[docId]?.get(key)?.lemma
+                output.append((lemmaVal?.takeIf { it != "_" } ?: "_"), " ")
+            }
+            if (output.isNotEmpty() && output.endsWith(" ")) {
+                output.deleteCharAt(output.length - 1)
+            }
             return output
         }
         
@@ -918,12 +1200,15 @@ class KorapXmlTool : Callable<Int> {
                 val key = "${span.from}-${span.to}"
                 val lemmaVal = morpho[docId]!![key]?.lemma
                 if (lemmaVal != null && lemmaVal != "_") {
-                    output.append(lemmaVal, " ")
+                    output.append(lemmaVal)
+                    output.append(' ')
                 } else {
-                    output.append(texts[docId]!!.substring(safeFrom, safeTo), " ")
+                    texts[docId]!!.appendRangeTo(output, safeFrom, safeTo)
+                    output.append(' ')
                 }
             } else {
-                output.append(texts[docId]!!.substring(safeFrom, safeTo), " ")
+                texts[docId]!!.appendRangeTo(output, safeFrom, safeTo)
+                output.append(' ')
             }
             real_token_index++
         }
@@ -1138,5 +1423,3 @@ object KorapXmlOutputFormat {
 object NowOutputFormat {
     const val NAME = "now"
 }
-
-
