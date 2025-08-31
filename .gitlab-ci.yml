@@ -1,4 +1,4 @@
-image: eclipse-temurin:17
+image: eclipse-temurin:19
 
 stages:
     - build
@@ -17,7 +17,7 @@ before_script:
 build:
   stage: build
   script:
-    - ./gradlew --build-cache shadowJar
+    - ./gradlew --build-cache clean test shadowJar
   artifacts:
     paths:
       - app/build/libs/korapxmltool.jar
