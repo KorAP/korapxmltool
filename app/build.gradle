@@ -1,11 +1,10 @@
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
-    id 'org.jetbrains.kotlin.jvm' version '2.1.0'
+    id 'org.jetbrains.kotlin.jvm' version '2.2.10'
 
     // Apply the application plugin to add support for building a CLI application in Java.
     id 'application'
     id 'com.github.johnrengelman.shadow' version '8.1.1'
-    id ("org.jetbrains.kotlin.kapt") version "2.1.0"
 }
 
 repositories {
@@ -14,9 +13,9 @@ repositories {
 }
 
 test {
-    minHeapSize = "1000m" // initial heap size
-    maxHeapSize = "8000m" // maximum heap size
-    jvmArgs '-XX:MaxMetaspaceSize=8000m' // mem argument for the test JVM
+    minHeapSize = "512m"
+    maxHeapSize = "4096m"
+    jvmArgs '-XX:MaxMetaspaceSize=1024m'
 }
 
 dependencies {
@@ -25,28 +24,27 @@ dependencies {
 
     // Use the Kotlin JDK 8 standard library.
     implementation 'org.jetbrains.kotlin:kotlin-stdlib'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2'
 
     // This dependency is used by the application.
     implementation 'com.google.guava:guava:33.4.0-jre'
 
 
-    kapt("info.picocli:picocli-codegen:4.7.6")
-    implementation ("info.picocli:picocli:4.7.6")
+    implementation ("info.picocli:picocli:4.7.7")
 
     // Use the Kotlin test library.
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
 
     // Use the Kotlin JUnit integration.
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit'
-    testImplementation "org.jetbrains.kotlin:kotlin-test:2.1.0"
+    testImplementation "org.jetbrains.kotlin:kotlin-test:2.2.10"
 
     implementation 'com.github.kupietz:cistern:v1.0.4'
     implementation 'org.maltparser:maltparser:1.9.2'
-    implementation 'org.apache.opennlp:opennlp-tools:2.5.3'
-    implementation 'org.slf4j:slf4j-simple:2.1.0-alpha1'
+    implementation 'org.apache.opennlp:opennlp-tools:2.5.5'
+    implementation 'org.slf4j:slf4j-simple:2.0.17'
     implementation 'org.apache.ant:ant:1.10.15'
-    implementation 'org.apache.commons:commons-compress:1.27.1'
+    implementation 'org.apache.commons:commons-compress:1.28.0'
 
 }
 
