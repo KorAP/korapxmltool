@@ -490,7 +490,7 @@ class KorapXmlTool : Callable<Int> {
     private fun processZipFile(zipFilePath: String, foundry: String = "base") {
         val ord = zipOrdinals[zipFilePath] ?: 0
         val size = zipSizes[zipFilePath] ?: 0L
-        LOGGER.info("Processing zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} (${humanBytes(size)}) in thread ${Thread.currentThread().id}")
+        LOGGER.info("Processing zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} (${humanBytes(size)}) in thread ${Thread.currentThread().threadId()}")
         LOGGER.info("Foundry: $foundry $dbFactory")
         if (outputFormat == OutputFormat.KORAPXML && dbFactory == null) {
             var targetFoundry = "base"
@@ -545,7 +545,7 @@ class KorapXmlTool : Callable<Int> {
     private fun processZipFileSequentially(zipFilePath: String, foundry: String = "base") {
         val ord = zipOrdinals[zipFilePath] ?: 0
         val size = zipSizes[zipFilePath] ?: 0L
-        LOGGER.info("Processing zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} (${humanBytes(size)}) in thread ${Thread.currentThread().id}")
+        LOGGER.info("Processing zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} (${humanBytes(size)}) in thread ${Thread.currentThread().threadId()}")
         if (zipFilePath.hasCorrespondingBaseZip()) {
             // Process the two related zips strictly sequentially to limit memory growth
             val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
@@ -554,7 +554,7 @@ class KorapXmlTool : Callable<Int> {
                     // Iterate entries in a deterministic order to keep related files close together
                     zipFile.stream()
                         .filter { extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") }
-                        .sorted(Comparator.comparing(ZipEntry::getName))
+                        .sorted(Comparator.comparing<ZipEntry, String> { it.name })
                         .forEachOrdered { zipEntry ->
                             processZipEntry(zipFile, foundry, zipEntry, true)
                         }
@@ -564,7 +564,7 @@ class KorapXmlTool : Callable<Int> {
             ZipFile(zipFilePath).use { zipFile ->
                 zipFile.stream()
                     .filter { extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") }
-                    .sorted(Comparator.comparing(ZipEntry::getName))
+                    .sorted(Comparator.comparing<ZipEntry, String> { it.name })
                     .forEachOrdered { zipEntry ->
                         processZipEntry(zipFile, foundry, zipEntry, false)
                     }
@@ -616,21 +616,21 @@ class KorapXmlTool : Callable<Int> {
     fun processZipEntry(zipFile: ZipFile, _foundry: String, zipEntry: ZipEntry, passedWaitForMorpho: Boolean) {
         var foundry = _foundry
         var waitForMorpho = passedWaitForMorpho
-        LOGGER.finer("Processing ${zipEntry.name} in thread ${Thread.currentThread().id}")
-        if (taggerName != null && !taggerToolBridges.containsKey(Thread.currentThread().id)) {
+        LOGGER.finer("Processing ${zipEntry.name} in thread ${Thread.currentThread().threadId()}")
+        if (taggerName != null && !taggerToolBridges.containsKey(Thread.currentThread().threadId())) {
             val tagger = AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
-            taggerToolBridges[Thread.currentThread().id] = tagger
+            taggerToolBridges[Thread.currentThread().threadId()] = tagger
             if (tagger != null) {
                 foundry = tagger.foundry
             }
 
         }
-        if (parserName != null && !parserToolBridges.containsKey(Thread.currentThread().id)) {
+        if (parserName != null && !parserToolBridges.containsKey(Thread.currentThread().threadId())) {
             val parser = AnnotationToolBridgeFactory.getAnnotationToolBridge(parserName!!, parserModel!!, LOGGER) as ParserToolBridge?
-            parserToolBridges[Thread.currentThread().id] = parser
+            parserToolBridges[Thread.currentThread().threadId()] = parser
             if (parser != null) {
                 foundry = "$foundry dependency:${parser.foundry}"
-                LOGGER.fine("Initialized parser ${parserName} with foundry $foundry in thread ${Thread.currentThread().id}")
+                LOGGER.fine("Initialized parser ${parserName} with foundry $foundry in thread ${Thread.currentThread().threadId()}")
             }
         }
 
@@ -707,7 +707,7 @@ class KorapXmlTool : Callable<Int> {
                     && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
                 ) {
                     // Be quiet on INFO; per-text logs only on FINE and below
-                    LOGGER.fine("Processing text: $docId in thread ${Thread.currentThread().id}")
+                    LOGGER.fine("Processing text: $docId in thread ${Thread.currentThread().threadId()}")
                     processText(docId, foundry)
                 }
             } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
@@ -735,7 +735,7 @@ class KorapXmlTool : Callable<Int> {
                          && (!morphoRequired || morpho[docId] != null)
                      ) {
                         // Be quiet on INFO; per-text logs only on FINE and below
-                        LOGGER.fine("Processing text (meta-ready): $docId in thread ${Thread.currentThread().id}")
+                        LOGGER.fine("Processing text (meta-ready): $docId in thread ${Thread.currentThread().threadId()}")
                         processText(docId, foundry)
                     }
                 }
@@ -749,7 +749,7 @@ class KorapXmlTool : Callable<Int> {
         docId: String,
         foundry: String,
     ) {
-        LOGGER.fine("Processing text: $docId in thread ${Thread.currentThread().id}")
+        LOGGER.fine("Processing text: $docId in thread ${Thread.currentThread().threadId()}")
         var morphoFoundry = getMorphoFoundry()
         val output =
         if (outputFormat == OutputFormat.WORD2VEC) {
@@ -757,27 +757,27 @@ class KorapXmlTool : Callable<Int> {
         } else if (outputFormat == OutputFormat.NOW) {
             nowOutput(docId)
         } else {
-            if (taggerToolBridges[Thread.currentThread().id] != null) {
-                morpho[docId] = taggerToolBridges[Thread.currentThread().id]!!.tagText(
+            if (taggerToolBridges[Thread.currentThread().threadId()] != null) {
+                morpho[docId] = taggerToolBridges[Thread.currentThread().threadId()]!!.tagText(
                     tokens[docId]!!,
                     sentences[docId],
                     texts[docId]!!
                 )
 
             }
-            if (parserToolBridges[Thread.currentThread().id] != null) {
+            if (parserToolBridges[Thread.currentThread().threadId()] != null) {
                 if (morpho[docId] == null) {
                     LOGGER.severe("No morpho data for $docId")
                     //exitProcess(1)
                 }
-                LOGGER.finer("Parsing text: $docId in thread ${Thread.currentThread().id}")
-                morpho[docId] = parserToolBridges[Thread.currentThread().id]!!.parseText(
+                LOGGER.finer("Parsing text: $docId in thread ${Thread.currentThread().threadId()}")
+                morpho[docId] = parserToolBridges[Thread.currentThread().threadId()]!!.parseText(
                     tokens[docId]!!,
                     morpho[docId],
                     sentences[docId],
                     texts[docId]!!
                 )
-                LOGGER.finer("Parsed text: $docId in thread ${Thread.currentThread().id}")
+                LOGGER.finer("Parsed text: $docId in thread ${Thread.currentThread().threadId()}")
             }
             if (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null) {
                 korapXmlOutput(getMorphoFoundry(), docId)
@@ -837,7 +837,7 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
-    private fun getMorphoFoundry() = taggerToolBridges[Thread.currentThread().id]?.foundry ?: "base"
+    private fun getMorphoFoundry() = taggerToolBridges[Thread.currentThread().threadId()]?.foundry ?: "base"
 
     private fun logMemoryStats(count: Int) {
         try {
@@ -1107,7 +1107,6 @@ class KorapXmlTool : Callable<Int> {
         // If no text is available (e.g., lemma-only mode), emit lemmas
         if (texts[docId] == null) {
             tokens[docId]?.forEach { span ->
-                if (span == null) return@forEach
                 val key = "${span.from}-${span.to}"
                 val lemmaVal = morpho[docId]?.get(key)?.lemma
                 output.append((lemmaVal?.takeIf { it != "_" } ?: "_"), " ")
@@ -1116,7 +1115,6 @@ class KorapXmlTool : Callable<Int> {
             return output
         }
         tokens[docId]?.forEach { span ->
-            if (span == null) return@forEach
             token_index++
             if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
                 if (output.isNotEmpty()) {
@@ -1166,7 +1164,6 @@ class KorapXmlTool : Callable<Int> {
         if (texts[docId] == null) {
             // Lemma-only fallback when original text is not loaded
             tokens[docId]?.forEach { span ->
-                if (span == null) return@forEach
                 if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
                     if (output.isNotEmpty() && !output.endsWith("@@$docId ")) {
                         output.append(" <p> ")
@@ -1184,7 +1181,6 @@ class KorapXmlTool : Callable<Int> {
         }
         
         tokens[docId]?.forEach { span ->
-            if (span == null) return@forEach
             token_index++
             if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
                 // Replace sentence end with <p> tag instead of newline
@@ -1239,8 +1235,12 @@ class KorapXmlTool : Callable<Int> {
         return when (columns) {
             1 -> ("$token\n")
             10 -> ("$token_index\t$token\t$lemma\t$myUpos\t$xpos\t$feats\t$head\t$deprel\t$deps\t$misc$tokenSeparator")
-            else -> arrayOf(token_index, token, lemma, myUpos, xpos, feats, head, deprel, deps, misc).slice(0..<min(columns, 10))
-                .joinToString("\t", postfix = tokenSeparator)
+            else -> {
+                val fields = listOf(
+                    token_index.toString(), token, lemma, myUpos, xpos, feats, head, deprel, deps, misc
+                )
+                fields.subList(0, min(columns, 10)).joinToString("\t", postfix = tokenSeparator)
+            }
         }
     }
 

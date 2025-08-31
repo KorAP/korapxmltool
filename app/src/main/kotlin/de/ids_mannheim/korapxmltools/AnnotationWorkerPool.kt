@@ -39,7 +39,7 @@ class AnnotationWorkerPool(
                     }
                     threadCount.incrementAndGet()
                     successfullyInitialized = true
-                    LOGGER.info("Worker $workerIndex (thread ${self.id}) started.")
+                    LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) started.")
 
                     val process = ProcessBuilder("/bin/sh", "-c", command)
                         .redirectOutput(ProcessBuilder.Redirect.PIPE).redirectInput(ProcessBuilder.Redirect.PIPE)
@@ -47,7 +47,7 @@ class AnnotationWorkerPool(
                         .start()
 
                     if (process.outputStream == null) {
-                        LOGGER.severe("Worker $workerIndex (thread ${self.id}) failed to open pipe for command '$command'")
+                        LOGGER.severe("Worker $workerIndex (thread ${self.threadId()}) failed to open pipe for command '$command'")
                         return@Thread // Exits thread, finally block will run
                     }
                     // Using try-with-resources for streams to ensure they are closed
@@ -65,7 +65,7 @@ class AnnotationWorkerPool(
                                         val text = queue.poll(50, TimeUnit.MILLISECONDS) // Reduced timeout for more responsiveness
                                         if (text == null) { // Timeout, continue waiting for more data
                                             if (Thread.currentThread().isInterrupted) {
-                                                LOGGER.info("Worker $workerIndex (thread ${self.id}) writer interrupted, stopping")
+                                                LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) writer interrupted, stopping")
                                                 break
                                             }
                                             continue
@@ -76,23 +76,23 @@ class AnnotationWorkerPool(
                                                 outputStreamWriter.flush()
                                             } catch (e: IOException) {
                                                 // Log error, but proceed to close
-                                                LOGGER.warning("Worker $workerIndex (thread ${self.id}) failed to write EOF to process: ${e.message}")
+                                                LOGGER.warning("Worker $workerIndex (thread ${self.threadId()}) failed to write EOF to process: ${e.message}")
                                             } finally {
                                                 try { outputStreamWriter.close() } catch (_: IOException) {}
                                             }
-                                            LOGGER.info("Worker $workerIndex (thread ${self.id}) sent EOF to process and writer is stopping.")
+                                            LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) sent EOF to process and writer is stopping.")
                                             break // Exit while loop
                                         }
                                         try {
                                             outputStreamWriter.write(text + "\n# eot\n")
                                             outputStreamWriter.flush()
                                         } catch (e: IOException) {
-                                            LOGGER.severe("Worker $workerIndex (thread ${self.id}) failed to write to process: ${e.message}")
+                                            LOGGER.severe("Worker $workerIndex (thread ${self.threadId()}) failed to write to process: ${e.message}")
                                             break // Exit the loop
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    LOGGER.severe("Writer coroutine in worker $workerIndex (thread ${self.id}) failed: ${e.message}")
+                                    LOGGER.severe("Writer coroutine in worker $workerIndex (thread ${self.threadId()}) failed: ${e.message}")
                                 }
                             }
 
@@ -103,7 +103,7 @@ class AnnotationWorkerPool(
                                     procInStream.bufferedReader().use { reader ->
                                         while (!inputGotEof) {
                                             if (Thread.currentThread().isInterrupted) {
-                                                LOGGER.info("Worker $workerIndex (thread ${self.id}) reader interrupted, stopping")
+                                                LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) reader interrupted, stopping")
                                                 break
                                             }
                                             val line = reader.readLine()
@@ -117,7 +117,7 @@ class AnnotationWorkerPool(
                                             }
                                             when (line) {
                                                 "# eof" -> {
-                                                    LOGGER.info("Worker $workerIndex (thread ${self.id}) got EOF in output")
+                                                    LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) got EOF in output")
                                                     inputGotEof = true
                                                     if (output.isNotEmpty()) {
                                                         printOutput(output.toString()) // Print any remaining output
@@ -139,7 +139,7 @@ class AnnotationWorkerPool(
                                         printOutput(output.toString())
                                     }
                                 } catch (e: Exception) {
-                                    LOGGER.severe("Reader coroutine in worker $workerIndex (thread ${self.id}) failed: ${e.message}")
+                                    LOGGER.severe("Reader coroutine in worker $workerIndex (thread ${self.threadId()}) failed: ${e.message}")
                                 }
                             }
 
@@ -150,9 +150,9 @@ class AnnotationWorkerPool(
                                         job.join()
                                     }
                                 }
-                                LOGGER.info("Worker $workerIndex (thread ${self.id}) coroutines completed")
+                                LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) coroutines completed")
                             } catch (e: InterruptedException) {
-                                LOGGER.info("Worker $workerIndex (thread ${self.id}) interrupted while waiting for coroutines")
+                                LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) interrupted while waiting for coroutines")
                                 Thread.currentThread().interrupt() // Restore interrupt status
                             } finally {
                                 coroutineScope.cancel() // Ensure cleanup
@@ -162,17 +162,17 @@ class AnnotationWorkerPool(
 
                     val exitCode = process.waitFor()
                     if (exitCode != 0) {
-                        LOGGER.warning("Worker $workerIndex (thread ${self.id}) process exited with code $exitCode")
+                        LOGGER.warning("Worker $workerIndex (thread ${self.threadId()}) process exited with code $exitCode")
                     } else {
-                        LOGGER.info("Worker $workerIndex (thread ${self.id}) process finished normally")
+                        LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) process finished normally")
                     }
                 } catch (e: IOException) {
-                    LOGGER.severe("Worker $workerIndex (thread ${self.id}) failed: ${e.message}")
+                    LOGGER.severe("Worker $workerIndex (thread ${self.threadId()}) failed: ${e.message}")
                 } catch (e: InterruptedException) {
-                    LOGGER.info("Worker $workerIndex (thread ${self.id}) was interrupted during processing")
+                    LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) was interrupted during processing")
                     Thread.currentThread().interrupt() // Restore interrupt status
                 } catch (e: Exception) { // Catch any other unexpected exceptions during setup or process handling
-                    LOGGER.severe("Unhandled exception in worker thread ${self.id} (index $workerIndex): ${e.message}")
+                    LOGGER.severe("Unhandled exception in worker thread ${self.threadId()} (index $workerIndex): ${e.message}")
                     e.printStackTrace()
                 } finally {
                     if (successfullyInitialized) {
@@ -180,9 +180,9 @@ class AnnotationWorkerPool(
                             threads.remove(self)
                         }
                         threadCount.decrementAndGet()
-                        LOGGER.info("Worker thread ${self.id} (index $workerIndex) cleaned up and exiting. Active threads: ${threadCount.get()}")
+                        LOGGER.info("Worker thread ${self.threadId()} (index $workerIndex) cleaned up and exiting. Active threads: ${threadCount.get()}")
                     } else {
-                        LOGGER.warning("Worker thread ${self.id} (index $workerIndex) exiting without full initialization/cleanup.")
+                        LOGGER.warning("Worker thread ${self.threadId()} (index $workerIndex) exiting without full initialization/cleanup.")
                     }
                 }
             }.start()
@@ -270,16 +270,16 @@ class AnnotationWorkerPool(
                 try {
                     thread.join(10000) // Increased timeout to 10 seconds
                     if (thread.isAlive) {
-                        LOGGER.warning("Thread ${thread.id} did not terminate after 10s. Interrupting.")
+                        LOGGER.warning("Thread ${thread.threadId()} did not terminate after 10s. Interrupting.")
                         thread.interrupt()
                         thread.join(2000) // Wait 2 seconds after interrupt
                         if (thread.isAlive) {
-                            LOGGER.severe("Thread ${thread.id} failed to terminate after interrupt.")
+                            LOGGER.severe("Thread ${thread.threadId()} failed to terminate after interrupt.")
                         }
                     }
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
-                    LOGGER.warning("Interrupted while joining thread ${thread.id}. It may not have shut down cleanly.")
+                    LOGGER.warning("Interrupted while joining thread ${thread.threadId()}. It may not have shut down cleanly.")
                 }
             }
         }
@@ -291,7 +291,7 @@ class AnnotationWorkerPool(
             LOGGER.warning("$finalCount worker thread(s) still marked as active according to counter. This might indicate an issue in thread lifecycle management.")
             synchronized(threadsLock) {
                 if (threads.isNotEmpty()) {
-                    LOGGER.warning("The internal threads list is not empty: ${threads.map { it.id }}. Forcing clear.")
+                    LOGGER.warning("The internal threads list is not empty: ${threads.map { it.threadId() }}. Forcing clear.")
                     threads.clear() // Clean up if any refs are lingering despite count issues
                 }
             }

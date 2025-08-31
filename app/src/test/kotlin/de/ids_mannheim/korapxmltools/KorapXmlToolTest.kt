@@ -273,7 +273,7 @@ class KorapXmlToolTest {
     @Test
     fun korapXmlOutputWorks() {
         val sourceFile = loadResource("wdf19.zip").path
-        val tmpSourceFileName = createTempFile("tmp", ".zip", null).absolutePath
+        val tmpSourceFileName = java.io.File.createTempFile("tmp", ".zip").absolutePath
         File(sourceFile).copyTo(File(tmpSourceFileName), true)
 
         val args = arrayOf("-o", "-f", "zip", tmpSourceFileName)
@@ -286,7 +286,7 @@ class KorapXmlToolTest {
     @Test
     fun overwriteWorks() {
         val sourceFile = loadResource("wdf19.zip").path
-        val tmpSourceFileName = createTempFile("tmp", ".zip", null).absolutePath
+        val tmpSourceFileName = java.io.File.createTempFile("tmp", ".zip").absolutePath
         File(sourceFile).copyTo(File(tmpSourceFileName), true)
         val resultFile = tmpSourceFileName.toString().replace(".zip", ".base.zip")
         File(resultFile).createNewFile()
