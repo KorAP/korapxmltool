@@ -46,7 +46,7 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
 @Command(
     name = "KorapXmlTool",
     mixinStandardHelpOptions = true,
-    version = ["KorapXmlTool 2.0-beta-01"],
+    version = ["KorapXmlTool 2.0-beta-02"],
     description = ["Converts KorAP-XML <https://github.com/KorAP/KorAP-XML-Krill#about-korap-xml> base or " +
             "morpho zips to (annotated) CoNLL(-U) format with all information necessary for " +
             "reconstruction in comment lines."]
