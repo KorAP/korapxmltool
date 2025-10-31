@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AgentMigrationStateService">
+    <option name="pendingSessionIds">
+      <option value="1bb0b111-0da9-44e4-b08a-8e697a40d04a" />
+      <option value="38c33b7a-8372-4796-b811-2b7370bf602b" />
+      <option value="7ed66e0b-86f5-4aea-9a9c-b94da8a84a0b" />
+    </option>
+    <option name="pendingTurns">
+      <map>
+        <entry key="1bb0b111-0da9-44e4-b08a-8e697a40d04a">
+          <value>
+            <set>
+              <option value="8fc726af-0460-424c-9b80-d3f314923a7f" />
+              <option value="91dd3dec-6021-40a3-9ae2-4d208e2a74ff" />
+            </set>
+          </value>
+        </entry>
+        <entry key="38c33b7a-8372-4796-b811-2b7370bf602b">
+          <value>
+            <set>
+              <option value="6b06ef1f-a7b7-4c45-b73c-df4c50553027" />
+            </set>
+          </value>
+        </entry>
+        <entry key="7ed66e0b-86f5-4aea-9a9c-b94da8a84a0b">
+          <value>
+            <set>
+              <option value="31c87504-0ae0-4cf6-a3cb-8229bf20ac0a" />
+              <option value="cf5f435b-ccf6-4684-9c2e-2cc503980130" />
+              <option value="e9056435-5e3d-4066-9b45-53d12604c437" />
+            </set>
+          </value>
+        </entry>
+      </map>
+    </option>
+    <pendingWorkingSetItems>
+      <entry key="1bb0b111-0da9-44e4-b08a-8e697a40d04a" />
+      <entry key="38c33b7a-8372-4796-b811-2b7370bf602b">
+        <set>
+          <option value="file://$PROJECT_DIR$/app/src/main/kotlin/de/ids_mannheim/korapxmltools/KorapXmlTool.kt" />
+          <option value="file://$PROJECT_DIR$/build.gradle" />
+          <option value="file://$PROJECT_DIR$/app/build.gradle" />
+        </set>
+      </entry>
+      <entry key="7ed66e0b-86f5-4aea-9a9c-b94da8a84a0b" />
+    </pendingWorkingSetItems>
+  </component>
+</project>
