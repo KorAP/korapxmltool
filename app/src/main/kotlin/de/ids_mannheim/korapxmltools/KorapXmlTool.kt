@@ -409,6 +409,20 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
+        // Shutdown entry executor BEFORE closing worker pool to ensure no more tasks enqueue output after EOF
+        entryExecutor?.shutdown()
+        try {
+            if (entryExecutor != null) {
+                val terminated = entryExecutor!!.awaitTermination(7, java.util.concurrent.TimeUnit.DAYS)
+                if (!terminated) {
+                    LOGGER.warning("Entry executor did not terminate within timeout; proceeding to close worker pool.")
+                }
+            }
+        } catch (ie: InterruptedException) {
+            Thread.currentThread().interrupt()
+            LOGGER.warning("Interrupted while awaiting entry executor termination; proceeding to close worker pool.")
+        }
+
         if (annotationWorkerPool != null) {
             LOGGER.info("closing worker pool")
             annotationWorkerPool?.close()
@@ -824,7 +838,7 @@ class KorapXmlTool : Callable<Int> {
         }
 
         if (annotationWorkerPool != null) {
-            annotationWorkerPool?.pushToQueue(output.append("\n# eot\n").toString())
+            annotationWorkerPool?.pushToQueue(output.toString())
             // Release internal char[] early
             output.setLength(0)
         } else if (outputFormat != OutputFormat.KORAPXML) {
@@ -1061,6 +1075,8 @@ class KorapXmlTool : Callable<Int> {
         var real_token_index = 0
         var sentence_index = 0
         val output: StringBuilder
+        val sentencesArr = sentences[docId]
+        val tokensArr = tokens[docId]
         output =
             StringBuilder("# foundry = $foundry\n# filename = ${fnames[docId]}\n# text_id = $docId\n").append(
                 tokenOffsetsInSentence(
@@ -1071,9 +1087,13 @@ class KorapXmlTool : Callable<Int> {
             output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
         }
         var previousSpanStart = 0
-        tokens[docId]?.forEach { span ->
+        if (tokensArr == null || tokensArr.isEmpty()) {
+            return output
+        }
+        val textVal = texts[docId]
+        tokensArr.forEach { span ->
             token_index++
-            if (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to) {
+            if (sentencesArr != null && (sentence_index >= sentencesArr.size || span.from >= sentencesArr[sentence_index].to)) {
                 output.append("\n")
                 sentence_index++
                 token_index = 1
@@ -1092,23 +1112,19 @@ class KorapXmlTool : Callable<Int> {
                 }
                 previousSpanStart = span.from + 1
             }
+            // Bestimme den Token-Text sicher
+            val tokenText: String = if (textVal != null) {
+                val safeFrom = span.from.coerceIn(0, textVal.length)
+                val safeTo = span.to.coerceIn(safeFrom, textVal.length)
+                textVal.substring(safeFrom, safeTo)
+            } else "_"
+
             if (morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
                 val mfs = morpho[docId]!!["${span.from}-${span.to}"]
-                if (span.to > texts[docId]!!.length) {
-                    span.to = texts[docId]!!.length
-                    LOGGER.warning(
-                        "Offset error: could not retrieve token at ${span.from}-${span.to} – ending with: ${
-                            texts[docId]!!.substring(
-                                span.from,
-                                span.to
-                            )
-                        }"
-                    )
-                }
                 output.append(
                     printConlluToken(
                         token_index,
-                        texts[docId]!!.substring(span.from, span.to),
+                        tokenText,
                         mfs!!.lemma!!,
                         mfs.upos!!,
                         mfs.xpos!!,
@@ -1123,7 +1139,7 @@ class KorapXmlTool : Callable<Int> {
             } else {
                 output.append(
                     printConlluToken(
-                        token_index, texts[docId]!!.substring(span.from, span.to), columns = columns
+                        token_index, tokenText, columns = columns
                     )
                 )
             }
@@ -1288,23 +1304,23 @@ class KorapXmlTool : Callable<Int> {
         token_index: Int,
         tokens: ConcurrentHashMap<String, Array<Span>>
     ): String {
-        if (sentences[docId] == null || sentences[docId]!!.size <= sentence_index) {
-            return ""
-        }
-        val sentenceEndOffset = sentences[docId]!![sentence_index].to
+        val sentArr = sentences[docId] ?: return ""
+        if (sentence_index !in sentArr.indices) return ""
+        val toks = tokens[docId] ?: return ""
+        if (toks.isEmpty() || token_index !in toks.indices) return ""
+        val sentenceEndOffset = sentArr[sentence_index].to
         var i = token_index
         val start_offsets_string = StringBuilder()
         val end_offsets_string = StringBuilder()
-        while (tokens[docId] != null && i < tokens[docId]!!.size && tokens[docId]!![i].to <= sentenceEndOffset) {
-            start_offsets_string.append(" ", tokens[docId]!![i].from)
-            end_offsets_string.append(" ", tokens[docId]!![i].to)
+        while (i < toks.size && toks[i].to <= sentenceEndOffset) {
+            start_offsets_string.append(" ").append(toks[i].from)
+            end_offsets_string.append(" ").append(toks[i].to)
             i++
         }
-        return (
-                StringBuilder() .append(
-                    "# start_offsets = ", tokens[docId]!![token_index].from, start_offsets_string, "\n",
-                    "# end_offsets = ", sentenceEndOffset, end_offsets_string, "\n"
-                ).toString())
+        return StringBuilder()
+            .append("# start_offsets = ").append(toks[token_index].from).append(start_offsets_string).append("\n")
+            .append("# end_offsets = ").append(sentenceEndOffset).append(end_offsets_string).append("\n")
+            .toString()
     }
 
     private fun extractSpans(spans: NodeList): Array<Span> {
