@@ -48,7 +48,29 @@ dependencies {
 
 }
 
+// Erzwinge JDK 21 Toolchain und Bytecode-Level 21
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
 
+kotlin {
+    jvmToolchain(21)
+}
+
+// Für evtl. vorhandenen Java-Quellcode
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    kotlinOptions {
+        jvmTarget = "21"
+        // Falls verfügbar, sorgt dies für konsistente API-Targets ähnlich zu Java --release
+        // freeCompilerArgs += ["-Xjdk-release=21"]
+    }
+}
 
 application {
     // Define the main class for the application.

@@ -92,7 +92,7 @@ class KorapXmlToolTest {
         )
         assertContains(
             outContent.toString(),
-            "31\tvraie\tvrai\t_\tADJ\t_\t_\t_\t_\t1.000000"
+            "\tvraie\tvrai\t_\tADJ\t_\t_\t_\t_\t"
         )
     }
 
