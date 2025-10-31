@@ -72,33 +72,51 @@ tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
     }
 }
 
+// Version des Subprojekts explizit von Root erben
+version = rootProject.version
+
 application {
     // Define the main class for the application.
     mainClass = 'de.ids_mannheim.korapxmltools.KorapXmlToolKt'
 }
 
 jar {
-    // Will include every single one of your dependencies, project or not
-    // def lowerCasedName = baseName.toLowerCase()
-    // def normalizedName = lowerCasedName.substring(0,1).toUpperCase() + lowerCasedName.substring(1)
-
+    // Standard-JAR als "plain" kennzeichnen, um Konflikte mit ShadowJar zu vermeiden
+    archiveClassifier.set('plain')
     manifest.attributes(
             'Class-Path': configurations.compileClasspath.collect { it.getName() }.join(' '),
             'Main-Class': "de.ids_mannheim.korapxmltools.KorapXmlToolKt",
             'Implementation-Title': rootProject.name,
             'Implementation-Version': project.version
     )
-    shadowJar {
-        archiveBaseName.set('korapxmltool')
-        archiveClassifier.set('')
-        // Version ins Dateinamen aufnehmen
-        archiveVersion.set(project.version.toString())
-        manifest.attributes(
-            'Main-Class': "de.ids_mannheim.korapxmltools.KorapXmlToolKt",
-            'Implementation-Title': rootProject.name,
-            'Implementation-Version': project.version
-        )
-    }
+}
+
+shadowJar {
+    archiveBaseName.set('korapxmltool')
+    archiveClassifier.set('')
+    archiveVersion.set(project.version.toString())
+    manifest.attributes(
+        'Main-Class': "de.ids_mannheim.korapxmltools.KorapXmlToolKt",
+        'Implementation-Title': rootProject.name,
+        'Implementation-Version': project.version
+    )
+}
+
+// Stelle sicher, dass assemble auch den ShadowJar erzeugt
+tasks.named('assemble') {
+    dependsOn tasks.named('shadowJar')
+}
+
+// Erzeuge zusätzlich eine nicht-versionierte Kopie korapxmltool.jar für stabile Skriptpfade
+tasks.register('shadowJarLatest', Copy) {
+    dependsOn tasks.named('shadowJar')
+    from({ tasks.shadowJar.get().archiveFile.get().asFile })
+    into({ tasks.shadowJar.get().destinationDirectory.get().asFile })
+    rename { String _ -> 'korapxmltool.jar' }
+}
+
+tasks.named('build') {
+    dependsOn tasks.named('shadowJarLatest')
 }
 
 
