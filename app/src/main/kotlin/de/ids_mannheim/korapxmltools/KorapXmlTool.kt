@@ -31,6 +31,11 @@ import java.util.stream.IntStream
 import java.util.zip.ZipEntry
 
 import java.util.zip.ZipFile
+import me.tongfei.progressbar.ProgressBar
+import me.tongfei.progressbar.ProgressBarBuilder
+import me.tongfei.progressbar.ProgressBarStyle
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
@@ -319,6 +324,9 @@ class KorapXmlTool : Callable<Int> {
     private val processedDocs = java.util.concurrent.atomic.AtomicInteger(0)
     private val docsSentToAnnotation = java.util.concurrent.atomic.AtomicInteger(0)
     private val docsWrittenToZip = java.util.concurrent.atomic.AtomicInteger(0)
+    private val totalDocsInInput = java.util.concurrent.atomic.AtomicInteger(0) // Track total documents for progress
+    private val annotationStartTime = java.util.concurrent.atomic.AtomicLong(0) // Track when annotation started
+    private var progressBar: ProgressBar? = null
     var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge?> = ConcurrentHashMap()
     var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge?> = ConcurrentHashMap()
 
@@ -484,6 +492,9 @@ class KorapXmlTool : Callable<Int> {
                     e.printStackTrace()
                 }
             }
+
+            // Close progress bar
+            progressBar?.close()
 
             // Check if all documents were written
             val sent = docsSentToAnnotation.get()
@@ -716,13 +727,36 @@ class KorapXmlTool : Callable<Int> {
     private fun processZipEntriesWithPool(zipFile: ZipFile, foundry: String, waitForMorpho: Boolean) {
         // Collect entries first to avoid lazy evaluation surprises, filter header.xml unless metadata extraction is requested
         val entries: MutableList<ZipEntry> = ArrayList()
+        var documentCount = 0
         val enumEntries = zipFile.entries()
         while (enumEntries.hasMoreElements()) {
             val e = enumEntries.nextElement()
             if (extractMetadataRegex.isEmpty() && e.name.contains("header.xml")) continue
             entries.add(e)
+            // Count data.xml files as documents for progress tracking
+            if (e.name.contains("data.xml")) {
+                documentCount++
+            }
         }
         if (entries.isEmpty()) return
+
+        // Update total document count and start timer if this is the first ZIP with external annotation
+        if (annotationWorkerPool != null && documentCount > 0) {
+            val newTotal = totalDocsInInput.addAndGet(documentCount)
+            if (annotationStartTime.get() == 0L) {
+                annotationStartTime.set(System.currentTimeMillis())
+                LOGGER.info("Starting annotation of $newTotal document(s)")
+
+                // Initialize progress bar for external annotation with ZIP output
+                progressBar = ProgressBarBuilder()
+                    .setTaskName("Annotating")
+                    .setInitialMax(newTotal.toLong())
+                    .setStyle(ProgressBarStyle.ASCII)
+                    .setUpdateIntervalMillis(500) // Update every 500ms
+                    .showSpeed()
+                    .build()
+            }
+        }
 
         // If only one thread requested, do sequential to avoid pool overhead
         if (maxThreads <= 1) {
@@ -1733,7 +1767,32 @@ class KorapXmlTool : Callable<Int> {
                 morphoZipOutputStream!!.closeArchiveEntry()
             }
             LOGGER.fine("Successfully wrote morpho.xml for $docId")
-            docsWrittenToZip.incrementAndGet()
+            val written = docsWrittenToZip.incrementAndGet()
+
+            // Update progress bar
+            progressBar?.step()
+
+            // Show progress with ETA at INFO level
+            if (annotationWorkerPool != null && totalDocsInInput.get() > 0) {
+                val total = totalDocsInInput.get()
+                val percent = (written * 100.0) / total
+                val elapsed = (System.currentTimeMillis() - annotationStartTime.get()) / 1000.0
+                val docsPerSec = if (elapsed > 0) written / elapsed else 0.0
+                val remaining = total - written
+                val etaSec = if (docsPerSec > 0) remaining / docsPerSec else 0.0
+
+                // Calculate estimated finish time
+                val finishTime = LocalDateTime.now().plusSeconds(etaSec.toLong())
+                val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+
+                if (written % 10 == 0 || written == total) {
+                    val etaMin = (etaSec / 60).toInt()
+                    val etaSec2 = (etaSec % 60).toInt()
+                    LOGGER.info(String.format(Locale.ROOT,
+                        "Progress: %d/%d (%.1f%%), %.1f docs/s, ETA %02d:%02d, finish ~%s",
+                        written, total, percent, docsPerSec, etaMin, etaSec2, finishTime.format(timeFormatter)))
+                }
+            }
         } catch (e: Exception) {
             LOGGER.severe("ERROR generating/writing morpho.xml: ${e.message}")
             e.printStackTrace()
