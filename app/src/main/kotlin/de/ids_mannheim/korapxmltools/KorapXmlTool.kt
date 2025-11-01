@@ -317,6 +317,8 @@ class KorapXmlTool : Callable<Int> {
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
     val extraFeatures: ConcurrentHashMap<String, MutableMap<String, String>> = ConcurrentHashMap()
     private val processedDocs = java.util.concurrent.atomic.AtomicInteger(0)
+    private val docsSentToAnnotation = java.util.concurrent.atomic.AtomicInteger(0)
+    private val docsWrittenToZip = java.util.concurrent.atomic.AtomicInteger(0)
     var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge?> = ConcurrentHashMap()
     var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge?> = ConcurrentHashMap()
 
@@ -345,15 +347,57 @@ class KorapXmlTool : Callable<Int> {
     }
 
     fun korapxml2conllu(args: Array<String>) {
-        if (outputFormat == OutputFormat.KORAPXML && annotateWith.isNotEmpty()) {
-            LOGGER.severe("Shell command annotation is not yet supported with output format $outputFormat")
-            exitProcess(1)
-        }
         // Initialize shared entry executor (used inside each zip)
         entryExecutor = Executors.newFixedThreadPool(maxThreads)
 
         if (annotateWith.isNotEmpty()) {
-            annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER)
+            // Initialize ZIP output stream BEFORE creating worker pool, if needed
+            if (outputFormat == OutputFormat.KORAPXML) {
+                // Determine output filename
+                val inputZipPath = args[0] // First ZIP file
+                var targetFoundry = "base"
+                when {
+                    annotateWith.contains("spacy") -> targetFoundry = "spacy"
+                    annotateWith.contains("stanza") -> targetFoundry = "stanza"
+                    annotateWith.contains("udpipe") -> targetFoundry = "udpipe"
+                    annotateWith.contains("tree") -> targetFoundry = "tree_tagger"
+                    annotateWith.contains("marmot") -> targetFoundry = "marmot"
+                    annotateWith.contains("opennlp") -> targetFoundry = "opennlp"
+                    annotateWith.contains("corenlp") -> targetFoundry = "corenlp"
+                    else -> targetFoundry = "annotated"
+                }
+
+                val outputMorphoZipFileName = inputZipPath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
+                LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
+
+                if (File(outputMorphoZipFileName).exists() && !overwrite) {
+                    LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
+                    exitProcess(1)
+                }
+
+                // Delete old file if it exists
+                if (File(outputMorphoZipFileName).exists()) {
+                    LOGGER.info("Deleting existing file: $outputMorphoZipFileName")
+                    File(outputMorphoZipFileName).delete()
+                }
+
+                dbFactory = DocumentBuilderFactory.newInstance()
+                dBuilder = dbFactory!!.newDocumentBuilder()
+                val fileOutputStream = FileOutputStream(outputMorphoZipFileName)
+                morphoZipOutputStream = ZipArchiveOutputStream(fileOutputStream).apply {
+                    setUseZip64(Zip64Mode.Always)
+                }
+                LOGGER.info("Initialized morphoZipOutputStream for external annotation to: $outputMorphoZipFileName")
+            }
+
+            if (outputFormat == OutputFormat.KORAPXML) {
+                // For ZIP output with external annotation, we need a custom handler
+                annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER) { annotatedConllu, task ->
+                    parseAndWriteAnnotatedConllu(annotatedConllu, task)
+                }
+            } else {
+                annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, null)
+            }
         }
 
         var zips: Array<String> = args
@@ -425,7 +469,28 @@ class KorapXmlTool : Callable<Int> {
 
         if (annotationWorkerPool != null) {
             LOGGER.info("closing worker pool")
+            LOGGER.info("Documents sent to annotation: ${docsSentToAnnotation.get()}")
             annotationWorkerPool?.close()
+            LOGGER.info("Documents written to ZIP: ${docsWrittenToZip.get()}")
+
+            // Close the ZIP file after worker pool is done (if using external annotation with ZIP output)
+            if (outputFormat == OutputFormat.KORAPXML && morphoZipOutputStream != null) {
+                try {
+                    morphoZipOutputStream!!.flush()
+                    morphoZipOutputStream!!.close()
+                    LOGGER.info("Closed output ZIP file after annotation processing")
+                } catch (e: Exception) {
+                    LOGGER.severe("ERROR closing ZIP file: ${e.message}")
+                    e.printStackTrace()
+                }
+            }
+
+            // Check if all documents were written
+            val sent = docsSentToAnnotation.get()
+            val written = docsWrittenToZip.get()
+            if (sent != written) {
+                LOGGER.warning("Document count mismatch! Sent to annotation: $sent, Written to ZIP: $written (missing: ${sent - written})")
+            }
         }
         // Shutdown entry executor
         entryExecutor?.shutdown()
@@ -520,6 +585,19 @@ class KorapXmlTool : Callable<Int> {
                 }
             } else if (parserName != null) {
                 targetFoundry = parserName!!
+            } else if (annotateWith.isNotEmpty()) {
+                // Try to detect foundry from external annotation command
+                when {
+                    annotateWith.contains("spacy") -> targetFoundry = "spacy"
+                    annotateWith.contains("stanza") -> targetFoundry = "stanza"
+                    annotateWith.contains("udpipe") -> targetFoundry = "udpipe"
+                    annotateWith.contains("tree") -> targetFoundry = "tree_tagger"
+                    annotateWith.contains("marmot") -> targetFoundry = "marmot"
+                    annotateWith.contains("opennlp") -> targetFoundry = "opennlp"
+                    annotateWith.contains("corenlp") -> targetFoundry = "corenlp"
+                    else -> targetFoundry = "annotated"
+                }
+                LOGGER.info("Detected foundry '$targetFoundry' from annotation command: $annotateWith")
             }
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
@@ -528,6 +606,7 @@ class KorapXmlTool : Callable<Int> {
                     zipFilePath.replace(Regex("(\\.(opennlp|marmot|tree_tagger|corenlp|spacy))?\\.zip$"), ".".plus(parserName).plus(".zip"))
                 else
                     zipFilePath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
+            LOGGER.info("Output ZIP file: $outputMorphoZipFileName")
             if (File(outputMorphoZipFileName).exists() && !overwrite) {
                 LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
                 exitProcess(1)
@@ -536,6 +615,9 @@ class KorapXmlTool : Callable<Int> {
             morphoZipOutputStream = ZipArchiveOutputStream(fileOutputStream).apply {
                 setUseZip64(Zip64Mode.Always)
             }
+            LOGGER.info("Initialized morphoZipOutputStream for $outputMorphoZipFileName")
+        } else {
+            LOGGER.info("Skipping ZIP initialization: dbFactory=${dbFactory != null}, outputFormat=$outputFormat")
         }
         if (zipFilePath.hasCorrespondingBaseZip()) {
             val relatedZips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
@@ -550,8 +632,12 @@ class KorapXmlTool : Callable<Int> {
                 processZipEntriesWithPool(zipFile, foundry, false)
             }
         }
-        if (outputFormat == OutputFormat.KORAPXML) {
+        // Don't close the ZIP here if using external annotation - it will be closed after worker pool finishes
+        if (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null) {
+            LOGGER.fine("Closing output ZIP file in processZipFile (no annotation worker pool)")
             morphoZipOutputStream!!.close()
+        } else if (outputFormat == OutputFormat.KORAPXML) {
+            LOGGER.fine("NOT closing ZIP in processZipFile - will close after worker pool finishes")
         }
         logZipProgress(zipFilePath)
     }
@@ -747,19 +833,23 @@ class KorapXmlTool : Callable<Int> {
                     }
                 }
 
-                val morphoRequired = waitForMorpho || useLemma || taggerName != null || parserName != null || outputFormat == OutputFormat.KORAPXML
+                val morphoRequired = waitForMorpho || useLemma || taggerName != null || parserName != null || (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null)
                 // For lemma-only/lemma-based word2vec/now, we can proceed without full text
                 val textRequired = when (outputFormat) {
                     OutputFormat.WORD2VEC, OutputFormat.NOW -> !(useLemma || lemmaOnly)
                     else -> true
                 }
+
+                LOGGER.fine("Checking if ready to process $docId: texts=${texts[docId] != null}, sentences=${sentences[docId] != null}, tokens=${tokens[docId] != null}, morpho=${morpho[docId] != null}, morphoRequired=$morphoRequired, textRequired=$textRequired, annotationWorkerPool=${annotationWorkerPool != null}")
+
                 if ((texts[docId] != null || !textRequired) && sentences[docId] != null && tokens[docId] != null
                     && (!morphoRequired || morpho[docId] != null)
                     && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
                 ) {
-                    // Be quiet on INFO; per-text logs only on FINE and below
-                    LOGGER.fine("Processing text: $docId in thread ${Thread.currentThread().threadId()}")
+                    LOGGER.fine("All data ready for $docId, calling processText")
                     processText(docId, foundry)
+                } else {
+                    LOGGER.fine("NOT ready to process $docId yet: textOK=${texts[docId] != null || !textRequired}, sentencesOK=${sentences[docId] != null}, tokensOK=${tokens[docId] != null}, morphoOK=${!morphoRequired || morpho[docId] != null}")
                 }
             } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
                 //LOGGER.info("Processing header file: " + zipEntry.name)
@@ -777,7 +867,7 @@ class KorapXmlTool : Callable<Int> {
                 }
                 if (meta.isNotEmpty() && docId != null) {
                     metadata[docId] = meta.toTypedArray()
-                    val morphoRequired = waitForMorpho || useLemma || taggerName != null || parserName != null || outputFormat == OutputFormat.KORAPXML
+                    val morphoRequired = waitForMorpho || useLemma || taggerName != null || parserName != null || (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null)
                     val textRequired = when (outputFormat) {
                         OutputFormat.WORD2VEC, OutputFormat.NOW -> !(useLemma || lemmaOnly)
                         else -> true
@@ -786,7 +876,7 @@ class KorapXmlTool : Callable<Int> {
                          && (!morphoRequired || morpho[docId] != null)
                      ) {
                         // Be quiet on INFO; per-text logs only on FINE and below
-                        LOGGER.fine("Processing text (meta-ready): $docId in thread ${Thread.currentThread().threadId()}")
+                        LOGGER.info("Processing text (meta-ready): $docId in thread ${Thread.currentThread().threadId()}")
                         processText(docId, foundry)
                     }
                 }
@@ -838,7 +928,20 @@ class KorapXmlTool : Callable<Int> {
         }
 
         if (annotationWorkerPool != null) {
-            annotationWorkerPool?.pushToQueue(output.toString())
+            if (outputFormat == OutputFormat.KORAPXML) {
+                // Store metadata in task, send clean CoNLL-U to external process
+                val entryPath = if (parserName != null)  docId.replace(Regex("[_.]"), "/").plus("/$parserName/").plus("dependency.xml")
+                else
+                    docId.replace(Regex("[_.]"), "/").plus("/$morphoFoundry/").plus("morpho.xml")
+                LOGGER.fine("Sending document $docId (${output.length} chars) to annotation worker pool for ZIP output")
+                // Pass metadata via AnnotationTask, NOT in the text itself
+                annotationWorkerPool?.pushToQueue(output.toString(), docId, entryPath + "|" + foundry)
+                docsSentToAnnotation.incrementAndGet()
+            } else {
+                LOGGER.fine("Sending document $docId (${output.length} chars) to annotation worker pool")
+                annotationWorkerPool?.pushToQueue(output.toString())
+                docsSentToAnnotation.incrementAndGet()
+            }
             // Release internal char[] early
             output.setLength(0)
         } else if (outputFormat != OutputFormat.KORAPXML) {
@@ -848,7 +951,18 @@ class KorapXmlTool : Callable<Int> {
             // Release internal char[] early
             output.setLength(0)
         } else {
-            korapXmlOutput(foundry, docId)
+            // Direct ZIP output without external annotation
+            val entryPath = if (parserName != null)  docId.replace(Regex("[_.]"), "/").plus("/$parserName/").plus("dependency.xml")
+            else
+                docId.replace(Regex("[_.]"), "/").plus("/$morphoFoundry/").plus("morpho.xml")
+            val zipEntry = ZipArchiveEntry(entryPath)
+            zipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+            synchronized(morphoZipOutputStream!!) {
+                morphoZipOutputStream!!.putArchiveEntry(zipEntry)
+                morphoZipOutputStream!!.write(output.toString().toByteArray())
+                morphoZipOutputStream!!.closeArchiveEntry()
+            }
+            output.clear()
         }
 
 
@@ -871,20 +985,6 @@ class KorapXmlTool : Callable<Int> {
             if (count % memStatsInterval == 0) {
                 logMemoryStats(count)
             }
-        }
-
-        if (outputFormat == OutputFormat.KORAPXML) {
-            val entryPath = if (parserName != null)  docId.replace(Regex("[_.]"), "/").plus("/$parserName/").plus("dependency.xml")
-            else
-                docId.replace(Regex("[_.]"), "/").plus("/$morphoFoundry/").plus("morpho.xml")
-            val zipEntry = ZipArchiveEntry(entryPath)
-            zipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
-            synchronized(morphoZipOutputStream!!) {
-                morphoZipOutputStream!!.putArchiveEntry(zipEntry)
-                morphoZipOutputStream!!.write(output.toString().toByteArray())
-                morphoZipOutputStream!!.closeArchiveEntry()
-            }
-            output.clear()
         }
     }
 
@@ -1113,33 +1213,64 @@ class KorapXmlTool : Callable<Int> {
                 previousSpanStart = span.from + 1
             }
             // Bestimme den Token-Text sicher
-            val tokenText: String = if (textVal != null) {
+            var tokenText: String = if (textVal != null) {
                 val safeFrom = span.from.coerceIn(0, textVal.length)
                 val safeTo = span.to.coerceIn(safeFrom, textVal.length)
                 textVal.substring(safeFrom, safeTo)
             } else "_"
 
+            // Validate and fix empty/whitespace-only tokens that cause SpaCy to crash
+            if (tokenText.isBlank()) {
+                LOGGER.fine("Replacing empty/blank token at offset ${span.from}-${span.to} in document $docId with underscore")
+                tokenText = "_"  // Replace with underscore instead of skipping
+            }
+
             if (morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
                 val mfs = morpho[docId]!!["${span.from}-${span.to}"]
-                output.append(
-                    printConlluToken(
-                        token_index,
-                        tokenText,
-                        mfs!!.lemma!!,
-                        mfs.upos!!,
-                        mfs.xpos!!,
-                        mfs.feats!!,
-                        mfs.head!!,
-                        mfs.deprel!!,
-                        mfs.deps!!,
-                        mfs.misc!!,
-                        columns
+                if (mfs != null) {
+                    // Add offset info to MISC field for external annotation with ZIP output
+                    val miscWithOffset = if (annotationWorkerPool != null && outputFormat == OutputFormat.KORAPXML) {
+                        val existing = mfs.misc ?: "_"
+                        if (existing == "_") "Offset=${span.from}-${span.to}"
+                        else "${existing}|Offset=${span.from}-${span.to}"
+                    } else mfs.misc ?: "_"
+
+                    output.append(
+                        printConlluToken(
+                            token_index,
+                            tokenText,
+                            mfs.lemma ?: "_",
+                            mfs.upos ?: "_",
+                            mfs.xpos ?: "_",
+                            mfs.feats ?: "_",
+                            mfs.head ?: "_",
+                            mfs.deprel ?: "_",
+                            mfs.deps ?: "_",
+                            miscWithOffset,
+                            columns
+                        )
                     )
-                )
+                } else {
+                    // Fallback if mfs is null
+                    val miscWithOffset = if (annotationWorkerPool != null && outputFormat == OutputFormat.KORAPXML) {
+                        "Offset=${span.from}-${span.to}"
+                    } else "_"
+
+                    output.append(
+                        printConlluToken(
+                            token_index, tokenText, misc = miscWithOffset, columns = columns
+                        )
+                    )
+                }
             } else {
+                // Add offset info for tokens without morpho data when needed
+                val miscWithOffset = if (annotationWorkerPool != null && outputFormat == OutputFormat.KORAPXML) {
+                    "Offset=${span.from}-${span.to}"
+                } else "_"
+
                 output.append(
                     printConlluToken(
-                        token_index, tokenText, columns = columns
+                        token_index, tokenText, misc = miscWithOffset, columns = columns
                     )
                 )
             }
@@ -1210,10 +1341,10 @@ class KorapXmlTool : Callable<Int> {
         var real_token_index = 0
         var sentence_index = 0
         val output: StringBuilder = StringBuilder()
-        
+
         // Add the text sigle prefix
         output.append("@@$docId ")
-        
+
         if (texts[docId] == null) {
             // Lemma-only fallback when original text is not loaded
             tokens[docId]?.forEach { span ->
@@ -1449,6 +1580,198 @@ class KorapXmlTool : Callable<Int> {
         var misc: String? = "_"
     )
 
+    private fun parseAndWriteAnnotatedConllu(annotatedConllu: String, task: AnnotationWorkerPool.AnnotationTask?) {
+        LOGGER.fine("parseAndWriteAnnotatedConllu called with ${annotatedConllu.length} chars, task=$task")
+
+        // Extract metadata from task
+        val docId = task?.docId
+        val entryPathAndFoundry = task?.entryPath?.split("|") ?: listOf(null, null)
+        val entryPath = entryPathAndFoundry.getOrNull(0)
+        val foundry = entryPathAndFoundry.getOrNull(1) ?: "base"
+
+        if (docId == null || entryPath == null) {
+            LOGGER.fine("Missing metadata from task! docId=$docId, entryPath=$entryPath, task=$task")
+            return
+        }
+
+        LOGGER.fine("Processing annotated document: docId=$docId, entryPath=$entryPath, foundry=$foundry")
+
+        val morphoSpans = mutableMapOf<String, MorphoSpan>()
+
+        // Parse the annotated CoNLL-U to extract morpho data
+        val lines = annotatedConllu.lines()
+        var currentStartOffsets: List<Int>? = null
+        var currentEndOffsets: List<Int>? = null
+        var tokenIndexInSentence = 0
+
+        for (line in lines) {
+            when {
+                line.startsWith("# start_offsets =") -> {
+                    // Parse start offsets from comment
+                    // Format: # start_offsets = <first_token_from> <token1_from> <token2_from> ...
+                    // The first value is duplicated, so skip it and use values from index 1 onwards
+                    val offsetsStr = line.substring("# start_offsets =".length).trim()
+                    val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
+                    currentStartOffsets = if (allOffsets.size > 1) allOffsets.drop(1) else allOffsets
+                    tokenIndexInSentence = 0
+                    LOGGER.fine("Found start offsets: $currentStartOffsets")
+                }
+                line.startsWith("# end_offsets =") -> {
+                    // Parse end offsets from comment
+                    // Format: # end_offsets = <sentence_end> <token1_to> <token2_to> ...
+                    // First value is sentence end, actual token ends start from index 1
+                    val offsetsStr = line.substring("# end_offsets =".length).trim()
+                    val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
+                    currentEndOffsets = if (allOffsets.size > 1) allOffsets.drop(1) else emptyList()
+                    LOGGER.fine("Found end offsets: $currentEndOffsets")
+                }
+                line.isEmpty() -> {
+                    // Reset for next sentence
+                    currentStartOffsets = null
+                    currentEndOffsets = null
+                    tokenIndexInSentence = 0
+                }
+                !line.startsWith("#") -> {
+                    // This is a token line
+                    val fields = line.split("\t")
+                    if (fields.size < 10) continue
+
+                    val lemma = if (fields.size > 2) fields[2] else "_"
+                    val upos = if (fields.size > 3) fields[3] else "_"
+                    val xpos = if (fields.size > 4) fields[4] else "_"
+                    val feats = if (fields.size > 5) fields[5] else "_"
+                    val head = if (fields.size > 6) fields[6] else "_"
+                    val deprel = if (fields.size > 7) fields[7] else "_"
+                    val deps = if (fields.size > 8) fields[8] else "_"
+                    val misc = if (fields.size > 9) fields[9] else "_"
+
+                    // Get offset from the comment-based offset arrays
+                    if (currentStartOffsets != null && currentEndOffsets != null &&
+                        tokenIndexInSentence < currentStartOffsets.size &&
+                        tokenIndexInSentence < currentEndOffsets.size) {
+
+                        val spanFrom = currentStartOffsets[tokenIndexInSentence]
+                        val spanTo = currentEndOffsets[tokenIndexInSentence]
+                        val spanKey = "$spanFrom-$spanTo"
+
+                        morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
+                        LOGGER.fine("Added morpho span: $spanKey -> $lemma/$upos")
+                        tokenIndexInSentence++
+                    } else {
+                        LOGGER.fine("No offset information for token at index $tokenIndexInSentence in sentence (starts=${currentStartOffsets?.size}, ends=${currentEndOffsets?.size})")
+                    }
+                }
+            }
+        }
+
+        LOGGER.fine("Extracted ${morphoSpans.size} morpho spans for $docId")
+
+        if (morphoSpans.isEmpty()) {
+            LOGGER.warning("No morpho spans found in annotated output for $docId, skipping")
+            LOGGER.warning("Sample lines: ${lines.take(10).joinToString("\\n")}")
+            return
+        }
+
+        // Check if the data contains dependency information (non-empty head/deprel fields)
+        val hasDependencies = morphoSpans.values.any { span ->
+            span.head != null && span.head != "_" && span.deprel != null && span.deprel != "_"
+        }
+        LOGGER.fine("Document has dependencies: $hasDependencies")
+
+        if (morphoZipOutputStream == null) {
+            LOGGER.severe("morphoZipOutputStream is null! Cannot write to ZIP. This should have been initialized in processZipFile.")
+            return
+        }
+
+        if (dBuilder == null) {
+            LOGGER.warning("dBuilder is null, initializing now...")
+            dbFactory = DocumentBuilderFactory.newInstance()
+            dBuilder = dbFactory!!.newDocumentBuilder()
+        }
+
+        // Create a temporary document context for korapXmlOutput
+        // Store the morpho data temporarily and copy necessary supporting data
+        val tempDocId = "_temp_annotated_$docId"
+        morpho[tempDocId] = morphoSpans
+
+        // For dependency output, we need sentences data
+        // Create dummy sentence spans covering the entire document based on tokens
+        if (hasDependencies && morphoSpans.isNotEmpty()) {
+            // Get min and max offsets from all tokens
+            val allOffsets = morphoSpans.keys.map { key ->
+                val parts = key.split("-")
+                Pair(parts[0].toInt(), parts[1].toInt())
+            }
+            val minOffset = allOffsets.minOfOrNull { it.first } ?: 0
+            val maxOffset = allOffsets.maxOfOrNull { it.second } ?: 0
+
+            // Create a single sentence span covering all tokens
+            // This is a simplification - ideally we'd track sentence boundaries from CoNLL-U
+            sentences[tempDocId] = arrayOf(Span(minOffset, maxOffset))
+        }
+
+        LOGGER.fine("Generating KorapXML for $docId with ${morphoSpans.size} spans")
+
+        // Generate morpho.xml (always)
+        try {
+            val morphoXmlOutput = korapXmlMorphoOutput(foundry, tempDocId)
+
+            // Fix the docid attribute - replace temp prefix with actual docId
+            val fixedMorphoXml = morphoXmlOutput.toString().replace(
+                "docid=\"$tempDocId\"",
+                "docid=\"$docId\""
+            )
+
+            val morphoEntryPath = docId.replace(Regex("[_.]"), "/") + "/$foundry/morpho.xml"
+
+            val morphoZipEntry = ZipArchiveEntry(morphoEntryPath)
+            morphoZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+            LOGGER.fine("Writing ${fixedMorphoXml.length} bytes to ZIP entry: $morphoEntryPath")
+            synchronized(morphoZipOutputStream!!) {
+                morphoZipOutputStream!!.putArchiveEntry(morphoZipEntry)
+                morphoZipOutputStream!!.write(fixedMorphoXml.toByteArray())
+                morphoZipOutputStream!!.closeArchiveEntry()
+            }
+            LOGGER.fine("Successfully wrote morpho.xml for $docId")
+            docsWrittenToZip.incrementAndGet()
+        } catch (e: Exception) {
+            LOGGER.severe("ERROR generating/writing morpho.xml: ${e.message}")
+            e.printStackTrace()
+        }
+
+        // Generate dependency.xml if dependencies are present
+        if (hasDependencies) {
+            try {
+                val dependencyXmlOutput = korapXmlDependencyOutput(foundry, tempDocId)
+
+                // Fix the docid attribute - replace temp prefix with actual docId
+                val fixedDependencyXml = dependencyXmlOutput.toString().replace(
+                    "docid=\"$tempDocId\"",
+                    "docid=\"$docId\""
+                )
+
+                val dependencyEntryPath = docId.replace(Regex("[_.]"), "/") + "/$foundry/dependency.xml"
+
+                val dependencyZipEntry = ZipArchiveEntry(dependencyEntryPath)
+                dependencyZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+                LOGGER.fine("Writing ${fixedDependencyXml.length} bytes to ZIP entry: $dependencyEntryPath")
+                synchronized(morphoZipOutputStream!!) {
+                    morphoZipOutputStream!!.putArchiveEntry(dependencyZipEntry)
+                    morphoZipOutputStream!!.write(fixedDependencyXml.toByteArray())
+                    morphoZipOutputStream!!.closeArchiveEntry()
+                }
+                LOGGER.fine("Successfully wrote dependency.xml for $docId")
+            } catch (e: Exception) {
+                LOGGER.severe("ERROR generating/writing dependency.xml: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+
+        // Clean up temporary data
+        morpho.remove(tempDocId)
+        sentences.remove(tempDocId)
+    }
+
 }
 
 fun main(args: Array<String>): Unit = exitProcess(CommandLine(KorapXmlTool()).execute(*args))
@@ -1476,3 +1799,4 @@ object KorapXmlOutputFormat {
 object NowOutputFormat {
     const val NAME = "now"
 }
+

@@ -16,12 +16,16 @@ private const val HIGH_WATERMARK = 1000000
 class AnnotationWorkerPool(
     private val command: String,
     private val numWorkers: Int,
-    private val LOGGER: Logger
+    private val LOGGER: Logger,
+    private val outputHandler: ((String, AnnotationTask?) -> Unit)? = null
 ) {
-    private val queue: BlockingQueue<String> = LinkedBlockingQueue()
+    private val queue: BlockingQueue<AnnotationTask> = LinkedBlockingQueue()
     private val threads = mutableListOf<Thread>()
     private val threadCount = AtomicInteger(0)
     private val threadsLock = Any()
+    private val pendingOutputHandlers = AtomicInteger(0) // Track pending outputHandler calls
+
+    data class AnnotationTask(val text: String, val docId: String?, val entryPath: String?)
 
     init {
         openWorkerPool()
@@ -33,13 +37,24 @@ class AnnotationWorkerPool(
             Thread {
                 val self = currentThread()
                 var successfullyInitialized = false
-                try {
-                    synchronized(threadsLock) {
-                        threads.add(self)
+                var workerAttempts = 0
+                val maxRestarts = 50 // Allow up to 50 restarts per worker to handle crashes
+
+                while (workerAttempts < maxRestarts && !Thread.currentThread().isInterrupted) {
+                    workerAttempts++
+                    if (workerAttempts > 1) {
+                        LOGGER.info("Worker $workerIndex: Restart attempt $workerAttempts")
                     }
-                    threadCount.incrementAndGet()
-                    successfullyInitialized = true
-                    LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) started.")
+
+                try {
+                    if (workerAttempts == 1) {
+                        synchronized(threadsLock) {
+                            threads.add(self)
+                        }
+                        threadCount.incrementAndGet()
+                        successfullyInitialized = true
+                        LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) started.")
+                    }
 
                     val process = ProcessBuilder("/bin/sh", "-c", command)
                         .redirectOutput(ProcessBuilder.Redirect.PIPE).redirectInput(ProcessBuilder.Redirect.PIPE)
@@ -50,6 +65,10 @@ class AnnotationWorkerPool(
                         LOGGER.severe("Worker $workerIndex (thread ${self.threadId()}) failed to open pipe for command '$command'")
                         return@Thread // Exits thread, finally block will run
                     }
+
+                    // Declare pendingTasks here so it's accessible after process exits
+                    val pendingTasks: BlockingQueue<AnnotationTask> = LinkedBlockingQueue()
+
                     // Using try-with-resources for streams to ensure they are closed
                     process.outputStream.buffered(BUFFER_SIZE).use { procOutStream ->
                         process.inputStream.buffered(BUFFER_SIZE).use { procInStream ->
@@ -62,15 +81,15 @@ class AnnotationWorkerPool(
                                 val outputStreamWriter = OutputStreamWriter(procOutStream)
                                 try {
                                     while (true) { // Loop until EOF is received
-                                        val text = queue.poll(50, TimeUnit.MILLISECONDS) // Reduced timeout for more responsiveness
-                                        if (text == null) { // Timeout, continue waiting for more data
+                                        val task = queue.poll(50, TimeUnit.MILLISECONDS) // Reduced timeout for more responsiveness
+                                        if (task == null) { // Timeout, continue waiting for more data
                                             if (Thread.currentThread().isInterrupted) {
                                                 LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) writer interrupted, stopping")
                                                 break
                                             }
                                             continue
                                         }
-                                        if (text == "#eof") {
+                                        if (task.text == "#eof") {
                                             try {
                                                 outputStreamWriter.write("\n# eof\n") // Send EOF to process
                                                 outputStreamWriter.flush()
@@ -83,9 +102,14 @@ class AnnotationWorkerPool(
                                             LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) sent EOF to process and writer is stopping.")
                                             break // Exit while loop
                                         }
+                                        pendingTasks.put(task)
                                         try {
-                                            outputStreamWriter.write(text + "\n# eot\n")
+                                            val dataToSend = task.text + "\n# eot\n\n"
+                                            LOGGER.fine("Worker $workerIndex: Sending ${dataToSend.length} chars to external process")
+                                            LOGGER.finer("Worker $workerIndex: First 500 chars of data to send:\n${dataToSend.take(500)}")
+                                            outputStreamWriter.write(dataToSend)
                                             outputStreamWriter.flush()
+                                            LOGGER.fine("Worker $workerIndex: Data sent and flushed")
                                         } catch (e: IOException) {
                                             LOGGER.severe("Worker $workerIndex (thread ${self.threadId()}) failed to write to process: ${e.message}")
                                             break // Exit the loop
@@ -99,8 +123,11 @@ class AnnotationWorkerPool(
                             // Reader coroutine
                             coroutineScope.launch {
                                 val output = StringBuilder()
+                                var lastLineWasEmpty = false
+                                var linesRead = 0
                                 try {
                                     procInStream.bufferedReader().use { reader ->
+                                        LOGGER.fine("Worker $workerIndex: Reader started, waiting for input from external process")
                                         while (!inputGotEof) {
                                             if (Thread.currentThread().isInterrupted) {
                                                 LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) reader interrupted, stopping")
@@ -112,31 +139,107 @@ class AnnotationWorkerPool(
                                                     sleep(5) // Very short sleep when waiting for more output
                                                     continue
                                                 } else {
+                                                    LOGGER.fine("Worker $workerIndex: External process died, no more input")
                                                     break
                                                 }
                                             }
-                                            when (line) {
-                                                "# eof" -> {
+                                            linesRead++
+                                            when {
+                                                line == "# eof" -> {
                                                     LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) got EOF in output")
                                                     inputGotEof = true
                                                     if (output.isNotEmpty()) {
-                                                        printOutput(output.toString()) // Print any remaining output
+                                                        val task = pendingTasks.poll(500, TimeUnit.MILLISECONDS)
+                                                        if (outputHandler != null) {
+                                                            if (task == null) {
+                                                                LOGGER.warning("Worker $workerIndex: Got # eof but no task in pendingTasks queue!")
+                                                            }
+                                                            LOGGER.fine("Worker $workerIndex: Invoking outputHandler with ${output.length} chars (EOF)")
+                                                            pendingOutputHandlers.incrementAndGet()
+                                                            try {
+                                                                outputHandler.invoke(output.toString(), task)
+                                                            } finally {
+                                                                pendingOutputHandlers.decrementAndGet()
+                                                            }
+                                                        } else {
+                                                            printOutput(output.toString())
+                                                        }
                                                         output.clear()
                                                     }
                                                     break
                                                 }
-                                                "# eot" -> {
-                                                    printOutput(output.toString()) // Assuming printOutput is thread-safe
+                                                line == "# eot" -> {
+                                                    val task = pendingTasks.poll(500, TimeUnit.MILLISECONDS)
+                                                    if (outputHandler != null) {
+                                                        if (task == null) {
+                                                            LOGGER.warning("Worker $workerIndex: Got # eot but no task in pendingTasks queue!")
+                                                        }
+                                                        LOGGER.fine("Worker $workerIndex: Invoking outputHandler with ${output.length} chars (EOT)")
+                                                        pendingOutputHandlers.incrementAndGet()
+                                                        try {
+                                                            outputHandler.invoke(output.toString(), task)
+                                                        } finally {
+                                                            pendingOutputHandlers.decrementAndGet()
+                                                        }
+                                                    } else {
+                                                        LOGGER.fine("Worker $workerIndex: Printing output (${output.length} chars)")
+                                                        printOutput(output.toString())
+                                                    }
                                                     output.clear()
+                                                    lastLineWasEmpty = false
+                                                }
+                                                line.isEmpty() -> {
+                                                    // Empty line - potential document separator
+                                                    // In CoNLL-U, double empty line marks end of document
+                                                    if (lastLineWasEmpty && output.isNotEmpty()) {
+                                                        // This is the second empty line - end of document
+                                                        if (outputHandler != null) {
+                                                            val task = pendingTasks.poll(500, TimeUnit.MILLISECONDS)
+                                                            if (task == null) {
+                                                                LOGGER.warning("Worker $workerIndex: Double empty line detected but no task in pendingTasks queue!")
+                                                            }
+                                                            LOGGER.fine("Worker $workerIndex: Invoking outputHandler with ${output.length} chars (double empty line)")
+                                                            pendingOutputHandlers.incrementAndGet()
+                                                            try {
+                                                                outputHandler.invoke(output.toString(), task)
+                                                            } finally {
+                                                                pendingOutputHandlers.decrementAndGet()
+                                                            }
+                                                            output.clear()
+                                                            lastLineWasEmpty = false
+                                                        } else {
+                                                            // For stdout mode, just add the empty line
+                                                            output.append('\n')
+                                                            lastLineWasEmpty = true
+                                                        }
+                                                    } else {
+                                                        output.append('\n')
+                                                        lastLineWasEmpty = true
+                                                    }
                                                 }
                                                 else -> {
                                                     output.append(line).append('\n')
+                                                    lastLineWasEmpty = false
                                                 }
                                             }
                                         }
                                     }
                                     if (output.isNotEmpty()) { // Print any remaining output
-                                        printOutput(output.toString())
+                                        val task = pendingTasks.poll(500, TimeUnit.MILLISECONDS)
+                                        if (outputHandler != null) {
+                                            if (task == null) {
+                                                LOGGER.fine("Worker $workerIndex: Remaining output but no task in pendingTasks queue!")
+                                            }
+                                            LOGGER.fine("Worker $workerIndex: Invoking outputHandler with ${output.length} chars (remaining)")
+                                            pendingOutputHandlers.incrementAndGet()
+                                            try {
+                                                outputHandler.invoke(output.toString(), task)
+                                            } finally {
+                                                pendingOutputHandlers.decrementAndGet()
+                                            }
+                                        } else {
+                                            printOutput(output.toString())
+                                        }
                                     }
                                 } catch (e: Exception) {
                                     LOGGER.severe("Reader coroutine in worker $workerIndex (thread ${self.threadId()}) failed: ${e.message}")
@@ -163,27 +266,58 @@ class AnnotationWorkerPool(
                     val exitCode = process.waitFor()
                     if (exitCode != 0) {
                         LOGGER.warning("Worker $workerIndex (thread ${self.threadId()}) process exited with code $exitCode")
+
+                        // Return any pending tasks back to the queue for other workers to process
+                        val remainingTasks = mutableListOf<AnnotationTask>()
+                        pendingTasks.drainTo(remainingTasks)
+                        if (remainingTasks.isNotEmpty()) {
+                            LOGGER.warning("Worker $workerIndex: Returning ${remainingTasks.size} unprocessed task(s) to queue after process failure")
+                            remainingTasks.forEach { task ->
+                                if (task.text != "#eof") { // Don't re-queue EOF markers
+                                    try {
+                                        queue.put(task)
+                                    } catch (e: InterruptedException) {
+                                        LOGGER.severe("Failed to return task to queue: ${e.message}")
+                                    }
+                                }
+                            }
+                        }
+
+                        // Check if there are more items in the queue to process
+                        if (queue.isEmpty()) {
+                            LOGGER.info("Worker $workerIndex: Queue is empty after crash, exiting")
+                            break // Exit the restart loop
+                        } else {
+                            LOGGER.info("Worker $workerIndex: Restarting to process remaining ${queue.size} items in queue")
+                            continue // Restart the worker
+                        }
                     } else {
                         LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) process finished normally")
+                        break // Normal exit
                     }
                 } catch (e: IOException) {
                     LOGGER.severe("Worker $workerIndex (thread ${self.threadId()}) failed: ${e.message}")
+                    break // Exit restart loop on IOException
                 } catch (e: InterruptedException) {
                     LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) was interrupted during processing")
                     Thread.currentThread().interrupt() // Restore interrupt status
+                    break // Exit restart loop on interrupt
                 } catch (e: Exception) { // Catch any other unexpected exceptions during setup or process handling
                     LOGGER.severe("Unhandled exception in worker thread ${self.threadId()} (index $workerIndex): ${e.message}")
                     e.printStackTrace()
-                } finally {
-                    if (successfullyInitialized) {
-                        synchronized(threadsLock) {
-                            threads.remove(self)
-                        }
-                        threadCount.decrementAndGet()
-                        LOGGER.info("Worker thread ${self.threadId()} (index $workerIndex) cleaned up and exiting. Active threads: ${threadCount.get()}")
-                    } else {
-                        LOGGER.warning("Worker thread ${self.threadId()} (index $workerIndex) exiting without full initialization/cleanup.")
+                    break // Exit restart loop on unexpected exceptions
+                }
+                } // End of while (workerAttempts < maxRestarts) loop
+
+                // Cleanup after all restart attempts
+                if (successfullyInitialized) {
+                    synchronized(threadsLock) {
+                        threads.remove(self)
                     }
+                    threadCount.decrementAndGet()
+                    LOGGER.info("Worker thread ${self.threadId()} (index $workerIndex) cleaned up and exiting. Active threads: ${threadCount.get()}")
+                } else {
+                    LOGGER.warning("Worker thread ${self.threadId()} (index $workerIndex) exiting without full initialization/cleanup.")
                 }
             }.start()
         }
@@ -201,9 +335,10 @@ class AnnotationWorkerPool(
         }
     }
 
-    fun pushToQueue(text: String) {
+    fun pushToQueue(text: String, docId: String? = null, entryPath: String? = null) {
         try {
-            queue.put(text)
+            LOGGER.fine("pushToQueue called: text length=${text.length}, docId=$docId, entryPath=$entryPath")
+            queue.put(AnnotationTask(text, docId, entryPath))
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             LOGGER.warning("Interrupted while trying to push text to queue.")
@@ -213,7 +348,7 @@ class AnnotationWorkerPool(
     fun pushToQueue(texts: List<String>) {
         texts.forEach { text ->
             try {
-                queue.put(text)
+                queue.put(AnnotationTask(text, null, null))
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 LOGGER.warning("Interrupted while trying to push texts to queue. Some texts may not have been added.")
@@ -224,13 +359,14 @@ class AnnotationWorkerPool(
 
     fun close() {
         val currentThreadCount = threadCount.get()
-        LOGGER.info("Closing worker pool with $currentThreadCount threads")
-        
+        val queueSizeBeforeEOF = queue.size
+        LOGGER.info("Closing worker pool with $currentThreadCount threads, queue size: $queueSizeBeforeEOF")
+
         // Send EOF marker for each worker - use numWorkers instead of current thread count
         // to ensure we send enough EOF markers even if some threads haven't started yet
         for (i in 0 until numWorkers) {
             try {
-                queue.put("#eof")
+                queue.put(AnnotationTask("#eof", null, null))
                 LOGGER.info("Sent EOF marker ${i+1}/$numWorkers to queue")
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
@@ -239,23 +375,36 @@ class AnnotationWorkerPool(
             }
         }
         
+        LOGGER.info("All EOF markers sent, queue size now: ${queue.size}")
+
         if (threadCount.get() > 0) {
             waitForWorkersToFinish()
         }
     }
 
     private fun waitForWorkersToFinish() {
+        val startTime = System.currentTimeMillis()
+        var lastReportedSize = queue.size
         LOGGER.info("Waiting for queue to empty (current size: ${queue.size})...")
         while (queue.isNotEmpty()) {
             try {
                 sleep(50) // Reduced sleep time for more responsive monitoring
+                val currentSize = queue.size
+                val elapsed = (System.currentTimeMillis() - startTime) / 1000
+
+                // Report every 5 seconds or when size changes significantly
+                if (elapsed % 5 == 0L && currentSize != lastReportedSize) {
+                    LOGGER.info("Queue status: $currentSize items remaining (${elapsed}s elapsed)")
+                    lastReportedSize = currentSize
+                }
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 LOGGER.warning("Interrupted while waiting for queue to empty. Proceeding to join threads.")
                 break
             }
         }
-        LOGGER.info("Queue is empty. Joining worker threads.")
+        val totalTime = (System.currentTimeMillis() - startTime) / 1000
+        LOGGER.info("Queue is empty after ${totalTime}s. Joining worker threads.")
 
         val threadsToJoin: List<Thread>
         synchronized(threadsLock) {
@@ -268,11 +417,11 @@ class AnnotationWorkerPool(
             LOGGER.info("Attempting to join ${threadsToJoin.size} thread(s) from recorded list (current active count: ${threadCount.get()}).")
             threadsToJoin.forEach { thread ->
                 try {
-                    thread.join(10000) // Increased timeout to 10 seconds
+                    thread.join(1800000) // 30 minutes timeout - allow workers time to restart and process all documents
                     if (thread.isAlive) {
-                        LOGGER.warning("Thread ${thread.threadId()} did not terminate after 10s. Interrupting.")
+                        LOGGER.warning("Thread ${thread.threadId()} did not terminate after 30 minutes. Interrupting.")
                         thread.interrupt()
-                        thread.join(2000) // Wait 2 seconds after interrupt
+                        thread.join(10000) // Wait 10 seconds after interrupt
                         if (thread.isAlive) {
                             LOGGER.severe("Thread ${thread.threadId()} failed to terminate after interrupt.")
                         }
@@ -295,6 +444,30 @@ class AnnotationWorkerPool(
                     threads.clear() // Clean up if any refs are lingering despite count issues
                 }
             }
+        }
+
+        // CRITICAL: Wait for all pending outputHandler invocations to complete
+        val pendingCount = pendingOutputHandlers.get()
+        if (pendingCount > 0) {
+            LOGGER.info("Waiting for $pendingCount pending outputHandler invocation(s) to complete...")
+        }
+        val startWait = System.currentTimeMillis()
+        while (pendingOutputHandlers.get() > 0) {
+            try {
+                sleep(100)
+                val elapsed = System.currentTimeMillis() - startWait
+                if (elapsed > 30000) { // 30 second timeout
+                    LOGGER.severe("Timeout waiting for ${pendingOutputHandlers.get()} pending outputHandler(s) after 30s!")
+                    break
+                }
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                LOGGER.warning("Interrupted while waiting for pending outputHandlers")
+                break
+            }
+        }
+        if (pendingCount > 0) {
+            LOGGER.info("All outputHandler invocations completed")
         }
     }
 }
