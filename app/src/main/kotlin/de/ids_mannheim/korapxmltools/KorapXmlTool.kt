@@ -66,6 +66,7 @@ class KorapXmlTool : Callable<Int> {
     private var externalFoundry: String? = null
     // Target ZIP filename (when writing ZIP output); used to label the progress bar
     private var targetZipFileName: String? = null
+    // Locale is now globally forced to ROOT at startup (see main())
 
     @Parameters(arity = "1..*", description = ["At least one zip file name"])
     var zipFileNames: Array<String>? = null
@@ -190,7 +191,7 @@ class KorapXmlTool : Callable<Int> {
     var maxThreads: Int = Runtime.getRuntime().availableProcessors() / 2
     fun setThreads(threads: Int) {
         if (threads < 1) {
-            throw ParameterException(spec.commandLine(), String.format("Invalid value `%d' for option '--threads': must be at least 1", threads))
+            throw ParameterException(spec.commandLine(), String.format(Locale.ROOT, "Invalid value `%d' for option '--threads': must be at least 1", threads))
         }
         this.maxThreads = threads
         System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", threads.toString())
@@ -251,14 +252,14 @@ class KorapXmlTool : Callable<Int> {
         val matcher: Matcher = pattern.matcher(tagWith)
         if (!matcher.matches()) {
             throw ParameterException(spec.commandLine(),
-                String.format("Invalid value `%s' for option '--tag-with': "+
+                String.format(Locale.ROOT, "Invalid value `%s' for option '--tag-with': "+
                     "value does not match the expected pattern ${taggerFoundries}:<path/to/model>", tagWith))
         } else {
             taggerName = matcher.group(1)
             taggerModel = matcher.group(2)
             if (!File(taggerModel!!).exists()) {
                 throw ParameterException(spec.commandLine(),
-                    String.format("Invalid value for option '--tag-with':"+
+                    String.format(Locale.ROOT, "Invalid value for option '--tag-with':"+
                         "model file '%s' does not exist", taggerModel, taggerModel))
             }
         }
@@ -276,14 +277,14 @@ class KorapXmlTool : Callable<Int> {
         val matcher: Matcher = pattern.matcher(parseWith)
         if (!matcher.matches()) {
             throw ParameterException(spec.commandLine(),
-                String.format("Invalid value `%s' for option '--parse-with': "+
+                String.format(Locale.ROOT, "Invalid value `%s' for option '--parse-with': "+
                         "value does not match the expected pattern (${parserFoundries}):<path/to/model>", parseWith))
         } else {
             parserName = matcher.group(1)
             parserModel = matcher.group(2)
             if (!File(parserModel!!).exists()) {
                 throw ParameterException(spec.commandLine(),
-                    String.format("Invalid value for option '--parse-with':"+
+                    String.format(Locale.ROOT, "Invalid value for option '--parse-with':"+
                             "model file '%s' does not exist", parserModel, parserModel))
             }
         }
@@ -773,14 +774,14 @@ class KorapXmlTool : Callable<Int> {
                 annotationStartTime.set(System.currentTimeMillis())
                 LOGGER.info("Starting annotation of $newTotal document(s)")
                 if (!quiet) {
-                    // Initialize progress bar for external annotation with ZIP output
-                    progressBar = ProgressBarBuilder()
-                        .setTaskName(targetZipFileName ?: "Annotating")
-                        .setInitialMax(newTotal.toLong())
-                        .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
-                        .setUpdateIntervalMillis(500)
-                        .showSpeed()
-                        .build()
+                     // Initialize progress bar for external annotation with ZIP output
+                     progressBar = ProgressBarBuilder()
+                         .setTaskName(targetZipFileName ?: "Annotating")
+                         .setInitialMax(newTotal.toLong())
+                         .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
+                         .setUpdateIntervalMillis(500)
+                         .showSpeed()
+                         .build()
                 }
             } else if (!quiet) {
                 // Increase the total as we discover more documents in later zips
@@ -1959,7 +1960,10 @@ class KorapXmlTool : Callable<Int> {
 
 }
 
-fun main(args: Array<String>): Unit = exitProcess(CommandLine(KorapXmlTool()).execute(*args))
+fun main(args: Array<String>): Unit {
+    try { Locale.setDefault(Locale.ROOT) } catch (_: Exception) {}
+    exitProcess(CommandLine(KorapXmlTool()).execute(*args))
+}
 
 fun debug(args: Array<String>): Int {
     return (CommandLine(KorapXmlTool()).execute(*args))
