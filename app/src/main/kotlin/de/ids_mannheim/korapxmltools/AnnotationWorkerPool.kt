@@ -17,13 +17,22 @@ class AnnotationWorkerPool(
     private val command: String,
     private val numWorkers: Int,
     private val LOGGER: Logger,
-    private val outputHandler: ((String, AnnotationTask?) -> Unit)? = null
+    private val outputHandler: ((String, AnnotationTask?) -> Unit)? = null,
+    private val stderrLogPath: String? = null
 ) {
     private val queue: BlockingQueue<AnnotationTask> = LinkedBlockingQueue()
     private val threads = mutableListOf<Thread>()
     private val threadCount = AtomicInteger(0)
     private val threadsLock = Any()
     private val pendingOutputHandlers = AtomicInteger(0) // Track pending outputHandler calls
+    private val stderrWriter: PrintWriter? = try {
+        stderrLogPath?.let { path ->
+            PrintWriter(BufferedWriter(FileWriter(path, true)), true)
+        }
+    } catch (e: IOException) {
+        LOGGER.warning("Failed to open stderr log file '$stderrLogPath': ${e.message}")
+        null
+    }
 
     data class AnnotationTask(val text: String, val docId: String?, val entryPath: String?)
 
@@ -57,8 +66,9 @@ class AnnotationWorkerPool(
                     }
 
                     val process = ProcessBuilder("/bin/sh", "-c", command)
-                        .redirectOutput(ProcessBuilder.Redirect.PIPE).redirectInput(ProcessBuilder.Redirect.PIPE)
-                        .redirectError(ProcessBuilder.Redirect.INHERIT)
+                        .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                        .redirectInput(ProcessBuilder.Redirect.PIPE)
+                        .redirectError(ProcessBuilder.Redirect.PIPE)
                         .start()
 
                     if (process.outputStream == null) {
@@ -72,6 +82,7 @@ class AnnotationWorkerPool(
                     // Using try-with-resources for streams to ensure they are closed
                     process.outputStream.buffered(BUFFER_SIZE).use { procOutStream ->
                         process.inputStream.buffered(BUFFER_SIZE).use { procInStream ->
+                            val procErrStream = process.errorStream.buffered(BUFFER_SIZE)
 
                             val coroutineScope = CoroutineScope(Dispatchers.IO + Job()) // Ensure Job can be cancelled
                             var inputGotEof = false // Specific to this worker's process interaction
@@ -120,7 +131,7 @@ class AnnotationWorkerPool(
                                 }
                             }
 
-                            // Reader coroutine
+                            // Reader coroutine (stdout)
                             coroutineScope.launch {
                                 val output = StringBuilder()
                                 var lastLineWasEmpty = false
@@ -243,6 +254,29 @@ class AnnotationWorkerPool(
                                     }
                                 } catch (e: Exception) {
                                     LOGGER.severe("Reader coroutine in worker $workerIndex (thread ${self.threadId()}) failed: ${e.message}")
+                                }
+                            }
+
+                            // Stderr reader coroutine
+                            coroutineScope.launch {
+                                try {
+                                    procErrStream.bufferedReader().use { errReader ->
+                                        var line: String?
+                                        while (true) {
+                                            line = errReader.readLine()
+                                            if (line == null) break
+                                            stderrWriter?.let { w ->
+                                                synchronized(w) {
+                                                    w.println("[ext-$workerIndex] $line")
+                                                    w.flush()
+                                                }
+                                            } ?: run {
+                                                LOGGER.warning("[ext-$workerIndex][stderr] $line")
+                                            }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    LOGGER.fine("Worker $workerIndex: stderr reader finished: ${e.message}")
                                 }
                             }
 

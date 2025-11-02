@@ -370,40 +370,64 @@ class KorapXmlTool : Callable<Int> {
         if (annotateWith.isNotEmpty()) {
             // Detect external foundry label once from annotateWith command
             externalFoundry = detectFoundryFromAnnotateCmd(annotateWith)
-             // Initialize ZIP output stream BEFORE creating worker pool, if needed
-             if (outputFormat == OutputFormat.KORAPXML) {
-                 // Determine output filename
-                 val inputZipPath = args[0] // First ZIP file
+            // Initialize ZIP output stream BEFORE creating worker pool, if needed
+            if (outputFormat == OutputFormat.KORAPXML) {
+                // Determine output filename
+                val inputZipPath = args[0] // First ZIP file
                 val targetFoundry = externalFoundry ?: "annotated"
 
-                 val outputMorphoZipFileName = inputZipPath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
-                 LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
+                val outputMorphoZipFileName = inputZipPath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
+                LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
 
-                 if (File(outputMorphoZipFileName).exists() && !overwrite) {
-                     LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
-                     exitProcess(1)
-                 }
+                // Prepare per-output log file
+                val logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
+                val fileHandler = java.util.logging.FileHandler(logFilePath, true)
+                fileHandler.formatter = ColoredFormatter()
+                LOGGER.addHandler(fileHandler)
+                LOGGER.info("Logging redirected to: $logFilePath")
+                // Mirror System.err to the same log file for the duration
+                val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
+                val oldErr = System.err
+                System.setErr(errPs)
 
-                 // Delete old file if it exists
-                 if (File(outputMorphoZipFileName).exists()) {
-                     LOGGER.info("Deleting existing file: $outputMorphoZipFileName")
-                     File(outputMorphoZipFileName).delete()
-                 }
+                if (File(outputMorphoZipFileName).exists() && !overwrite) {
+                    LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
+                    exitProcess(1)
+                }
 
-                 dbFactory = DocumentBuilderFactory.newInstance()
-                 dBuilder = dbFactory!!.newDocumentBuilder()
-                 val fileOutputStream = FileOutputStream(outputMorphoZipFileName)
-                 morphoZipOutputStream = ZipArchiveOutputStream(fileOutputStream).apply {
-                     setUseZip64(Zip64Mode.Always)
-                 }
-                 LOGGER.info("Initialized morphoZipOutputStream for external annotation to: $outputMorphoZipFileName")
-             }
+                // Delete old file if it exists
+                if (File(outputMorphoZipFileName).exists()) {
+                    LOGGER.info("Deleting existing file: $outputMorphoZipFileName")
+                    File(outputMorphoZipFileName).delete()
+                }
+
+                dbFactory = DocumentBuilderFactory.newInstance()
+                dBuilder = dbFactory!!.newDocumentBuilder()
+                val fileOutputStream = FileOutputStream(outputMorphoZipFileName)
+                morphoZipOutputStream = ZipArchiveOutputStream(fileOutputStream).apply {
+                    setUseZip64(Zip64Mode.Always)
+                }
+                LOGGER.info("Initialized morphoZipOutputStream for external annotation to: $outputMorphoZipFileName")
+
+                // Ensure we restore System.err and remove file handler at the end of processing (shutdown hook)
+                Runtime.getRuntime().addShutdownHook(Thread {
+                    try {
+                        LOGGER.info("Shutting down; closing per-zip log handler")
+                        LOGGER.removeHandler(fileHandler)
+                        fileHandler.close()
+                    } catch (_: Exception) {}
+                    try { System.setErr(oldErr) } catch (_: Exception) {}
+                    try { errPs.close() } catch (_: Exception) {}
+                })
+            }
 
             if (outputFormat == OutputFormat.KORAPXML) {
                 // For ZIP output with external annotation, we need a custom handler
-                annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER) { annotatedConllu, task ->
-                    parseAndWriteAnnotatedConllu(annotatedConllu, task)
-                }
+                val currentZipPath = args[0].replace(Regex("\\.zip$"), "." + (externalFoundry ?: "annotated") + ".zip")
+                val currentLog = currentZipPath.replace(Regex("\\.zip$"), ".log")
+                annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, { annotatedConllu, task ->
+                     parseAndWriteAnnotatedConllu(annotatedConllu, task)
+                }, stderrLogPath = currentLog)
             } else {
                 annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, null)
             }
