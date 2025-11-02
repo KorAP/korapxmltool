@@ -18,6 +18,7 @@ class KorapXmlToolTest {
     private val originalErr: PrintStream = System.err
 
     val goe = loadResource("goe.zip").path
+    val goeSpacy = loadResource("goe.spacy.zip").path
     val goeMarmot = loadResource("goe.marmot.zip").path
     val goeTreeTagger = loadResource("goe.tree_tagger.zip").path
     val zca20scrambled = loadResource("zca20-scrambled.zip").path
@@ -351,5 +352,73 @@ class KorapXmlToolTest {
         // Non-zero is expected; and error message should be present
         assertTrue(rc != 0)
         assertContains(errContent.toString(), "--sequential is supported only with -f word2vec or -f now")
+    }
+
+    @Test
+    fun dependencyColumnsArePopulatedFromSpacyZip() {
+        val args = arrayOf(goeSpacy)
+        debug(args)
+        val out = outContent.toString()
+
+        // Check that output is CoNLL-U format
+        assertContains(out, "# foundry = spacy")
+        assertContains(out, "# text_id = GOE_AGA.00000")
+
+        // Get data lines (non-comment, non-empty)
+        val dataLines = out.lines()
+            .filter { !it.startsWith("#") && it.isNotBlank() }
+
+        assertTrue(dataLines.isNotEmpty(), "Should have data lines in output")
+
+        // Parse tokens and check dependency columns (column 7 = HEAD, column 8 = DEPREL)
+        var tokensWithHead = 0
+        var tokensWithDeprel = 0
+        var totalTokens = 0
+
+        for (line in dataLines) {
+            val columns = line.split(Regex("\\s+"))
+            if (columns.size >= 8) {
+                totalTokens++
+                // Column 7 (index 6) is HEAD, column 8 (index 7) is DEPREL
+                val head = columns[6]
+                val deprel = columns[7]
+
+                if (head != "_") tokensWithHead++
+                if (deprel != "_") tokensWithDeprel++
+            }
+        }
+
+        // Assert that we have tokens
+        assertTrue(totalTokens > 0, "Should have parsed at least some tokens")
+
+        // Print diagnostic information
+        System.err.println("=== Dependency Test Diagnostics ===")
+        System.err.println("Total tokens: $totalTokens")
+        System.err.println("Tokens with HEAD (!= '_'): $tokensWithHead")
+        System.err.println("Tokens with DEPREL (!= '_'): $tokensWithDeprel")
+        System.err.println("First 5 data lines:")
+        dataLines.take(5).forEach { System.err.println("  $it") }
+
+        // Assert that HEAD column (col 7) is populated for most tokens
+        // We expect at least 90% of tokens to have dependency information
+        val headCoverage = (tokensWithHead.toDouble() / totalTokens) * 100
+        assertTrue(
+            headCoverage > 80.0,
+            "HEAD column should be populated for most tokens. Found: $tokensWithHead/$totalTokens (${headCoverage}%)"
+        )
+
+        // Assert that DEPREL column (col 8) is populated for most tokens
+        val deprelCoverage = (tokensWithDeprel.toDouble() / totalTokens) * 100
+        assertTrue(
+            deprelCoverage > 85.0,
+            "DEPREL column should be populated for most tokens. Found: $tokensWithDeprel/$totalTokens (${deprelCoverage}%)"
+        )
+
+        // Check for specific dependency relations and head indices in output
+        // Look for numeric head indices (not "_")
+        assertTrue(
+            out.contains(Regex("\\n\\d+\\t\\S+\\t\\S+\\t\\S+\\t\\S+\\t\\S+\\t\\d+\\t\\S+\\t")),
+            "Should find tokens with numeric HEAD values in column 7"
+        )
     }
 }

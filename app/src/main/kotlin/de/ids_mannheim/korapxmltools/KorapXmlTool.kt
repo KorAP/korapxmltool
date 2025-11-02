@@ -806,7 +806,7 @@ class KorapXmlTool : Callable<Int> {
         }
 
         try {
-            if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho)\\.xml$"))) {
+            if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho|dependency)\\.xml$"))) {
                 // Ensure the entry stream and reader are closed to avoid native memory buildup
                 val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
                 val dBuilder: DocumentBuilder = dbFactory.newDocumentBuilder()
@@ -862,8 +862,58 @@ class KorapXmlTool : Callable<Int> {
                         waitForMorpho = true
                         fnames[docId] = zipEntry.name
                         val fsSpans: NodeList = doc.getElementsByTagName("span")
-                        morpho[docId] = extractMorphoSpans(fsSpans)
+                        val morphoSpans = extractMorphoSpans(fsSpans)
+
+                        // Merge with existing morpho data (e.g., from dependency.xml)
+                        // instead of replacing it
+                        if (morpho[docId] == null) {
+                            morpho[docId] = morphoSpans
+                        } else {
+                            // Merge: add morpho data while preserving existing dependency data
+                            morphoSpans.forEach { (key, mfs) ->
+                                val existing = morpho[docId]?.get(key)
+                                if (existing != null) {
+                                    // Preserve head and deprel from existing (dependency.xml)
+                                    mfs.head = existing.head
+                                    mfs.deprel = existing.deprel
+                                }
+                                morpho[docId]!![key] = mfs
+                            }
+                            LOGGER.fine("Merged morpho.xml with existing data for $docId (preserved ${morpho[docId]!!.count { it.value.head != "_" }} dependency relations)")
+                        }
                         tokens[docId] = extractSpans(fsSpans)
+                    }
+
+                    "dependency.xml" -> {
+                        LOGGER.info("Processing dependency.xml for $docId from ${zipEntry.name}")
+                        val depSpans: NodeList = doc.getElementsByTagName("span")
+                        LOGGER.info("Found ${depSpans.length} spans in dependency.xml")
+                        val depMap = extractDependencySpans(depSpans)
+                        LOGGER.info("Extracted ${depMap.size} dependency relations")
+
+                        // Merge dependency info into existing morpho data
+                        // Note: heads are stored as offsets (e.g., "100-110") and will be resolved
+                        // to token indices later during CoNLL-U output
+                        if (morpho[docId] == null) {
+                            morpho[docId] = mutableMapOf()
+                            LOGGER.info("Created new morpho map for $docId")
+                        }
+                        var mergedCount = 0
+                        var newCount = 0
+                        depMap.forEach { (key, depSpan) ->
+                            val existing = morpho[docId]?.get(key)
+                            if (existing != null) {
+                                // Update existing morpho with dependency info (head is still offset-based)
+                                existing.head = depSpan.head
+                                existing.deprel = depSpan.deprel
+                                mergedCount++
+                            } else {
+                                // Create new entry with just dependency info
+                                morpho[docId]!![key] = depSpan
+                                newCount++
+                            }
+                        }
+                        LOGGER.info("Dependency merge complete: $mergedCount merged, $newCount new entries (heads will be resolved during output)")
                     }
                 }
 
@@ -1224,6 +1274,35 @@ class KorapXmlTool : Callable<Int> {
         if (tokensArr == null || tokensArr.isEmpty()) {
             return output
         }
+        
+        // Build offset-to-index mapping for resolving dependency heads
+        val offsetToIndex = mutableMapOf<String, Int>()
+        tokensArr.forEachIndexed { index, span ->
+            offsetToIndex["${span.from}-${span.to}"] = index + 1 // CoNLL-U is 1-indexed
+        }
+
+        // Resolve offset-based heads to token indices
+        if (morpho[docId] != null) {
+            var resolvedCount = 0
+            morpho[docId]!!.forEach { (key, mfs) ->
+                if (mfs.head != null && mfs.head != "_" && mfs.head!!.contains("-")) {
+                    // This is an offset-based head, resolve it
+                    val resolvedIndex = offsetToIndex[mfs.head]
+                    if (resolvedIndex != null) {
+                        mfs.head = resolvedIndex.toString()
+                        resolvedCount++
+                    } else {
+                        // Could not resolve, set to root
+                        LOGGER.fine("Could not resolve head offset ${mfs.head} for token $key in $docId, setting to 0 (root)")
+                        mfs.head = "0"
+                    }
+                }
+            }
+            if (resolvedCount > 0) {
+                LOGGER.fine("Resolved $resolvedCount offset-based heads to token indices for $docId")
+            }
+        }
+
         val textVal = texts[docId]
         tokensArr.forEach { span ->
             token_index++
@@ -1548,6 +1627,44 @@ class KorapXmlTool : Callable<Int> {
                         }
                     }
                 res[fromTo] = fs
+            }
+        return res
+    }
+
+    private fun extractDependencySpans(
+        depSpans: NodeList
+    ): MutableMap<String, MorphoSpan> {
+        val res: MutableMap<String, MorphoSpan> = HashMap()
+        IntStream.range(0, depSpans.length).mapToObj(depSpans::item)
+            .filter { node -> node is Element }
+            .forEach { node ->
+                node as Element
+                val fromTo = "${node.getAttribute("from")}-${node.getAttribute("to")}"
+                
+                // Look for <rel> element which contains the dependency relation
+                val relElements = node.getElementsByTagName("rel")
+                if (relElements.length > 0) {
+                    val rel = relElements.item(0) as Element
+                    val deprel = rel.getAttribute("label")
+                    
+                    // The head is encoded as an inner <span> element with from/to attributes
+                    val innerSpans = rel.getElementsByTagName("span")
+                    var head: String? = null
+                    if (innerSpans.length > 0) {
+                        val innerSpan = innerSpans.item(0) as Element
+                        val headFrom = innerSpan.getAttribute("from")
+                        val headTo = innerSpan.getAttribute("to")
+                        // Store as offset key for now, will need to resolve to token index later
+                        head = "$headFrom-$headTo"
+                    }
+                    
+                    if (head != null || deprel != null) {
+                        res[fromTo] = MorphoSpan(
+                            head = head ?: "_",
+                            deprel = deprel ?: "_"
+                        )
+                    }
+                }
             }
         return res
     }
