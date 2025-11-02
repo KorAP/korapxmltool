@@ -134,7 +134,7 @@ java  -jar app/build/libs/korapxmltool.jar app/src/test/resources/wdf19.zip | do
 This requires the [spaCy Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/sota-pos-lemmatizers) and is only available for German.
 
 ```shell script
-java  -jar app/build/libs/korapxmltool.jar app/src/test/resources/goe.zip | docker run --rm -i korap/conllu2spacy | conllu2korapxml > goe.spacy.zip
+java  -jar app/build/libs/korapxmltool.jar -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=True --rm -i korap/conllu2spacy:latest 2> /dev/null" -f zip ./app/src/test/resources/goe.zip
 ```
 
 ## Parsing
