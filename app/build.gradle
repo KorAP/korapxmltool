@@ -49,7 +49,7 @@ dependencies {
 
 }
 
-// Erzwinge JDK 21 Toolchain und Bytecode-Level 21
+// Enforce JDK 21 Toolchain and Bytecode-Level 21
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
@@ -60,7 +60,7 @@ kotlin {
     jvmToolchain(21)
 }
 
-// Für evtl. vorhandenen Java-Quellcode
+// For any existing Java source code
 tasks.withType(JavaCompile).configureEach {
     options.release = 21
 }
@@ -68,12 +68,12 @@ tasks.withType(JavaCompile).configureEach {
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
     kotlinOptions {
         jvmTarget = "21"
-        // Falls verfügbar, sorgt dies für konsistente API-Targets ähnlich zu Java --release
+        // If available, this ensures consistent API targets similar to Java --release
         // freeCompilerArgs += ["-Xjdk-release=21"]
     }
 }
 
-// Version des Subprojekts explizit von Root erben
+// Explicitly inherit version from root project
 version = rootProject.version
 
 application {
@@ -82,7 +82,7 @@ application {
 }
 
 jar {
-    // Standard-JAR als "plain" kennzeichnen, um Konflikte mit ShadowJar zu vermeiden
+    // Mark standard JAR as "plain" to avoid conflicts with ShadowJar
     archiveClassifier.set('plain')
     manifest.attributes(
             'Class-Path': configurations.compileClasspath.collect { it.getName() }.join(' '),
@@ -103,21 +103,40 @@ shadowJar {
     )
 }
 
-// Stelle sicher, dass assemble auch den ShadowJar erzeugt
+// Ensure that assemble also creates the ShadowJar
 tasks.named('assemble') {
     dependsOn tasks.named('shadowJar')
 }
 
-// Erzeuge zusätzlich eine nicht-versionierte Kopie korapxmltool.jar für stabile Skriptpfade
-tasks.register('shadowJarLatest', Copy) {
-    dependsOn tasks.named('shadowJar')
-    from({ tasks.shadowJar.get().archiveFile.get().asFile })
-    into({ tasks.shadowJar.get().destinationDirectory.get().asFile })
-    rename { String _ -> 'korapxmltool.jar' }
+// Additionally create a symlink korapxmltool.jar to the current version for stable script paths
+tasks.register('createJarSymlink') {
+    dependsOn shadowJar
+    doLast {
+        def targetJar = shadowJar.archiveFile.get().asFile
+        def linkFile = new File(targetJar.parent, 'korapxmltool.jar')
+
+        // Remove existing symlink or file
+        if (linkFile.exists()) {
+            linkFile.delete()
+        }
+
+        // Create symlink (Java 7+ NIO)
+        try {
+            java.nio.file.Files.createSymbolicLink(
+                linkFile.toPath(),
+                java.nio.file.Paths.get(targetJar.name)
+            )
+            println "Created symlink: ${linkFile.name} -> ${targetJar.name}"
+        } catch (Exception e) {
+            // Fallback to copy on systems where symlinks aren't supported
+            println "Warning: Could not create symlink (${e.message}), copying instead"
+            java.nio.file.Files.copy(targetJar.toPath(), linkFile.toPath())
+        }
+    }
 }
 
 tasks.named('build') {
-    dependsOn tasks.named('shadowJarLatest')
+    dependsOn createJarSymlink
 }
 
 
