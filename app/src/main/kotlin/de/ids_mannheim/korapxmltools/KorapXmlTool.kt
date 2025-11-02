@@ -1807,21 +1807,32 @@ class KorapXmlTool : Callable<Int> {
         var currentStartOffsets: List<Int>? = null
         var currentEndOffsets: List<Int>? = null
         var tokenIndexInSentence = 0
+        val sentenceSpans = mutableListOf<Span>()
+        var sentenceStartOffset: Int? = null
+        var sentenceEndOffset: Int? = null
 
         for (line in lines) {
             when {
                 line.startsWith("# start_offsets =") -> {
                     val offsetsStr = line.substring("# start_offsets =".length).trim()
                     val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
+                    sentenceStartOffset = allOffsets.firstOrNull()
                     currentStartOffsets = if (allOffsets.size > 1) allOffsets.drop(1) else allOffsets
                     tokenIndexInSentence = 0
                 }
                 line.startsWith("# end_offsets =") -> {
                     val offsetsStr = line.substring("# end_offsets =".length).trim()
                     val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
+                    sentenceEndOffset = allOffsets.firstOrNull()
                     currentEndOffsets = if (allOffsets.size > 1) allOffsets.drop(1) else emptyList()
                 }
                 line.isEmpty() -> {
+                    // Sentence boundary: record the sentence span if available
+                    if (sentenceStartOffset != null && sentenceEndOffset != null) {
+                        sentenceSpans.add(Span(sentenceStartOffset!!, sentenceEndOffset!!))
+                    }
+                    sentenceStartOffset = null
+                    sentenceEndOffset = null
                     currentStartOffsets = null
                     currentEndOffsets = null
                     tokenIndexInSentence = 0
@@ -1854,6 +1865,11 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
+        // If last sentence did not end with an empty line, capture it now
+        if (sentenceStartOffset != null && sentenceEndOffset != null) {
+            sentenceSpans.add(Span(sentenceStartOffset!!, sentenceEndOffset!!))
+        }
+
         if (morphoSpans.isEmpty()) {
             LOGGER.warning("No morpho spans found in annotated output for $docId, skipping")
             return
@@ -1876,14 +1892,19 @@ class KorapXmlTool : Callable<Int> {
             span.head != null && span.head != "_" && span.deprel != null && span.deprel != "_"
         }
 
+        // Prefer sentence spans from the comments; fallback to whole-document span if none detected
         if (hasDependencies && morphoSpans.isNotEmpty()) {
-            val allOffsets = morphoSpans.keys.map { key ->
-                val parts = key.split("-")
-                Pair(parts[0].toInt(), parts[1].toInt())
+            if (sentenceSpans.isNotEmpty()) {
+                sentences[tempDocId] = sentenceSpans.toTypedArray()
+            } else {
+                val allOffsets = morphoSpans.keys.map { key ->
+                    val parts = key.split("-")
+                    Pair(parts[0].toInt(), parts[1].toInt())
+                }
+                val minOffset = allOffsets.minOfOrNull { it.first } ?: 0
+                val maxOffset = allOffsets.maxOfOrNull { it.second } ?: 0
+                sentences[tempDocId] = arrayOf(Span(minOffset, maxOffset))
             }
-            val minOffset = allOffsets.minOfOrNull { it.first } ?: 0
-            val maxOffset = allOffsets.maxOfOrNull { it.second } ?: 0
-            sentences[tempDocId] = arrayOf(Span(minOffset, maxOffset))
         }
 
         try {
