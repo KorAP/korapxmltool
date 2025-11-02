@@ -1343,83 +1343,70 @@ class KorapXmlTool : Callable<Int> {
         val sentencesArr = sentences[docId]
         val tokensArr = tokens[docId]
         output =
-            StringBuilder("# foundry = $foundry\n# filename = ${fnames[docId]}\n# text_id = $docId\n").append(
-                tokenOffsetsInSentence(
-                    sentences, docId, sentence_index, real_token_index, tokens
-                )
-            )
-        if (extractMetadataRegex.isNotEmpty()) {
-            output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
-        }
-        var previousSpanStart = 0
-        if (tokensArr == null || tokensArr.isEmpty()) {
-            return output
-        }
+             StringBuilder("# foundry = $foundry\n# filename = ${fnames[docId]}\n# text_id = $docId\n").append(
+                 tokenOffsetsInSentence(
+                     sentences, docId, sentence_index, real_token_index, tokens
+                 )
+             )
+         if (extractMetadataRegex.isNotEmpty()) {
+             output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
+         }
+         var previousSpanStart = 0
+         if (tokensArr == null || tokensArr.isEmpty()) {
+             return output
+         }
 
-        // Build offset-to-index mapping for resolving dependency heads
+        // Build offset-to-index mapping for resolving dependency HEADs
         val offsetToIndex = mutableMapOf<String, Int>()
         tokensArr.forEachIndexed { index, span ->
             offsetToIndex["${span.from}-${span.to}"] = index + 1 // CoNLL-U is 1-indexed
         }
-
-        // Resolve offset-based heads to token indices
-        if (morpho[docId] != null) {
-            var resolvedCount = 0
-            morpho[docId]!!.forEach { (key, mfs) ->
-                if (mfs.head != null && mfs.head != "_" && mfs.head!!.contains("-")) {
-                    // This is an offset-based head, resolve it
-                    val resolvedIndex = offsetToIndex[mfs.head]
-                    if (resolvedIndex != null) {
-                        mfs.head = resolvedIndex.toString()
-                        resolvedCount++
-                    } else {
-                        // Could not resolve, set to root
-                        LOGGER.fine("Could not resolve head offset ${mfs.head} for token $key in $docId, setting to 0 (root)")
-                        mfs.head = "0"
-                    }
-                }
-            }
-            if (resolvedCount > 0) {
-                LOGGER.fine("Resolved $resolvedCount offset-based heads to token indices for $docId")
-            }
+        // Take a snapshot of the morpho map to avoid concurrent modification while iterating
+        val morphoSnapshot: Map<String, MorphoSpan> = morpho[docId]?.toMap() ?: emptyMap()
+        fun resolveHeadValue(raw: String?): String {
+            if (raw == null || raw == "_") return "_"
+            return if (raw.contains("-")) {
+                val idx = offsetToIndex[raw]
+                if (idx != null) idx.toString() else "0"
+            } else raw
         }
 
-        val textVal = texts[docId]
-        tokensArr.forEach { span ->
-            token_index++
-            if (sentencesArr != null && (sentence_index >= sentencesArr.size || span.from >= sentencesArr[sentence_index].to)) {
-                output.append("\n")
-                sentence_index++
-                token_index = 1
-                output.append(
-                    tokenOffsetsInSentence(
-                        sentences, docId, sentence_index, real_token_index, tokens
-                    )
-                )
-            }
-            if (extractAttributesRegex.isNotEmpty() && extraFeatures[docId] != null) {
-                for (i in previousSpanStart until span.from + 1) {
-                    if (extraFeatures[docId]?.containsKey("$i") == true) {
-                        output.append(extraFeatures[docId]!!["$i"])
-                        extraFeatures[docId]!!.remove("$i")
-                    }
-                }
-                previousSpanStart = span.from + 1
-            }
-            // Token text safely
-            var tokenText: String = if (textVal != null) {
-                val safeFrom = span.from.coerceIn(0, textVal.length)
-                val safeTo = span.to.coerceIn(safeFrom, textVal.length)
-                textVal.substring(safeFrom, safeTo)
-            } else "_"
+         val textVal = texts[docId]
+         tokensArr.forEach { span ->
+             token_index++
+             if (sentencesArr != null && (sentence_index >= sentencesArr.size || span.from >= sentencesArr[sentence_index].to)) {
+                 output.append("\n")
+                 sentence_index++
+                 token_index = 1
+                 output.append(
+                     tokenOffsetsInSentence(
+                         sentences, docId, sentence_index, real_token_index, tokens
+                     )
+                 )
+             }
+             if (extractAttributesRegex.isNotEmpty() && extraFeatures[docId] != null) {
+                 for (i in previousSpanStart until span.from + 1) {
+                     if (extraFeatures[docId]?.containsKey("$i") == true) {
+                         output.append(extraFeatures[docId]!!["$i"])
+                         extraFeatures[docId]!!.remove("$i")
+                     }
+                 }
+                 previousSpanStart = span.from + 1
+             }
+             // Token text safely
+             var tokenText: String = if (textVal != null) {
+                 val safeFrom = span.from.coerceIn(0, textVal.length)
+                 val safeTo = span.to.coerceIn(safeFrom, textVal.length)
+                 textVal.substring(safeFrom, safeTo)
+             } else "_"
 
-            if (tokenText.isBlank()) {
-                LOGGER.fine("Replacing empty/blank token at offset ${span.from}-${span.to} in document $docId with underscore")
-                tokenText = "_"
-            }
+             if (tokenText.isBlank()) {
+                 LOGGER.fine("Replacing empty/blank token at offset ${span.from}-${span.to} in document $docId with underscore")
+                 tokenText = "_"
+             }
 
-            if (morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
-                val mfs = morpho[docId]?.get("${span.from}-${span.to}")
+            if (morphoSnapshot.containsKey("${span.from}-${span.to}")) {
+                val mfs = morphoSnapshot["${span.from}-${span.to}"]
                 if (mfs != null) {
                     val miscWithOffset = if (annotationWorkerPool != null && outputFormat == OutputFormat.KORAPXML) {
                         val existing = mfs.misc ?: "_"
@@ -1435,7 +1422,7 @@ class KorapXmlTool : Callable<Int> {
                                 mfs.upos ?: "_",
                                 mfs.xpos ?: "_",
                                 mfs.feats ?: "_",
-                                mfs.head ?: "_",
+                                resolveHeadValue(mfs.head),
                                 mfs.deprel ?: "_",
                                 mfs.deps ?: "_",
                                 miscWithOffset,
@@ -1475,10 +1462,10 @@ class KorapXmlTool : Callable<Int> {
                     )
                 )
             }
-            real_token_index++
-        }
-        return output
-    }
+             real_token_index++
+         }
+         return output
+     }
 
     private fun lmTrainingOutput(docId: String): StringBuilder {
         var token_index = 0
