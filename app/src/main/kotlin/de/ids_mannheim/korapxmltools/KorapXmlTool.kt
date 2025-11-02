@@ -751,7 +751,7 @@ class KorapXmlTool : Callable<Int> {
                 progressBar = ProgressBarBuilder()
                     .setTaskName("Annotating")
                     .setInitialMax(newTotal.toLong())
-                    .setStyle(ProgressBarStyle.ASCII)
+                    .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
                     .setUpdateIntervalMillis(500) // Update every 500ms
                     .showSpeed()
                     .build()
