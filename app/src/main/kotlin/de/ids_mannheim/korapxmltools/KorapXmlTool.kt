@@ -62,6 +62,9 @@ class KorapXmlTool : Callable<Int> {
 
     @Spec lateinit var spec : Model.CommandSpec
 
+    // When using --annotate-with, hold the external tool's foundry label (e.g., spacy, stanza)
+    private var externalFoundry: String? = null
+
     @Parameters(arity = "1..*", description = ["At least one zip file name"])
     var zipFileNames: Array<String>? = null
 
@@ -365,44 +368,36 @@ class KorapXmlTool : Callable<Int> {
         entryExecutor = Executors.newFixedThreadPool(maxThreads)
 
         if (annotateWith.isNotEmpty()) {
-            // Initialize ZIP output stream BEFORE creating worker pool, if needed
-            if (outputFormat == OutputFormat.KORAPXML) {
-                // Determine output filename
-                val inputZipPath = args[0] // First ZIP file
-                var targetFoundry = "base"
-                when {
-                    annotateWith.contains("spacy") -> targetFoundry = "spacy"
-                    annotateWith.contains("stanza") -> targetFoundry = "stanza"
-                    annotateWith.contains("udpipe") -> targetFoundry = "udpipe"
-                    annotateWith.contains("tree") -> targetFoundry = "tree_tagger"
-                    annotateWith.contains("marmot") -> targetFoundry = "marmot"
-                    annotateWith.contains("opennlp") -> targetFoundry = "opennlp"
-                    annotateWith.contains("corenlp") -> targetFoundry = "corenlp"
-                    else -> targetFoundry = "annotated"
-                }
+            // Detect external foundry label once from annotateWith command
+            externalFoundry = detectFoundryFromAnnotateCmd(annotateWith)
+             // Initialize ZIP output stream BEFORE creating worker pool, if needed
+             if (outputFormat == OutputFormat.KORAPXML) {
+                 // Determine output filename
+                 val inputZipPath = args[0] // First ZIP file
+                val targetFoundry = externalFoundry ?: "annotated"
 
-                val outputMorphoZipFileName = inputZipPath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
-                LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
+                 val outputMorphoZipFileName = inputZipPath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
+                 LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
 
-                if (File(outputMorphoZipFileName).exists() && !overwrite) {
-                    LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
-                    exitProcess(1)
-                }
+                 if (File(outputMorphoZipFileName).exists() && !overwrite) {
+                     LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
+                     exitProcess(1)
+                 }
 
-                // Delete old file if it exists
-                if (File(outputMorphoZipFileName).exists()) {
-                    LOGGER.info("Deleting existing file: $outputMorphoZipFileName")
-                    File(outputMorphoZipFileName).delete()
-                }
+                 // Delete old file if it exists
+                 if (File(outputMorphoZipFileName).exists()) {
+                     LOGGER.info("Deleting existing file: $outputMorphoZipFileName")
+                     File(outputMorphoZipFileName).delete()
+                 }
 
-                dbFactory = DocumentBuilderFactory.newInstance()
-                dBuilder = dbFactory!!.newDocumentBuilder()
-                val fileOutputStream = FileOutputStream(outputMorphoZipFileName)
-                morphoZipOutputStream = ZipArchiveOutputStream(fileOutputStream).apply {
-                    setUseZip64(Zip64Mode.Always)
-                }
-                LOGGER.info("Initialized morphoZipOutputStream for external annotation to: $outputMorphoZipFileName")
-            }
+                 dbFactory = DocumentBuilderFactory.newInstance()
+                 dBuilder = dbFactory!!.newDocumentBuilder()
+                 val fileOutputStream = FileOutputStream(outputMorphoZipFileName)
+                 morphoZipOutputStream = ZipArchiveOutputStream(fileOutputStream).apply {
+                     setUseZip64(Zip64Mode.Always)
+                 }
+                 LOGGER.info("Initialized morphoZipOutputStream for external annotation to: $outputMorphoZipFileName")
+             }
 
             if (outputFormat == OutputFormat.KORAPXML) {
                 // For ZIP output with external annotation, we need a custom handler
@@ -612,17 +607,7 @@ class KorapXmlTool : Callable<Int> {
             if (labelParts.isNotEmpty()) {
                 targetFoundry = labelParts.joinToString("-")
             } else if (annotateWith.isNotEmpty()) {
-                // Try to detect foundry from external annotation command
-                when {
-                    annotateWith.contains("spacy") -> targetFoundry = "spacy"
-                    annotateWith.contains("stanza") -> targetFoundry = "stanza"
-                    annotateWith.contains("udpipe") -> targetFoundry = "udpipe"
-                    annotateWith.contains("tree") -> targetFoundry = "tree_tagger"
-                    annotateWith.contains("marmot") -> targetFoundry = "marmot"
-                    annotateWith.contains("opennlp") -> targetFoundry = "opennlp"
-                    annotateWith.contains("corenlp") -> targetFoundry = "corenlp"
-                    else -> targetFoundry = "annotated"
-                }
+                targetFoundry = externalFoundry ?: detectFoundryFromAnnotateCmd(annotateWith)
                 LOGGER.info("Detected foundry '$targetFoundry' from annotation command: $annotateWith")
             }
             dbFactory = DocumentBuilderFactory.newInstance()
@@ -1012,6 +997,20 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
+    private fun detectFoundryFromAnnotateCmd(cmd: String): String {
+        val lower = cmd.lowercase(Locale.getDefault())
+        return when {
+            lower.contains("spacy") -> "spacy"
+            lower.contains("stanza") -> "stanza"
+            lower.contains("udpipe") -> "udpipe"
+            lower.contains("tree") -> "tree_tagger"
+            lower.contains("marmot") -> "marmot"
+            lower.contains("opennlp") -> "opennlp"
+            lower.contains("corenlp") -> "corenlp"
+            else -> "annotated"
+        }
+    }
+
     private fun processText(
         docId: String,
         foundry: String,
@@ -1056,13 +1055,18 @@ class KorapXmlTool : Callable<Int> {
         if (annotationWorkerPool != null) {
             if (outputFormat == OutputFormat.KORAPXML) {
                 // Store metadata in task, send clean CoNLL-U to external process
-                val entryPath = if (parserName != null)  docId.replace(Regex("[_.]"), "/").plus("/$parserName/").plus("dependency.xml")
+                // Use external foundry label for folder names when using --annotate-with
+                val targetFoundry = externalFoundry
+                    ?: taggerToolBridges[Thread.currentThread().threadId()]?.foundry
+                    ?: (parserName ?: morphoFoundry)
+                val entryPath = if (parserName != null)
+                    docId.replace(Regex("[_.]"), "/") + "/$targetFoundry/dependency.xml"
                 else
-                    docId.replace(Regex("[_.]"), "/").plus("/$morphoFoundry/").plus("morpho.xml")
-                LOGGER.fine("Sending document $docId (${output.length} chars) to annotation worker pool for ZIP output")
-                // Pass metadata via AnnotationTask, NOT in the text itself
-                annotationWorkerPool?.pushToQueue(output.toString(), docId, entryPath + "|" + foundry)
-                docsSentToAnnotation.incrementAndGet()
+                    docId.replace(Regex("[_.]"), "/") + "/$targetFoundry/morpho.xml"
+                 LOGGER.fine("Sending document $docId (${output.length} chars) to annotation worker pool for ZIP output")
+                 // Pass metadata via AnnotationTask, NOT in the text itself
+                annotationWorkerPool?.pushToQueue(output.toString(), docId, entryPath + "|" + targetFoundry)
+                 docsSentToAnnotation.incrementAndGet()
             } else {
                 LOGGER.fine("Sending document $docId (${output.length} chars) to annotation worker pool")
                 annotationWorkerPool?.pushToQueue(output.toString())
