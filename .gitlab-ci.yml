@@ -17,10 +17,10 @@ before_script:
 build:
   stage: build
   script:
-    - ./gradlew --build-cache clean test shadowJar
+    - ./gradlew --build-cache clean build
   artifacts:
     paths:
-      - app/build/libs/korapxmltool.jar
+      - app/build/libs/korapxmltool-*.jar
   cache:
     key: "$CI_COMMIT_REF_NAME"
     policy: push

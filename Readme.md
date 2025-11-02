@@ -13,7 +13,7 @@ You can download the latest jar build from the build artifacts [here](https://gi
 ## Build it yourself
 
 ```shell script
-./gradlew shadowJar
+./gradlew build
 ```
 
 ## Conversion to [CoNLL-U format](https://universaldependencies.org/format.html)
@@ -129,23 +129,32 @@ Language models are downloaded automatically.
 java  -jar app/build/libs/korapxmltool.jar app/src/test/resources/wdf19.zip | docker run --rm -i korap/conllu2treetagger -l french | conllu2korapxml
 ```
 
-### Tag and lemmatize with spaCy
+### Tag and lemmatize with spaCy directly to a new KorAP-XML ZIP file
 
 This requires the [spaCy Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/sota-pos-lemmatizers) and is only available for German.
+
+```shell script
+java  -jar app/build/libs/korapxmltool.jar -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest 2> /dev/null" -f zip ./app/src/test/resources/goe.zip
+```
+
+### Tag, lemmatize and dependency parse with spaCy directly to a new KorAP-XML ZIP file
 
 ```shell script
 java  -jar app/build/libs/korapxmltool.jar -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=True --rm -i korap/conllu2spacy:latest 2> /dev/null" -f zip ./app/src/test/resources/goe.zip
 ```
 
-## Parsing
-
-### Using the integrated Maltparser
+### Parse using the integrated Maltparser directly to a new KorAP-XML ZIP file
 
 You need to download the pre-trained MaltParser models from the [MaltParser model repository](http://www.maltparser.org/mco/mco.html).
 Note that parsers take POS tagged input.
 
 ```shell script
 java -jar ./app/build/libs/korapxmltool.jar -f zip -T2 -P malt:libs/german.mco goe.tree_tagger.zip
+```
+
+### Tag with MarMoT and parse with Maltparser in one run directly to a new KorAP-XML ZIP file
+```shell script
+java -jar ./app/build/libs/korapxmltool.jar -f zip -t marmot:models/de.marmot -P malt:libs/german.mco goe.zip
 ```
 
 ## Development and License
