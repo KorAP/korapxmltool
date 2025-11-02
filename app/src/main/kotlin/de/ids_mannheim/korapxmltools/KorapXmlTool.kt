@@ -1260,7 +1260,7 @@ class KorapXmlTool : Callable<Int> {
             }
 
             if (morpho[docId]?.containsKey("${span.from}-${span.to}") == true) {
-                val mfs = morpho[docId]!!["${span.from}-${span.to}"]
+                val mfs = morpho[docId]?.get("${span.from}-${span.to}")
                 if (mfs != null) {
                     // Add offset info to MISC field for external annotation with ZIP output
                     val miscWithOffset = if (annotationWorkerPool != null && outputFormat == OutputFormat.KORAPXML) {
@@ -1269,21 +1269,34 @@ class KorapXmlTool : Callable<Int> {
                         else "${existing}|Offset=${span.from}-${span.to}"
                     } else mfs.misc ?: "_"
 
-                    output.append(
-                        printConlluToken(
-                            token_index,
-                            tokenText,
-                            mfs.lemma ?: "_",
-                            mfs.upos ?: "_",
-                            mfs.xpos ?: "_",
-                            mfs.feats ?: "_",
-                            mfs.head ?: "_",
-                            mfs.deprel ?: "_",
-                            mfs.deps ?: "_",
-                            miscWithOffset,
-                            columns
+                    try {
+                        output.append(
+                            printConlluToken(
+                                token_index,
+                                tokenText,
+                                mfs.lemma ?: "_",
+                                mfs.upos ?: "_",
+                                mfs.xpos ?: "_",
+                                mfs.feats ?: "_",
+                                mfs.head ?: "_",
+                                mfs.deprel ?: "_",
+                                mfs.deps ?: "_",
+                                miscWithOffset,
+                                columns
+                            )
                         )
-                    )
+                    } catch (e: NullPointerException) {
+                        LOGGER.warning("NPE processing morpho for $docId at ${span.from}-${span.to}: ${e.message}")
+                        // Fallback to token without morpho
+                        val miscWithOffset = if (annotationWorkerPool != null && outputFormat == OutputFormat.KORAPXML) {
+                            "Offset=${span.from}-${span.to}"
+                        } else "_"
+                        output.append(
+                            printConlluToken(
+                                token_index, tokenText, misc = miscWithOffset, columns = columns
+                            )
+                        )
+                    }
                 } else {
                     // Fallback if mfs is null
                     val miscWithOffset = if (annotationWorkerPool != null && outputFormat == OutputFormat.KORAPXML) {
