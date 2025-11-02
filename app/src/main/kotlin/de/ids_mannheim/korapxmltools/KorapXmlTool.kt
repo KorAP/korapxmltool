@@ -172,6 +172,12 @@ class KorapXmlTool : Callable<Int> {
     var annotateWith: String = ""
 
     @Option(
+        names = ["--quiet", "-q"],
+        description = ["Suppress the visual progress bar (logging remains unchanged)"]
+    )
+    var quiet: Boolean = false
+
+    @Option(
         names = ["--threads", "-T"],
         paramLabel = "THREADS",
         description = ["Maximum number of threads to use. Default: ${"$"}{DEFAULT-VALUE}"]
@@ -245,7 +251,7 @@ class KorapXmlTool : Callable<Int> {
         } else {
             taggerName = matcher.group(1)
             taggerModel = matcher.group(2)
-            if (!File(taggerModel).exists()) {
+            if (!File(taggerModel!!).exists()) {
                 throw ParameterException(spec.commandLine(),
                     String.format("Invalid value for option '--tag-with':"+
                         "model file '%s' does not exist", taggerModel, taggerModel))
@@ -270,7 +276,7 @@ class KorapXmlTool : Callable<Int> {
         } else {
             parserName = matcher.group(1)
             parserModel = matcher.group(2)
-            if (!File(parserModel).exists()) {
+            if (!File(parserModel!!).exists()) {
                 throw ParameterException(spec.commandLine(),
                     String.format("Invalid value for option '--parse-with':"+
                             "model file '%s' does not exist", parserModel, parserModel))
@@ -327,8 +333,8 @@ class KorapXmlTool : Callable<Int> {
     private val totalDocsInInput = java.util.concurrent.atomic.AtomicInteger(0) // Track total documents for progress
     private val annotationStartTime = java.util.concurrent.atomic.AtomicLong(0) // Track when annotation started
     private var progressBar: ProgressBar? = null
-    var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge?> = ConcurrentHashMap()
-    var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge?> = ConcurrentHashMap()
+    var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge> = ConcurrentHashMap()
+    var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge> = ConcurrentHashMap()
 
     // Zip progress tracking for logging (zipNumber/zipTotal)
     private val zipOrdinals: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
@@ -502,6 +508,9 @@ class KorapXmlTool : Callable<Int> {
             if (sent != written) {
                 LOGGER.warning("Document count mismatch! Sent to annotation: $sent, Written to ZIP: $written (missing: ${sent - written})")
             }
+        } else {
+            // No external worker: ensure progress bar is closed (e.g., internal tagger -t)
+            progressBar?.close()
         }
         // Shutdown entry executor
         entryExecutor?.shutdown()
@@ -733,30 +742,37 @@ class KorapXmlTool : Callable<Int> {
             val e = enumEntries.nextElement()
             if (extractMetadataRegex.isEmpty() && e.name.contains("header.xml")) continue
             entries.add(e)
-            // Count data.xml files as documents for progress tracking
-            if (e.name.contains("data.xml")) {
-                documentCount++
-            }
         }
         if (entries.isEmpty()) return
 
+        // Determine document count for progress: prefer data.xml, fallback to tokens.xml
+        documentCount = entries.count { it.name.contains("data.xml") }
+        if (documentCount == 0) {
+            documentCount = entries.count { it.name.contains("tokens.xml") }
+        }
+
         // Update total document count and start timer if this is the first ZIP with external annotation
-        if (annotationWorkerPool != null && documentCount > 0) {
-            val newTotal = totalDocsInInput.addAndGet(documentCount)
-            if (annotationStartTime.get() == 0L) {
+        // Initialize progress bar either for external annotation (-A) or internal tagging (-t)
+        if ((annotationWorkerPool != null || taggerName != null) && documentCount > 0) {
+             val newTotal = totalDocsInInput.addAndGet(documentCount)
+             if (annotationStartTime.get() == 0L) {
                 annotationStartTime.set(System.currentTimeMillis())
                 LOGGER.info("Starting annotation of $newTotal document(s)")
-
-                // Initialize progress bar for external annotation with ZIP output
-                progressBar = ProgressBarBuilder()
-                    .setTaskName("Annotating")
-                    .setInitialMax(newTotal.toLong())
-                    .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
-                    .setUpdateIntervalMillis(500) // Update every 500ms
-                    .showSpeed()
-                    .build()
+                if (!quiet) {
+                    // Initialize progress bar for external annotation with ZIP output
+                    progressBar = ProgressBarBuilder()
+                        .setTaskName("Annotating")
+                        .setInitialMax(newTotal.toLong())
+                        .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
+                        .setUpdateIntervalMillis(500)
+                        .showSpeed()
+                        .build()
+                }
+            } else if (!quiet) {
+                // Increase the total as we discover more documents in later zips
+                progressBar?.maxHint(newTotal.toLong())
             }
-        }
+         }
 
         // If only one thread requested, do sequential to avoid pool overhead
         if (maxThreads <= 1) {
@@ -790,16 +806,16 @@ class KorapXmlTool : Callable<Int> {
         LOGGER.finer("Processing ${zipEntry.name} in thread ${Thread.currentThread().threadId()}")
         if (taggerName != null && !taggerToolBridges.containsKey(Thread.currentThread().threadId())) {
             val tagger = AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
-            taggerToolBridges[Thread.currentThread().threadId()] = tagger
             if (tagger != null) {
+                taggerToolBridges[Thread.currentThread().threadId()] = tagger
                 foundry = tagger.foundry
             }
 
         }
         if (parserName != null && !parserToolBridges.containsKey(Thread.currentThread().threadId())) {
             val parser = AnnotationToolBridgeFactory.getAnnotationToolBridge(parserName!!, parserModel!!, LOGGER) as ParserToolBridge?
-            parserToolBridges[Thread.currentThread().threadId()] = parser
             if (parser != null) {
+                parserToolBridges[Thread.currentThread().threadId()] = parser
                 foundry = "$foundry dependency:${parser.foundry}"
                 LOGGER.fine("Initialized parser ${parserName} with foundry $foundry in thread ${Thread.currentThread().threadId()}")
             }
@@ -917,7 +933,17 @@ class KorapXmlTool : Callable<Int> {
                     }
                 }
 
-                val morphoRequired = waitForMorpho || useLemma || taggerName != null || parserName != null || (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null)
+                val morphoRequired = when {
+                    // If tagger or parser is enabled, we generate annotations in processText
+                    taggerName != null || parserName != null -> false
+                    // Word2Vec/NOW with lemmas needs morpho unless a tagger is active (handled above)
+                    useLemma -> true
+                    // Explicit wait flag means: require morpho.xml before proceeding
+                    waitForMorpho -> true
+                    // For direct KorAPXML output without external annotator, require morpho unless -t/-P (handled above)
+                    outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null -> true
+                    else -> false
+                }
                 // For lemma-only/lemma-based word2vec/now, we can proceed without full text
                 val textRequired = when (outputFormat) {
                     OutputFormat.WORD2VEC, OutputFormat.NOW -> !(useLemma || lemmaOnly)
@@ -951,7 +977,13 @@ class KorapXmlTool : Callable<Int> {
                 }
                 if (meta.isNotEmpty() && docId != null) {
                     metadata[docId] = meta.toTypedArray()
-                    val morphoRequired = waitForMorpho || useLemma || taggerName != null || parserName != null || (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null)
+                    val morphoRequired = when {
+                        taggerName != null || parserName != null -> false
+                        useLemma -> true
+                        waitForMorpho -> true
+                        outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null -> true
+                        else -> false
+                    }
                     val textRequired = when (outputFormat) {
                         OutputFormat.WORD2VEC, OutputFormat.NOW -> !(useLemma || lemmaOnly)
                         else -> true
@@ -1047,6 +1079,22 @@ class KorapXmlTool : Callable<Int> {
                 morphoZipOutputStream!!.closeArchiveEntry()
             }
             output.clear()
+            // Track written docs and update progress like with --annotate-with
+            val written = docsWrittenToZip.incrementAndGet()
+            if (!quiet) progressBar?.step()
+            if (totalDocsInInput.get() > 0) {
+                val total = totalDocsInInput.get()
+                val percent = (written * 100.0) / total
+                val elapsed = (System.currentTimeMillis() - annotationStartTime.get()) / 1000.0
+                val docsPerSec = if (elapsed > 0) written / elapsed else 0.0
+                val remaining = total - written
+                val etaSec = if (docsPerSec > 0) remaining / docsPerSec else 0.0
+                if (written % 10 == 0 || written == total) {
+                    LOGGER.info(String.format(Locale.ROOT,
+                        "Progress: %d/%d (%.1f%%), %.1f docs/s, ETA %02d:%02d",
+                        written, total, percent, docsPerSec, (etaSec / 60).toInt(), (etaSec % 60).toInt()))
+                }
+            }
         }
 
 
@@ -1058,11 +1106,16 @@ class KorapXmlTool : Callable<Int> {
             map.remove(docId)
         }
 
-        // Periodic GC hint after processing many docs (lightweight safeguard)
-        if ((processedDocs.incrementAndGet() % 2000) == 0) {
-            LOGGER.fine("Processed ${processedDocs.get()} docs – requesting GC hint")
-            System.gc()
+        // Non-ZIP outputs (-t without -f zip): still advance the bar per processed document
+        if (annotationWorkerPool == null && outputFormat != OutputFormat.KORAPXML) {
+            if (!quiet) progressBar?.step()
         }
+
+         // Periodic GC hint after processing many docs (lightweight safeguard)
+         if ((processedDocs.incrementAndGet() % 2000) == 0) {
+             LOGGER.fine("Processed ${processedDocs.get()} docs – requesting GC hint")
+             System.gc()
+         }
         // Memory / cache statistics logging
         if (memStatsInterval > 0) {
             val count = processedDocs.get()
@@ -1900,7 +1953,7 @@ class KorapXmlTool : Callable<Int> {
             val written = docsWrittenToZip.incrementAndGet()
 
             // Update progress bar
-            progressBar?.step()
+            if (!quiet) progressBar?.step()
 
             // Show progress with ETA at INFO level
             if (annotationWorkerPool != null && totalDocsInInput.get() > 0) {
