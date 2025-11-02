@@ -64,6 +64,8 @@ class KorapXmlTool : Callable<Int> {
 
     // When using --annotate-with, hold the external tool's foundry label (e.g., spacy, stanza)
     private var externalFoundry: String? = null
+    // Target ZIP filename (when writing ZIP output); used to label the progress bar
+    private var targetZipFileName: String? = null
 
     @Parameters(arity = "1..*", description = ["At least one zip file name"])
     var zipFileNames: Array<String>? = null
@@ -377,8 +379,8 @@ class KorapXmlTool : Callable<Int> {
                 val targetFoundry = externalFoundry ?: "annotated"
 
                 val outputMorphoZipFileName = inputZipPath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
+                targetZipFileName = outputMorphoZipFileName
                 LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
-
                 // Prepare per-output log file
                 val logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
                 val fileHandler = java.util.logging.FileHandler(logFilePath, true)
@@ -637,6 +639,7 @@ class KorapXmlTool : Callable<Int> {
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
             val outputMorphoZipFileName = zipFilePath.replace(Regex("\\.zip$"), "." + targetFoundry + ".zip")
+            targetZipFileName = outputMorphoZipFileName
             LOGGER.info("Output ZIP file: $outputMorphoZipFileName")
             if (File(outputMorphoZipFileName).exists() && !overwrite) {
                 LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
@@ -772,7 +775,7 @@ class KorapXmlTool : Callable<Int> {
                 if (!quiet) {
                     // Initialize progress bar for external annotation with ZIP output
                     progressBar = ProgressBarBuilder()
-                        .setTaskName("Annotating")
+                        .setTaskName(targetZipFileName ?: "Annotating")
                         .setInitialMax(newTotal.toLong())
                         .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
                         .setUpdateIntervalMillis(500)
