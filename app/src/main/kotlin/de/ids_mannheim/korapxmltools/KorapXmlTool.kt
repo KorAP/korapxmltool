@@ -221,7 +221,7 @@ class KorapXmlTool : Callable<Int> {
     @Option(
         names = ["-D", "--output-dir"],
         paramLabel = "DIR",
-        description = ["Output directory for generated files (default: current directory)"]
+        description = ["Output directory for generated files (default: current directory, or for krill format: directory of input ZIPs)"]
     )
     var outputDir: String = "."
 
@@ -410,6 +410,13 @@ class KorapXmlTool : Callable<Int> {
                 val name = File(zip).name
                 name.matches(Regex(".*\\.zip$")) && !name.matches(Regex(".*\\.[^/.]+\\.zip$"))
             } ?: args[0]
+
+            // If output directory not specified, use the directory of the base ZIP
+            if (outputDir == ".") {
+                outputDir = File(baseZip).parent ?: "."
+                LOGGER.info("Output directory not specified, using base ZIP directory: $outputDir")
+            }
+
             val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
             krillOutputFileName = File(outputDir, "$baseZipName.krill.tar").absolutePath
             LOGGER.info("Initializing krill TAR output: $krillOutputFileName")
@@ -1041,33 +1048,35 @@ class KorapXmlTool : Callable<Int> {
                         val fsSpans: NodeList = doc.getElementsByTagName("span")
                         val morphoSpans = extractMorphoSpans(fsSpans)
 
-                        // Merge with existing morpho data (e.g., from dependency.xml)
-                        // Synchronize access to morpho[docId] to avoid race conditions
-                        val morphoMap = synchronized(morpho) {
-                            morpho.getOrPut(docId) { morphoSpans }
-                        }
-
-                        if (morphoMap !== morphoSpans) {
-                            // Map already existed, need to merge
-                            synchronized(morphoMap) {
-                                morphoSpans.forEach { (key, mfs) ->
-                                    val existing = morphoMap[key]
-                                    if (existing != null) {
-                                        // Preserve head and deprel from existing (dependency.xml)
-                                        mfs.head = existing.head
-                                        mfs.deprel = existing.deprel
-                                    }
-                                    morphoMap[key] = mfs
-                                }
-                                LOGGER.fine("Merged morpho.xml with existing data for $docId (preserved ${morphoMap.count { it.value.head != "_" }} dependency relations)")
-                            }
-                        }
-                        tokens[docId] = extractSpans(fsSpans)
-
-                        // For krill format, collect morpho data immediately with the correct foundry
+                        // For krill format, collect morpho data directly without using shared morpho map
                         if (outputFormat == OutputFormat.KRILL) {
                             val morphoFoundry = getFoundryForLayer(foundry, "morpho")
-                            collectKrillMorphoData(docId, morphoFoundry, "morpho")
+                            collectKrillMorphoDataDirect(docId, morphoFoundry, morphoSpans, "morpho")
+                            tokens[docId] = extractSpans(fsSpans)
+                        } else {
+                            // For other formats, use the shared morpho map
+                            // Merge with existing morpho data (e.g., from dependency.xml)
+                            // Synchronize access to morpho[docId] to avoid race conditions
+                            val morphoMap = synchronized(morpho) {
+                                morpho.getOrPut(docId) { morphoSpans }
+                            }
+
+                            if (morphoMap !== morphoSpans) {
+                                // Map already existed, need to merge
+                                synchronized(morphoMap) {
+                                    morphoSpans.forEach { (key, mfs) ->
+                                        val existing = morphoMap[key]
+                                        if (existing != null) {
+                                            // Preserve head and deprel from existing (dependency.xml)
+                                            mfs.head = existing.head
+                                            mfs.deprel = existing.deprel
+                                        }
+                                        morphoMap[key] = mfs
+                                    }
+                                    LOGGER.fine("Merged morpho.xml with existing data for $docId (preserved ${morphoMap.count { it.value.head != "_" }} dependency relations)")
+                                }
+                            }
+                            tokens[docId] = extractSpans(fsSpans)
                         }
                     }
 
@@ -1078,40 +1087,40 @@ class KorapXmlTool : Callable<Int> {
                         val depMap = extractDependencySpans(depSpans)
                         LOGGER.info("Extracted ${depMap.size} dependency relations")
 
-                        // Merge dependency info into existing morpho data
-                        // Note: heads are stored as offsets (e.g., "100-110") and will be resolved
-                        // to token indices later during CoNLL-U output
-                        // Synchronize access to morpho[docId] to avoid race conditions
-                        val morphoMap = synchronized(morpho) {
-                            morpho.getOrPut(docId) {
-                                LOGGER.info("Created new morpho map for $docId")
-                                mutableMapOf()
-                            }
-                        }
-
-                        var mergedCount = 0
-                        var newCount = 0
-                        synchronized(morphoMap) {
-                            depMap.forEach { (key, depSpan) ->
-                                val existing = morphoMap[key]
-                                if (existing != null) {
-                                    // Update existing morpho with dependency info (head is still offset-based)
-                                    existing.head = depSpan.head
-                                    existing.deprel = depSpan.deprel
-                                    mergedCount++
-                                } else {
-                                    // Create new entry with just dependency info
-                                    morphoMap[key] = depSpan
-                                    newCount++
-                                }
-                            }
-                        }
-                        LOGGER.info("Dependency merge complete: $mergedCount merged, $newCount new entries (heads will be resolved during output)")
-
-                        // For krill format, collect dependency data with the correct foundry
+                        // For krill format, collect dependency data directly without using shared morpho map
                         if (outputFormat == OutputFormat.KRILL) {
                             val depFoundry = getFoundryForLayer(foundry, "dependency")
-                            collectKrillMorphoData(docId, depFoundry, "dependency")
+                            collectKrillMorphoDataDirect(docId, depFoundry, depMap, "dependency")
+                        } else {
+                            // For other formats, merge dependency info into existing morpho data
+                            // Note: heads are stored as offsets (e.g., "100-110") and will be resolved
+                            // to token indices later during CoNLL-U output
+                            // Synchronize access to morpho[docId] to avoid race conditions
+                            val morphoMap = synchronized(morpho) {
+                                morpho.getOrPut(docId) {
+                                    LOGGER.info("Created new morpho map for $docId")
+                                    mutableMapOf()
+                                }
+                            }
+
+                            var mergedCount = 0
+                            var newCount = 0
+                            synchronized(morphoMap) {
+                                depMap.forEach { (key, depSpan) ->
+                                    val existing = morphoMap[key]
+                                    if (existing != null) {
+                                        // Update existing morpho with dependency info (head is still offset-based)
+                                        existing.head = depSpan.head
+                                        existing.deprel = depSpan.deprel
+                                        mergedCount++
+                                    } else {
+                                        // Create new entry with just dependency info
+                                        morphoMap[key] = depSpan
+                                        newCount++
+                                    }
+                                }
+                            }
+                            LOGGER.info("Dependency merge complete: $mergedCount merged, $newCount new entries (heads will be resolved during output)")
                         }
                     }
                 }
@@ -2347,7 +2356,76 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
-    // Collect morpho data from a specific foundry for krill format
+    // Collect morpho data directly from parsed data (for krill format, bypasses shared morpho map)
+    // This version takes the morpho data as a parameter to avoid contamination from other foundries
+    private fun collectKrillMorphoDataDirect(docId: String, foundry: String, morphoDataMap: MutableMap<String, MorphoSpan>, annotationType: String = "morpho") {
+        LOGGER.info("Collecting krill $annotationType data (direct) for $docId, foundry=$foundry, morpho=${morphoDataMap.size}")
+
+        val textData = krillData.getOrPut(docId) {
+            KrillTextData(textId = docId)
+        }
+
+        if (morphoDataMap.isNotEmpty()) {
+            // Copy the data, filtering by annotation type
+            val morphoDataCopy = morphoDataMap.mapValues { (_, span) ->
+                // Create a filtered copy of the span based on annotation type
+                val filteredSpan = MorphoSpan()
+                if (annotationType == "morpho") {
+                    // Copy only morphological annotations (POS, lemma, features)
+                    filteredSpan.lemma = span.lemma
+                    filteredSpan.upos = span.upos
+                    filteredSpan.xpos = span.xpos
+                    filteredSpan.feats = span.feats
+                    filteredSpan.misc = span.misc
+                } else if (annotationType == "dependency") {
+                    // Copy only dependency annotations (head, deprel)
+                    filteredSpan.head = span.head
+                    filteredSpan.deprel = span.deprel
+                }
+                filteredSpan
+            }.toMutableMap()
+
+            synchronized(textData) {
+                // Merge with existing morpho data for this foundry (don't overwrite)
+                val existingFoundryData = textData.morphoByFoundry[foundry]
+                if (existingFoundryData == null) {
+                    // First time collecting this foundry - just copy
+                    textData.morphoByFoundry[foundry] = morphoDataCopy
+                    LOGGER.info("  Added ${morphoDataCopy.size} $annotationType annotations for $docId from foundry $foundry, total foundries=${textData.morphoByFoundry.keys}")
+                } else {
+                    // Merge with existing data (e.g., adding dependencies to existing morpho)
+                    var mergedCount = 0
+                    var newCount = 0
+                    morphoDataCopy.forEach { (key, newSpan) ->
+                        val existingSpan = existingFoundryData[key]
+                        if (existingSpan != null) {
+                            // Merge: add new annotations based on type
+                            if (annotationType == "dependency") {
+                                // Only update dependency fields
+                                if (newSpan.head != null && newSpan.head != "_") existingSpan.head = newSpan.head
+                                if (newSpan.deprel != null && newSpan.deprel != "_") existingSpan.deprel = newSpan.deprel
+                            } else if (annotationType == "morpho") {
+                                // Only update morphological fields (check for "_" since MorphoSpan defaults to "_", not null)
+                                if (newSpan.lemma != null && newSpan.lemma != "_" && (existingSpan.lemma == null || existingSpan.lemma == "_")) existingSpan.lemma = newSpan.lemma
+                                if (newSpan.upos != null && newSpan.upos != "_" && (existingSpan.upos == null || existingSpan.upos == "_")) existingSpan.upos = newSpan.upos
+                                if (newSpan.xpos != null && newSpan.xpos != "_" && (existingSpan.xpos == null || existingSpan.xpos == "_")) existingSpan.xpos = newSpan.xpos
+                                if (newSpan.feats != null && newSpan.feats != "_" && (existingSpan.feats == null || existingSpan.feats == "_")) existingSpan.feats = newSpan.feats
+                                if (newSpan.misc != null && newSpan.misc != "_" && (existingSpan.misc == null || existingSpan.misc == "_")) existingSpan.misc = newSpan.misc
+                            }
+                            mergedCount++
+                        } else {
+                            // New span not in existing data
+                            existingFoundryData[key] = newSpan
+                            newCount++
+                        }
+                    }
+                    LOGGER.info("  Merged ${morphoDataCopy.size} $annotationType annotations for $docId from foundry $foundry ($mergedCount merged, $newCount new), total foundries=${textData.morphoByFoundry.keys}")
+                }
+            }
+        }
+    }
+
+    // Collect morpho data from a specific foundry for krill format (OLD VERSION - reads from shared morpho map)
     // annotationType: "morpho" = collect POS/lemma/features, "dependency" = collect head/deprel only
     private fun collectKrillMorphoData(docId: String, foundry: String, annotationType: String = "morpho") {
         LOGGER.info("Collecting krill $annotationType data for $docId, foundry=$foundry, morpho=${morpho[docId]?.size ?: 0}")
@@ -2478,8 +2556,9 @@ class KorapXmlTool : Callable<Int> {
         val sb = StringBuilder()
         sb.append("{")
 
-        // @context and version
+        // @context, @type, and version
         sb.append("\"@context\":\"http://korap.ids-mannheim.de/ns/koral/0.4/context.jsonld\",")
+        sb.append("\"@type\":\"koral:corpus\",")
         sb.append("\"version\":\"0.4\",")
 
         // fields (metadata)
@@ -2572,7 +2651,7 @@ class KorapXmlTool : Callable<Int> {
             layerInfos.add("dereko/s=spans")
         }
 
-        // Collect layers by foundry type (with dependency check)
+        // Collect layers by foundry type (checking what data actually exists)
         val foundryLayers = mutableMapOf<String, MutableSet<String>>()
         textData.morphoByFoundry.keys.sorted().forEach { foundry ->
             val shortFoundry = when(foundry) {
@@ -2583,18 +2662,50 @@ class KorapXmlTool : Callable<Int> {
             }
             if (shortFoundry != null) {
                 val layers = foundryLayers.getOrPut(shortFoundry) { mutableSetOf() }
+                val morphoData = textData.morphoByFoundry[foundry]?.values
 
                 // Check if this foundry has dependency annotations
-                val hasDependencies = textData.morphoByFoundry[foundry]?.values?.any {
+                val hasDependencies = morphoData?.any {
                     it.head != null && it.head != "_" && it.deprel != null && it.deprel != "_"
                 } ?: false
 
                 if (hasDependencies) {
                     layers.add("d=rels")
                 }
-                layers.add("l=tokens")
-                layers.add("p=tokens")
-                layers.add("m=tokens")
+
+                // Check if this foundry has lemma annotations
+                val hasLemma = morphoData?.any {
+                    it.lemma != null && it.lemma != "_"
+                } ?: false
+                if (hasLemma) {
+                    layers.add("l=tokens")
+                }
+
+                // Check if this foundry has POS annotations (xpos or upos)
+                val hasPos = morphoData?.any {
+                    (it.xpos != null && it.xpos != "_") || (it.upos != null && it.upos != "_")
+                } ?: false
+                if (hasPos) {
+                    layers.add("p=tokens")
+                }
+
+                // Check if this foundry has morphological features
+                val hasFeatures = morphoData?.any {
+                    it.feats != null && it.feats != "_"
+                } ?: false
+                if (hasFeatures) {
+                    layers.add("m=tokens")
+                }
+
+                // Check if this foundry has UPOS (skip for tree_tagger)
+                if (foundry != "tree_tagger") {
+                    val hasUpos = morphoData?.any {
+                        it.upos != null && it.upos != "_"
+                    } ?: false
+                    if (hasUpos) {
+                        layers.add("u=tokens")
+                    }
+                }
             }
         }
 
@@ -2605,6 +2716,39 @@ class KorapXmlTool : Callable<Int> {
             }
         }
         sb.append("\"layerInfos\":${jsonString(layerInfos.joinToString(" "))},")
+
+        // foundries - list all foundries with their layers
+        val foundries = mutableListOf<String>()
+
+        // Add dereko if we have structure
+        if (textData.sentences != null) {
+            foundries.add("dereko")
+            foundries.add("dereko/structure")
+            foundries.add("dereko/structure/base-sentences-paragraphs-pagebreaks")
+        }
+
+        // Add annotation foundries with their layers
+        foundryLayers.keys.sorted().forEach { foundry ->
+            // Use full name "treetagger" instead of "tt" in foundries list
+            val foundryFullName = if (foundry == "tt") "treetagger" else foundry
+            foundries.add(foundryFullName)
+            foundryLayers[foundry]?.sorted()?.forEach { layer ->
+                // Convert layer format: "d=rels" -> "dependency", "p=tokens" -> "morpho", etc.
+                val layerName = when {
+                    layer.startsWith("d=") -> "dependency"
+                    layer.startsWith("l=") || layer.startsWith("p=") || layer.startsWith("m=") || layer.startsWith("u=") -> "morpho"
+                    else -> layer.split("=")[0]
+                }
+                val foundryLayer = "$foundryFullName/$layerName"
+                if (!foundries.contains(foundryLayer)) {
+                    foundries.add(foundryLayer)
+                }
+            }
+        }
+        sb.append("\"foundries\":${jsonString(foundries.joinToString(" "))},")
+
+        // name - field name for the data (always "tokens")
+        sb.append("\"name\":\"tokens\",")
 
         // stream - token-level annotations
         sb.append("\"stream\":[")
@@ -2632,17 +2776,117 @@ class KorapXmlTool : Callable<Int> {
             offsetToIndex["${token.from}-${token.to}"] = index
         }
 
+        // Collect inverse dependency relations and ROOT dependencies
+        data class InverseDep(val dependentIndex: Int, val foundry: String, val deprel: String)
+        data class RootDep(val tokenIndex: Int, val foundry: String)
+        val inverseDeps = mutableMapOf<Int, MutableList<InverseDep>>()
+        val rootTokens = mutableListOf<RootDep>()
+
+        tokens.forEachIndexed { index, token ->
+            val spanKey = "${token.from}-${token.to}"
+            textData.morphoByFoundry.keys.forEach { foundry ->
+                val morphoSpan = textData.morphoByFoundry[foundry]?.get(spanKey)
+                if (morphoSpan != null && morphoSpan.head != null && morphoSpan.head != "_" && morphoSpan.deprel != null && morphoSpan.deprel != "_") {
+                    val headStr = morphoSpan.head!!
+                    val prefix = when(foundry) {
+                        "tree_tagger" -> "tt"
+                        "marmot-malt" -> "marmot"
+                        else -> foundry
+                    }
+
+                    // Check if this is a ROOT dependency (head == 0)
+                    if (headStr == "0" || (headStr.contains("-") && headStr.startsWith("0-"))) {
+                        rootTokens.add(RootDep(index, prefix))
+                    } else {
+                        val resolvedHeadIndex = if (headStr.contains("-")) {
+                            offsetToIndex[headStr]
+                        } else {
+                            val idx = headStr.toIntOrNull()
+                            if (idx != null && idx > 0) idx - 1 else null
+                        }
+
+                        if (resolvedHeadIndex != null) {
+                            inverseDeps.getOrPut(resolvedHeadIndex) { mutableListOf() }
+                                .add(InverseDep(index, prefix, morphoSpan.deprel!!))
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add base structure spans (sentences, paragraphs, text)
+        val baseStructureSpans = mutableListOf<StructureSpan>()
+
+        // Add text span covering entire document (from start of text to end, tokenTo is exclusive)
+        if (tokens.isNotEmpty()) {
+            baseStructureSpans.add(StructureSpan(
+                layer = "base/s:t",
+                from = 0,  // Start at beginning of text
+                to = tokens.last().to,
+                tokenFrom = 0,
+                tokenTo = tokens.size,  // Exclusive end: one past last token index
+                depth = 0,
+                attributes = emptyMap()
+            ))
+        }
+
+        // Build token-to-sentence map for ROOT edge generation
+        data class SentenceInfo(val from: Int, val to: Int, val tokenFrom: Int, val tokenTo: Int)
+        val tokenToSentence = mutableMapOf<Int, SentenceInfo>()
+
+        // Add sentence spans (tokenTo is exclusive: first token after the span)
+        sentences.forEachIndexed { sentIdx, sentence ->
+            val sentTokens = tokens.filter { it.from >= sentence.from && it.to <= sentence.to }
+            if (sentTokens.isNotEmpty()) {
+                val firstTokenIdx = tokens.indexOf(sentTokens.first())
+                val lastTokenIdx = tokens.indexOf(sentTokens.last())
+                val sentInfo = SentenceInfo(
+                    from = sentTokens.first().from,
+                    to = sentTokens.last().to,
+                    tokenFrom = firstTokenIdx,
+                    tokenTo = lastTokenIdx + 1  // Exclusive end
+                )
+
+                // Map all tokens in this sentence to the sentence info
+                for (i in firstTokenIdx until sentInfo.tokenTo) {
+                    tokenToSentence[i] = sentInfo
+                }
+
+                baseStructureSpans.add(StructureSpan(
+                    layer = "base/s:s",
+                    from = sentInfo.from,
+                    to = sentInfo.to,
+                    tokenFrom = sentInfo.tokenFrom,
+                    tokenTo = sentInfo.tokenTo,
+                    depth = 2,
+                    attributes = emptyMap()
+                ))
+            }
+        }
+
+        // Combine base structure spans with dereko spans
+        val allStructureSpans = baseStructureSpans + textData.structureSpans
+
         // Resolve tokenFrom and tokenTo for structural spans
-        val resolvedStructureSpans = textData.structureSpans.map { span ->
-            // Find first and last token covered by this span
-            var tokenFrom = tokens.indexOfFirst { it.from >= span.from && it.from < span.to }
-            var tokenTo = tokens.indexOfLast { it.to > span.from && it.to <= span.to }
+        // Note: tokenTo is exclusive (one past the last token index)
+        val resolvedStructureSpans = allStructureSpans.map { span ->
+            if (span.tokenFrom >= 0 && span.tokenTo >= 0) {
+                // Already resolved
+                span
+            } else {
+                // Find first and last token covered by this span
+                var tokenFrom = tokens.indexOfFirst { it.from >= span.from && it.from < span.to }
+                var lastTokenIndex = tokens.indexOfLast { it.to > span.from && it.to <= span.to }
 
-            // Handle edge cases
-            if (tokenFrom == -1) tokenFrom = 0
-            if (tokenTo == -1) tokenTo = tokens.size - 1
+                // Handle edge cases
+                if (tokenFrom == -1) tokenFrom = 0
+                if (lastTokenIndex == -1) lastTokenIndex = tokens.size - 1
 
-            span.copy(tokenFrom = tokenFrom, tokenTo = tokenTo)
+                // tokenTo is exclusive: one past the last token
+                val tokenTo = lastTokenIndex + 1
+
+                span.copy(tokenFrom = tokenFrom, tokenTo = tokenTo)
+            }
         }
 
         // Group structural spans by their starting token
@@ -2652,7 +2896,7 @@ class KorapXmlTool : Callable<Int> {
         }
 
         // Count paragraph spans (name="p")
-        val paragraphCount = textData.structureSpans.count { it.layer.endsWith(":p") }
+        val paragraphCount = allStructureSpans.count { it.layer.endsWith(":p") }
 
         tokens.forEachIndexed { index, token ->
             val tokenAnnotations = mutableListOf<String>()
@@ -2714,11 +2958,21 @@ class KorapXmlTool : Callable<Int> {
             // Token offset annotation
             tokenAnnotations.add(jsonString("_$index\$<i>${token.from}<i>${token.to}"))
 
-            // Collect lemmas from all foundries first (for "i:" annotation)
-            val baseMorpho = textData.morphoByFoundry["base"]?.get(spanKey)
-            val lemma = baseMorpho?.lemma?.takeIf { it != "_" }
-            if (lemma != null) {
-                tokenAnnotations.add(jsonString("i:${lemma.lowercase()}"))
+            // Get surface form (used for both i: and s: annotations)
+            val surfaceForm = if (token.to <= text.length) {
+                text.substring(token.from, token.to)
+            } else {
+                ""
+            }
+
+            // Add i: annotation (lowercase surface form)
+            if (surfaceForm.isNotEmpty()) {
+                tokenAnnotations.add(jsonString("i:${surfaceForm.lowercase()}"))
+            }
+
+            // Add inverse dependency annotations (<:) for dependents pointing to this token as head
+            inverseDeps[index]?.sortedBy { "${it.foundry}/${it.deprel}" }?.forEach { inv ->
+                tokenAnnotations.add(jsonString("<:${inv.foundry}/d:${inv.deprel}\$<b>32<i>${inv.dependentIndex}"))
             }
 
             // Collect annotations from all foundries for this token
@@ -2758,8 +3012,8 @@ class KorapXmlTool : Callable<Int> {
                             tokenAnnotations.add(jsonString("$prefix/l:${morphoSpan.lemma}"))
                         }
 
-                        // UPOS
-                        if (morphoSpan.upos != null && morphoSpan.upos != "_") {
+                        // UPOS (skip for tree_tagger as it only has xpos)
+                        if (morphoSpan.upos != null && morphoSpan.upos != "_" && foundry != "tree_tagger") {
                             tokenAnnotations.add(jsonString("$prefix/u:${morphoSpan.upos}"))
                         }
                     }
@@ -2789,11 +3043,6 @@ class KorapXmlTool : Callable<Int> {
             }
 
             // Surface form (always last)
-            val surfaceForm = if (token.to <= text.length) {
-                text.substring(token.from, token.to)
-            } else {
-                ""
-            }
             tokenAnnotations.add(jsonString("s:$surfaceForm"))
 
             result.add(jsonArray(tokenAnnotations))
