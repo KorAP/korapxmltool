@@ -219,6 +219,13 @@ class KorapXmlTool : Callable<Int> {
     var overwrite: Boolean = false
 
     @Option(
+        names = ["-D", "--output-dir"],
+        paramLabel = "DIR",
+        description = ["Output directory for generated files (default: current directory)"]
+    )
+    var outputDir: String = "."
+
+    @Option(
         names = ["--mem-stats-interval"],
         paramLabel = "N",
         description = ["Log memory and cache statistics every N processed documents (0 disables; default: 0)"]
