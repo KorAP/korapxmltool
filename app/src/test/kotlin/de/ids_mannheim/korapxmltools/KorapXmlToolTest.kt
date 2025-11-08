@@ -421,4 +421,127 @@ class KorapXmlToolTest {
             "Should find tokens with numeric HEAD values in column 7"
         )
     }
+
+    @Test
+    fun krillOutputMatchesExpectedStructure() {
+        // Test krill format output against expected reference
+        val baseZip = loadResource("wud24_sample.zip").path
+        val spacyZip = loadResource("wud24_sample.spacy.zip").path
+        val marmotMaltZip = loadResource("wud24_sample.marmot-malt.zip").path
+        val expectedTar = loadResource("wud24_sample.krill.tar").path
+
+        // Create temporary output file
+        val outputTar = File.createTempFile("wud24_krill_test", ".tar")
+        outputTar.deleteOnExit()
+
+        // Generate krill output
+        val args = arrayOf("-f", "krill", "-o", baseZip, spacyZip, marmotMaltZip)
+        val exitCode = debug(args)
+
+        // Check that generation succeeded
+        assertTrue(exitCode == 0, "Krill conversion should succeed")
+
+        // Expected output file name
+        val generatedTar = File(baseZip.replace(".zip", ".krill.tar"))
+        assertTrue(generatedTar.exists(), "Generated krill tar should exist at ${generatedTar.path}")
+
+        // Extract both tars to temp directories
+        val expectedDir = File.createTempFile("expected", "").let {
+            it.delete()
+            it.mkdirs()
+            it
+        }
+        val generatedDir = File.createTempFile("generated", "").let {
+            it.delete()
+            it.mkdirs()
+            it
+        }
+
+        try {
+            // Extract tars using tar command
+            ProcessBuilder("tar", "-xf", expectedTar, "-C", expectedDir.path).start().waitFor()
+            ProcessBuilder("tar", "-xf", generatedTar.path, "-C", generatedDir.path).start().waitFor()
+
+            // Get list of JSON files in both directories
+            val expectedFiles = expectedDir.listFiles()?.filter { it.name.endsWith(".json.gz") }?.sorted() ?: emptyList()
+            val generatedFiles = generatedDir.listFiles()?.filter { it.name.endsWith(".json.gz") }?.sorted() ?: emptyList()
+
+            // Check same number of files
+            assertTrue(
+                expectedFiles.size == generatedFiles.size,
+                "Should have same number of JSON files. Expected: ${expectedFiles.size}, Got: ${generatedFiles.size}"
+            )
+
+            // Compare each JSON file
+            expectedFiles.zip(generatedFiles).forEach { (expectedFile, generatedFile) ->
+                System.err.println("Comparing: ${expectedFile.name} vs ${generatedFile.name}")
+
+                // Parse both JSON files
+                val expectedJson = ProcessBuilder("gunzip", "-c", expectedFile.path)
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                    .start()
+                    .inputStream
+                    .bufferedReader()
+                    .readText()
+
+                val generatedJson = ProcessBuilder("gunzip", "-c", generatedFile.path)
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                    .start()
+                    .inputStream
+                    .bufferedReader()
+                    .readText()
+
+                // Check basic structure with simple string checks
+                // Rather than parsing JSON, just verify key elements are present
+                assertTrue(expectedJson.contains("\"@context\""), "Expected should have @context")
+                assertTrue(generatedJson.contains("\"@context\""), "Generated should have @context")
+                assertTrue(generatedJson.contains("\"version\""), "Generated should have version")
+                assertTrue(generatedJson.contains("\"fields\""), "Generated should have fields")
+                assertTrue(generatedJson.contains("\"data\""), "Generated should have data")
+                assertTrue(generatedJson.contains("\"text\""), "Generated should have text")
+                assertTrue(generatedJson.contains("\"stream\""), "Generated should have stream")
+
+                // Count metadata fields in both
+                val expectedFieldCount = Regex("\"@type\"\\s*:\\s*\"koral:field\"").findAll(expectedJson).count()
+                val generatedFieldCount = Regex("\"@type\"\\s*:\\s*\"koral:field\"").findAll(generatedJson).count()
+                assertTrue(
+                    expectedFieldCount == generatedFieldCount,
+                    "Should have same number of metadata fields in ${expectedFile.name}. Expected: $expectedFieldCount, Got: $generatedFieldCount"
+                )
+
+                // Count stream tokens (approximate by counting array entries)
+                // Stream format: [[...],[...],...] so count "],["
+                val expectedTokenCount = expectedJson.substringAfter("\"stream\"").let {
+                    Regex("\\]\\s*,\\s*\\[").findAll(it).count() + 1
+                }
+                val generatedTokenCount = generatedJson.substringAfter("\"stream\"").let {
+                    Regex("\\]\\s*,\\s*\\[").findAll(it).count() + 1
+                }
+                assertTrue(
+                    expectedTokenCount == generatedTokenCount,
+                    "Should have same token count in ${expectedFile.name}. Expected: $expectedTokenCount, Got: $generatedTokenCount"
+                )
+
+                // Check that we have multi-foundry annotations (spacy and malt)
+                val streamStr = generatedJson
+                assertTrue(
+                    streamStr.contains("spacy/"),
+                    "Should have spacy foundry annotations"
+                )
+                assertTrue(
+                    streamStr.contains("malt/") || streamStr.contains("marmot/"),
+                    "Should have malt or marmot foundry annotations"
+                )
+
+                System.err.println("  ✓ ${expectedFile.name} matches structure")
+            }
+
+            System.err.println("All krill output files match expected structure!")
+        } finally {
+            // Cleanup
+            expectedDir.deleteRecursively()
+            generatedDir.deleteRecursively()
+            generatedTar.delete()
+        }
+    }
 }

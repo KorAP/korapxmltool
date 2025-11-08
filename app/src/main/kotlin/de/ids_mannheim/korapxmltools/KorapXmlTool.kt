@@ -2,8 +2,12 @@ package de.ids_mannheim.korapxmltools
 
 import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.parserFoundries
 import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.taggerFoundries
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.archivers.zip.Zip64Mode
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
+import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
+import org.apache.commons.compress.archivers.zip.ZipFile as ApacheZipFile
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
@@ -11,10 +15,7 @@ import org.xml.sax.InputSource
 import org.xml.sax.SAXParseException
 import picocli.CommandLine
 import picocli.CommandLine.*
-import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
-import java.io.StringWriter
+import java.io.*
 import java.lang.Integer.parseInt
 import java.util.*
 import java.util.concurrent.Callable
@@ -28,15 +29,12 @@ import java.util.logging.Logger
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.stream.IntStream
-import java.util.zip.ZipEntry
-
-import java.util.zip.ZipFile
+import java.util.zip.GZIPOutputStream
 import me.tongfei.progressbar.ProgressBar
 import me.tongfei.progressbar.ProgressBarBuilder
 import me.tongfei.progressbar.ProgressBarStyle
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.transform.OutputKeys
@@ -73,11 +71,12 @@ class KorapXmlTool : Callable<Int> {
 
     @Option(
         names = ["-f", "--output-format"],
-        description = ["Output format: ${ConlluOutputFormat.NAME}, ${Word2VecOutputFormat.NAME}, ${KorapXmlOutputFormat.NAME}, ${NowOutputFormat.NAME}",
+        description = ["Output format: ${ConlluOutputFormat.NAME}, ${Word2VecOutputFormat.NAME}, ${KorapXmlOutputFormat.NAME}, ${NowOutputFormat.NAME}, ${KrillOutputFormat.NAME}",
             "conllu: CoNLL-U format",
             "korapxml, xml, zip: KorAP-XML format zip",
             "word2vec, w2v: Print text in LM training format: tokens separated by space, sentences separated by newlines",
             "now, NOW: NOW corpus export format: w2v-like format with <p> tags for sentence ends and @@<text-sigle> prefix",
+            "krill: Krill JSON format (tar file with gzipped JSON files, one per text)",
         ],
         converter = [OutputFormatConverter::class]
     )
@@ -89,6 +88,7 @@ class KorapXmlTool : Callable<Int> {
                 "word2vec", "w2v" -> OutputFormat.WORD2VEC
                 "korapxml", "korap", "xml", "zip" -> OutputFormat.KORAPXML
                 "now", "NOW" -> OutputFormat.NOW
+                "krill" -> OutputFormat.KRILL
                 else -> throw IllegalArgumentException("Unknown output format: `$value'. Use one of: ${OutputFormat.entries.joinToString(", ") { it.name }}")
             }
         }
@@ -360,6 +360,32 @@ class KorapXmlTool : Callable<Int> {
     var dbFactory: DocumentBuilderFactory? = null
     var dBuilder: DocumentBuilder? = null
     var morphoZipOutputStream: ZipArchiveOutputStream? = null
+    var krillTarOutputStream: TarArchiveOutputStream? = null
+    var krillOutputFileName: String? = null
+
+    // Krill format data structures - collect all data from all ZIPs before output
+    data class KrillTextData(
+        var textId: String,
+        var textContent: String? = null,
+        var headerMetadata: MutableMap<String, Any> = mutableMapOf(),
+        var tokens: Array<Span>? = null,
+        var sentences: Array<Span>? = null,
+        var morphoByFoundry: MutableMap<String, MutableMap<String, MorphoSpan>> = mutableMapOf(),
+        var structureSpans: MutableList<StructureSpan> = mutableListOf(),
+        var extractedAttributes: MutableMap<String, String> = mutableMapOf()
+    )
+
+    data class StructureSpan(
+        val layer: String,  // e.g., "base/s:s", "dereko/s:p"
+        val from: Int,
+        val to: Int,
+        val tokenFrom: Int,
+        val tokenTo: Int,
+        val depth: Int,
+        val attributes: Map<String, String> = emptyMap()
+    )
+
+    val krillData: ConcurrentHashMap<String, KrillTextData> = ConcurrentHashMap()
 
     fun String.hasCorrespondingBaseZip(): Boolean {
         if (!this.matches(Regex(".*\\.([^/.]+)\\.zip$"))) return false
@@ -376,6 +402,32 @@ class KorapXmlTool : Callable<Int> {
     fun korapxml2conllu(args: Array<String>) {
         // Initialize shared entry executor (used inside each zip)
         entryExecutor = Executors.newFixedThreadPool(maxThreads)
+
+        // Initialize TAR output for krill format
+        if (outputFormat == OutputFormat.KRILL) {
+            // Find the base ZIP (one without a foundry suffix)
+            val baseZip = args.firstOrNull { zip ->
+                val name = File(zip).name
+                name.matches(Regex(".*\\.zip$")) && !name.matches(Regex(".*\\.[^/.]+\\.zip$"))
+            } ?: args[0]
+            val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
+            krillOutputFileName = File(outputDir, "$baseZipName.krill.tar").absolutePath
+            LOGGER.info("Initializing krill TAR output: $krillOutputFileName")
+
+            if (File(krillOutputFileName!!).exists() && !overwrite) {
+                LOGGER.severe("Output file $krillOutputFileName already exists. Use --overwrite to overwrite.")
+                exitProcess(1)
+            }
+
+            if (File(krillOutputFileName!!).exists()) {
+                LOGGER.info("Deleting existing file: $krillOutputFileName")
+                File(krillOutputFileName!!).delete()
+            }
+
+            val fileOutputStream = FileOutputStream(krillOutputFileName!!)
+            krillTarOutputStream = TarArchiveOutputStream(fileOutputStream)
+            LOGGER.info("Initialized krill TAR output stream")
+        }
 
         if (annotateWith.isNotEmpty()) {
             // Detect external foundry label once from annotateWith command
@@ -543,6 +595,43 @@ class KorapXmlTool : Callable<Int> {
         }
         // Shutdown entry executor
         entryExecutor?.shutdown()
+
+        // Finalize krill output: generate JSON files and close TAR
+        if (outputFormat == OutputFormat.KRILL && krillTarOutputStream != null) {
+            try {
+                LOGGER.info("Generating krill JSON files for ${krillData.size} texts")
+                krillData.keys.sorted().forEach { textId ->
+                    val textData = krillData[textId]!!
+                    LOGGER.info("Generating JSON for $textId, foundries=${textData.morphoByFoundry.keys}")
+                    val json = generateKrillJson(textData)
+                    // Convert textId to proper filename format with dashes
+                    val jsonFileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
+
+                    // Compress JSON with GZIP
+                    val byteOut = ByteArrayOutputStream()
+                    val gzipOut = GZIPOutputStream(byteOut)
+                    gzipOut.write(json.toByteArray(Charsets.UTF_8))
+                    gzipOut.close()
+                    val compressedData = byteOut.toByteArray()
+
+                    // Write to TAR
+                    val tarEntry = TarArchiveEntry(jsonFileName)
+                    tarEntry.size = compressedData.size.toLong()
+                    krillTarOutputStream!!.putArchiveEntry(tarEntry)
+                    krillTarOutputStream!!.write(compressedData)
+                    krillTarOutputStream!!.closeArchiveEntry()
+
+                    LOGGER.fine("Wrote krill JSON for $textId (${compressedData.size} bytes compressed)")
+                }
+
+                krillTarOutputStream!!.finish()
+                krillTarOutputStream!!.close()
+                LOGGER.info("Closed krill TAR file: $krillOutputFileName")
+            } catch (e: Exception) {
+                LOGGER.severe("ERROR generating krill output: ${e.message}")
+                e.printStackTrace()
+            }
+        }
     }
 
     private fun processZipsWithQueue(zips: Array<String>, foundry: String, parallelism: Int) {
@@ -559,10 +648,17 @@ class KorapXmlTool : Callable<Int> {
                         if (zipPath == null) {
                             if (queue.isEmpty()) break else continue
                         }
-                        if (sequentialInZip) {
-                            processZipFileSequentially(zipPath, foundry)
+                        // For krill format, use per-ZIP foundry; otherwise use shared foundry
+                        val zipFoundry = if (outputFormat == OutputFormat.KRILL) {
+                            getFoundryFromZipFileName(zipPath)
                         } else {
-                            processZipFile(zipPath, foundry)
+                            foundry
+                        }
+                        LOGGER.info("Processing ZIP: $zipPath with foundry=$zipFoundry")
+                        if (sequentialInZip) {
+                            processZipFileSequentially(zipPath, zipFoundry)
+                        } else {
+                            processZipFile(zipPath, zipFoundry)
                         }
                     }
                 } finally {
@@ -661,17 +757,32 @@ class KorapXmlTool : Callable<Int> {
         } else {
             LOGGER.info("Skipping ZIP initialization: dbFactory=${dbFactory != null}, outputFormat=$outputFormat")
         }
+        LOGGER.fine("About to process ZIP entries: hasCorrespondingBaseZip=${zipFilePath.hasCorrespondingBaseZip()}")
         if (zipFilePath.hasCorrespondingBaseZip()) {
             val relatedZips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
             // Process related zips one after another to keep the ZipFile lifetime strictly bounded
             relatedZips.forEach { zip ->
-                ZipFile(zip).use { zipFile ->
-                    processZipEntriesWithPool(zipFile, foundry, true)
+                // For krill format, use per-ZIP foundry; for other formats, use the original foundry
+                val zipFoundry = if (outputFormat == OutputFormat.KRILL) {
+                    if (zip == zipFilePath.correspondingBaseZip()) "base" else foundry
+                } else {
+                    foundry  // Keep original foundry for non-krill formats
+                }
+                ApacheZipFile(File(zip)).use { zipFile ->
+                    processZipEntriesWithPool(zipFile, zipFoundry, true)
                 }
             }
         } else {
-            ZipFile(zipFilePath).use { zipFile ->
-                processZipEntriesWithPool(zipFile, foundry, false)
+            LOGGER.fine("Opening ZipFile for processing: $zipFilePath")
+            try {
+                ApacheZipFile(File(zipFilePath)).use { zipFile ->
+                    LOGGER.fine("Calling processZipEntriesWithPool, foundry=$foundry")
+                    processZipEntriesWithPool(zipFile, foundry, false)
+                    LOGGER.fine("Returned from processZipEntriesWithPool")
+                }
+            } catch (e: Exception) {
+                LOGGER.severe("Error processing ZIP: ${e.message}")
+                e.printStackTrace()
             }
         }
         // Don't close the ZIP here if using external annotation - it will be closed after worker pool finishes
@@ -692,22 +803,28 @@ class KorapXmlTool : Callable<Int> {
             // Process the two related zips strictly sequentially to limit memory growth
             val zips = arrayOf(zipFilePath, zipFilePath.correspondingBaseZip()!!)
             zips.forEach { zip ->
-                ZipFile(zip).use { zipFile ->
+                // For krill format, use per-ZIP foundry; for other formats, use the original foundry
+                val zipFoundry = if (outputFormat == OutputFormat.KRILL) {
+                    if (zip == zipFilePath.correspondingBaseZip()) "base" else foundry
+                } else {
+                    foundry  // Keep original foundry for non-krill formats
+                }
+                ApacheZipFile(File(zip)).use { zipFile ->
                     // Iterate entries in a deterministic order to keep related files close together
-                    zipFile.stream()
+                    zipFile.entries.toList()
                         .filter { extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") }
-                        .sorted(Comparator.comparing<ZipEntry, String> { it.name })
-                        .forEachOrdered { zipEntry ->
-                            processZipEntry(zipFile, foundry, zipEntry, true)
+                        .sortedBy { it.name }
+                        .forEach { zipEntry ->
+                            processZipEntry(zipFile, zipFoundry, zipEntry, true)
                         }
                 }
             }
         } else {
-            ZipFile(zipFilePath).use { zipFile ->
-                zipFile.stream()
+            ApacheZipFile(File(zipFilePath)).use { zipFile ->
+                zipFile.entries.toList()
                     .filter { extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") }
-                    .sorted(Comparator.comparing<ZipEntry, String> { it.name })
-                    .forEachOrdered { zipEntry ->
+                    .sortedBy { it.name }
+                    .forEach { zipEntry ->
                         processZipEntry(zipFile, foundry, zipEntry, false)
                     }
             }
@@ -755,16 +872,18 @@ class KorapXmlTool : Callable<Int> {
         return String.format(Locale.ROOT, "%02d:%02d:%02d", h, m, sec)
     }
 
-    private fun processZipEntriesWithPool(zipFile: ZipFile, foundry: String, waitForMorpho: Boolean) {
+    private fun processZipEntriesWithPool(zipFile: ApacheZipFile, foundry: String, waitForMorpho: Boolean) {
         // Collect entries first to avoid lazy evaluation surprises, filter header.xml unless metadata extraction is requested
-        val entries: MutableList<ZipEntry> = ArrayList()
+        val entries: MutableList<ZipArchiveEntry> = ArrayList()
         var documentCount = 0
-        val enumEntries = zipFile.entries()
+        val enumEntries = zipFile.entries
         while (enumEntries.hasMoreElements()) {
             val e = enumEntries.nextElement()
-            if (extractMetadataRegex.isEmpty() && e.name.contains("header.xml")) continue
+            // Skip header.xml unless metadata extraction is requested OR output format is KRILL
+            if (extractMetadataRegex.isEmpty() && outputFormat != OutputFormat.KRILL && e.name.contains("header.xml")) continue
             entries.add(e)
         }
+        LOGGER.fine("Collected ${entries.size} entries from ZIP, foundry=$foundry")
         if (entries.isEmpty()) return
 
         // Determine document count for progress: prefer data.xml, fallback to tokens.xml
@@ -804,6 +923,7 @@ class KorapXmlTool : Callable<Int> {
 
         // Submit all entry tasks to the shared executor and await completion before closing the zip
         val latch = java.util.concurrent.CountDownLatch(entries.size)
+        LOGGER.info("processZipEntriesWithPool: processing ${entries.size} entries with foundry=$foundry")
         entries.forEach { entry ->
             entryExecutor?.execute {
                 try {
@@ -822,7 +942,7 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
-    fun processZipEntry(zipFile: ZipFile, _foundry: String, zipEntry: ZipEntry, passedWaitForMorpho: Boolean) {
+    fun processZipEntry(zipFile: ApacheZipFile, _foundry: String, zipEntry: ZipArchiveEntry, passedWaitForMorpho: Boolean) {
         var foundry = _foundry
         var waitForMorpho = passedWaitForMorpho
         LOGGER.finer("Processing ${zipEntry.name} in thread ${Thread.currentThread().threadId()}")
@@ -853,6 +973,7 @@ class KorapXmlTool : Callable<Int> {
 
         try {
             if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho|dependency)\\.xml$"))) {
+                LOGGER.finer("Processing entry: ${zipEntry.name}, foundry=$foundry")
                 // Ensure the entry stream and reader are closed to avoid native memory buildup
                 val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
                 val dBuilder: DocumentBuilder = dbFactory.newDocumentBuilder()
@@ -894,6 +1015,10 @@ class KorapXmlTool : Callable<Int> {
                             extraFeatures[docId] = extractMiscSpans(spans)
                         sentences[docId] = extractSentenceSpans(spans)
 
+                        // For krill format, collect structural spans (only from base foundry to avoid duplicates)
+                        if (outputFormat == OutputFormat.KRILL && foundry == "base") {
+                            collectKrillStructureSpans(docId, spans)
+                        }
                     }
 
                     "tokens.xml" -> {
@@ -902,32 +1027,48 @@ class KorapXmlTool : Callable<Int> {
                         }
                         val tokenSpans: NodeList = doc.getElementsByTagName("span")
                         tokens[docId] = extractSpans(tokenSpans)
+
+                        // For krill format with base foundry, collect base text data immediately
+                        if (outputFormat == OutputFormat.KRILL && foundry == "base") {
+                            collectKrillBaseData(docId)
+                        }
                     }
 
                     "morpho.xml" -> {
                         waitForMorpho = true
                         fnames[docId] = zipEntry.name
+                        LOGGER.info("Processing morpho.xml for $docId with foundry=$foundry from ${zipEntry.name}")
                         val fsSpans: NodeList = doc.getElementsByTagName("span")
                         val morphoSpans = extractMorphoSpans(fsSpans)
 
                         // Merge with existing morpho data (e.g., from dependency.xml)
-                        // instead of replacing it
-                        if (morpho[docId] == null) {
-                            morpho[docId] = morphoSpans
-                        } else {
-                            // Merge: add morpho data while preserving existing dependency data
-                            morphoSpans.forEach { (key, mfs) ->
-                                val existing = morpho[docId]?.get(key)
-                                if (existing != null) {
-                                    // Preserve head and deprel from existing (dependency.xml)
-                                    mfs.head = existing.head
-                                    mfs.deprel = existing.deprel
+                        // Synchronize access to morpho[docId] to avoid race conditions
+                        val morphoMap = synchronized(morpho) {
+                            morpho.getOrPut(docId) { morphoSpans }
+                        }
+
+                        if (morphoMap !== morphoSpans) {
+                            // Map already existed, need to merge
+                            synchronized(morphoMap) {
+                                morphoSpans.forEach { (key, mfs) ->
+                                    val existing = morphoMap[key]
+                                    if (existing != null) {
+                                        // Preserve head and deprel from existing (dependency.xml)
+                                        mfs.head = existing.head
+                                        mfs.deprel = existing.deprel
+                                    }
+                                    morphoMap[key] = mfs
                                 }
-                                morpho[docId]!![key] = mfs
+                                LOGGER.fine("Merged morpho.xml with existing data for $docId (preserved ${morphoMap.count { it.value.head != "_" }} dependency relations)")
                             }
-                            LOGGER.fine("Merged morpho.xml with existing data for $docId (preserved ${morpho[docId]!!.count { it.value.head != "_" }} dependency relations)")
                         }
                         tokens[docId] = extractSpans(fsSpans)
+
+                        // For krill format, collect morpho data immediately with the correct foundry
+                        if (outputFormat == OutputFormat.KRILL) {
+                            val morphoFoundry = getFoundryForLayer(foundry, "morpho")
+                            collectKrillMorphoData(docId, morphoFoundry, "morpho")
+                        }
                     }
 
                     "dependency.xml" -> {
@@ -940,26 +1081,38 @@ class KorapXmlTool : Callable<Int> {
                         // Merge dependency info into existing morpho data
                         // Note: heads are stored as offsets (e.g., "100-110") and will be resolved
                         // to token indices later during CoNLL-U output
-                        if (morpho[docId] == null) {
-                            morpho[docId] = mutableMapOf()
-                            LOGGER.info("Created new morpho map for $docId")
+                        // Synchronize access to morpho[docId] to avoid race conditions
+                        val morphoMap = synchronized(morpho) {
+                            morpho.getOrPut(docId) {
+                                LOGGER.info("Created new morpho map for $docId")
+                                mutableMapOf()
+                            }
                         }
+
                         var mergedCount = 0
                         var newCount = 0
-                        depMap.forEach { (key, depSpan) ->
-                            val existing = morpho[docId]?.get(key)
-                            if (existing != null) {
-                                // Update existing morpho with dependency info (head is still offset-based)
-                                existing.head = depSpan.head
-                                existing.deprel = depSpan.deprel
-                                mergedCount++
-                            } else {
-                                // Create new entry with just dependency info
-                                morpho[docId]!![key] = depSpan
-                                newCount++
+                        synchronized(morphoMap) {
+                            depMap.forEach { (key, depSpan) ->
+                                val existing = morphoMap[key]
+                                if (existing != null) {
+                                    // Update existing morpho with dependency info (head is still offset-based)
+                                    existing.head = depSpan.head
+                                    existing.deprel = depSpan.deprel
+                                    mergedCount++
+                                } else {
+                                    // Create new entry with just dependency info
+                                    morphoMap[key] = depSpan
+                                    newCount++
+                                }
                             }
                         }
                         LOGGER.info("Dependency merge complete: $mergedCount merged, $newCount new entries (heads will be resolved during output)")
+
+                        // For krill format, collect dependency data with the correct foundry
+                        if (outputFormat == OutputFormat.KRILL) {
+                            val depFoundry = getFoundryForLayer(foundry, "dependency")
+                            collectKrillMorphoData(docId, depFoundry, "dependency")
+                        }
                     }
                 }
 
@@ -972,15 +1125,18 @@ class KorapXmlTool : Callable<Int> {
                     waitForMorpho -> true
                     // For direct KorAPXML output without external annotator, require morpho unless -t/-P (handled above)
                     outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null -> true
+                    // For krill format, morpho is not required - we collect whatever is available
+                    outputFormat == OutputFormat.KRILL -> false
                     else -> false
                 }
                 // For lemma-only/lemma-based word2vec/now, we can proceed without full text
                 val textRequired = when (outputFormat) {
                     OutputFormat.WORD2VEC, OutputFormat.NOW -> !(useLemma || lemmaOnly)
+                    OutputFormat.KRILL -> true  // Krill needs text from base ZIP
                     else -> true
                 }
 
-                LOGGER.fine("Checking if ready to process $docId: texts=${texts[docId] != null}, sentences=${sentences[docId] != null}, tokens=${tokens[docId] != null}, morpho=${morpho[docId] != null}, morphoRequired=$morphoRequired, textRequired=$textRequired, annotationWorkerPool=${annotationWorkerPool != null}")
+                LOGGER.fine("Checking if ready to process $docId: texts=${texts[docId] != null}, sentences=${sentences[docId] != null}, tokens=${tokens[docId] != null}, morpho=${morpho[docId] != null}, morphoRequired=$morphoRequired, textRequired=$textRequired")
 
                 if ((texts[docId] != null || !textRequired) && sentences[docId] != null && tokens[docId] != null
                     && (!morphoRequired || morpho[docId] != null)
@@ -991,13 +1147,19 @@ class KorapXmlTool : Callable<Int> {
                 } else {
                     LOGGER.fine("NOT ready to process $docId yet: textOK=${texts[docId] != null || !textRequired}, sentencesOK=${sentences[docId] != null}, tokensOK=${tokens[docId] != null}, morphoOK=${!morphoRequired || morpho[docId] != null}")
                 }
-            } else if (extractMetadataRegex.isNotEmpty() && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
+            } else if ((extractMetadataRegex.isNotEmpty() || outputFormat == OutputFormat.KRILL) && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
                 //LOGGER.info("Processing header file: " + zipEntry.name)
                 val text = zipFile.getInputStream(zipEntry).bufferedReader().use { it.readText() }
                 val docId =
                     Regex("<textSigle>([^<]+)</textSigle>").find(text)?.destructured?.component1()
                         ?.replace(Regex("/"), "_")
                 LOGGER.fine("Processing header file: " + zipEntry.name + " docId: " + docId)
+
+                // For krill format, extract rich metadata
+                if (outputFormat == OutputFormat.KRILL && docId != null) {
+                    collectKrillMetadata(docId, text)
+                }
+
                 val meta = ArrayList<String>()
                 extractMetadataRegex.forEach { regex ->
                     val match = Regex(regex).find(text)
@@ -1012,10 +1174,12 @@ class KorapXmlTool : Callable<Int> {
                         useLemma -> true
                         waitForMorpho -> true
                         outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null -> true
+                        outputFormat == OutputFormat.KRILL -> false
                         else -> false
                     }
                     val textRequired = when (outputFormat) {
                         OutputFormat.WORD2VEC, OutputFormat.NOW -> !(useLemma || lemmaOnly)
+                        OutputFormat.KRILL -> true
                         else -> true
                     }
                     if ((texts[docId] != null || !textRequired) && sentences[docId] != null && tokens[docId] != null
@@ -1050,8 +1214,14 @@ class KorapXmlTool : Callable<Int> {
         docId: String,
         foundry: String,
     ) {
-        LOGGER.fine("Processing text: $docId in thread ${Thread.currentThread().threadId()}")
+        LOGGER.fine("processText called: $docId, foundry=$foundry, outputFormat=$outputFormat")
         var morphoFoundry = getMorphoFoundry()
+
+        // Special handling for krill format: data is collected immediately when parsed, not here
+        if (outputFormat == OutputFormat.KRILL) {
+            return
+        }
+
         val output =
         if (outputFormat == OutputFormat.WORD2VEC) {
             lmTrainingOutput(docId)
@@ -1965,7 +2135,674 @@ class KorapXmlTool : Callable<Int> {
         sentences.remove(tempDocId)
     }
 
-}
+    // Collect structural spans from structure.xml for krill format
+    private fun collectKrillStructureSpans(docId: String, spans: NodeList) {
+        val textData = krillData.getOrPut(docId) {
+            KrillTextData(textId = docId)
+        }
+
+        synchronized(textData) {
+            // Only collect if not already collected (avoid duplicates from multiple ZIP processing)
+            if (textData.structureSpans.isNotEmpty()) {
+                LOGGER.fine("Structure spans already collected for $docId, skipping")
+                return
+            }
+            for (i in 0 until spans.length) {
+                val span = spans.item(i) as? Element ?: continue
+
+                val from = span.getAttribute("from").toIntOrNull() ?: continue
+                val to = span.getAttribute("to").toIntOrNull() ?: continue
+                val level = span.getAttribute("l").toIntOrNull() ?: 0
+
+                // Extract span name from fs/f[@name='name']
+                val fsElements = span.getElementsByTagName("fs")
+                if (fsElements.length == 0) continue
+
+                val fs = fsElements.item(0) as Element
+                val fElements = fs.getElementsByTagName("f")
+
+                var spanName: String? = null
+                val attributes = mutableMapOf<String, String>()
+
+                for (j in 0 until fElements.length) {
+                    val f = fElements.item(j) as Element
+                    val fName = f.getAttribute("name")
+
+                    when (fName) {
+                        "name" -> spanName = f.textContent
+                        "attr" -> {
+                            // Extract attributes from nested fs
+                            val attrFs = f.getElementsByTagName("fs")
+                            if (attrFs.length > 0) {
+                                val attrFsElement = attrFs.item(0) as Element
+                                val attrFElements = attrFsElement.getElementsByTagName("f")
+                                for (k in 0 until attrFElements.length) {
+                                    val attrF = attrFElements.item(k) as Element
+                                    val attrName = attrF.getAttribute("name")
+                                    val attrValue = attrF.textContent
+                                    attributes[attrName] = attrValue
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (spanName != null) {
+                    textData.structureSpans.add(StructureSpan(
+                        layer = "dereko/s:$spanName",
+                        from = from,
+                        to = to,
+                        tokenFrom = -1,  // Will be resolved later
+                        tokenTo = -1,    // Will be resolved later
+                        depth = level,
+                        attributes = attributes
+                    ))
+                }
+            }
+
+            LOGGER.fine("Collected ${textData.structureSpans.size} structural spans for $docId")
+        }
+    }
+
+    // Collect rich metadata from header.xml for krill format
+    private fun collectKrillMetadata(docId: String, headerXml: String) {
+        val textData = krillData.getOrPut(docId) {
+            KrillTextData(textId = docId)
+        }
+
+        synchronized(textData) {
+            // Extract various metadata fields
+            Regex("<editor>([^<]+)</editor>").find(headerXml)?.let {
+                textData.headerMetadata["corpusEditor"] = it.groupValues[1]
+                textData.headerMetadata["editor"] = it.groupValues[1]
+            }
+
+            // Publisher
+            Regex("<publisher>([^<]+)</publisher>").find(headerXml)?.let {
+                textData.headerMetadata["publisher"] = it.groupValues[1]
+            }
+
+            // Availability (license)
+            Regex("<availability[^>]*>([^<]+)</availability>").find(headerXml)?.let {
+                textData.headerMetadata["availability"] = it.groupValues[1]
+            }
+
+            // Author
+            Regex("<h\\.author>([^<]+)</h\\.author>").find(headerXml)?.let {
+                textData.headerMetadata["author"] = it.groupValues[1].trim()
+            }
+
+            // Title (from analytic section)
+            Regex("<analytic>.*?<h\\.title[^>]*>([^<]+)</h\\.title>", RegexOption.DOT_MATCHES_ALL).find(headerXml)?.let {
+                textData.headerMetadata["title"] = it.groupValues[1]
+            }
+
+            // Corpus title (from monogr section)
+            Regex("<monogr>.*?<h\\.title[^>]*>([^<]+)</h\\.title>", RegexOption.DOT_MATCHES_ALL).find(headerXml)?.let {
+                textData.headerMetadata["corpusTitle"] = it.groupValues[1]
+            }
+
+            // Reference
+            Regex("<reference type=\"complete\"[^>]*>([^<]+)</reference>").find(headerXml)?.let {
+                textData.headerMetadata["reference"] = it.groupValues[1]
+            }
+
+            // Creation date
+            Regex("<creatDate>([^<]+)</creatDate>").find(headerXml)?.let {
+                val dateStr = it.groupValues[1].replace(".", "-")
+                textData.headerMetadata["creationDate"] = dateStr
+            }
+
+            // Publication date (from year/month/day elements)
+            val year = Regex("<pubDate type=\"year\">([^<]+)</pubDate>").find(headerXml)?.groupValues?.get(1)
+            val month = Regex("<pubDate type=\"month\">([^<]+)</pubDate>").find(headerXml)?.groupValues?.get(1)
+            val day = Regex("<pubDate type=\"day\">([^<]+)</pubDate>").find(headerXml)?.groupValues?.get(1)
+            if (year != null && month != null && day != null) {
+                val monthPadded = month.padStart(2, '0')
+                val dayPadded = day.padStart(2, '0')
+                textData.headerMetadata["pubDate"] = "$year-$monthPadded-$dayPadded"
+            }
+
+            // Text class (from catRef)
+            Regex("<catRef[^>]+target=\"([^\"]+)\"").find(headerXml)?.let {
+                val target = it.groupValues[1]
+                // Extract topics from "topic.staat-gesellschaft.biographien-interviews"
+                val topics = target.split(".").drop(1) // Drop "topic" prefix
+                if (topics.isNotEmpty()) {
+                    textData.headerMetadata["textClass"] = topics
+                }
+            }
+
+            // Text type
+            Regex("<textTypeArt>([^<]+)</textTypeArt>").find(headerXml)?.let {
+                textData.headerMetadata["textTypeArt"] = it.groupValues[1]
+            }
+
+            // External link (from page_url ref)
+            Regex("<ref type=\"page_url\" target=\"([^\"]+)\"").find(headerXml)?.let {
+                textData.headerMetadata["externalLink"] = it.groupValues[1]
+            }
+
+            // Language - infer from corpus or default to "de" for German corpora
+            textData.headerMetadata["language"] = "de"
+
+            // Text type (plural form) - might need to be derived or hardcoded based on corpus
+            textData.headerMetadata["textType"] = textData.headerMetadata.getOrDefault("textTypeArt", "Diskussionen") as String + "en"
+
+            // Distributor - default value for IDS corpora
+            textData.headerMetadata["distributor"] = "Leibniz-Institut für Deutsche Sprache"
+
+            LOGGER.fine("Collected ${textData.headerMetadata.size} metadata fields for $docId")
+        }
+    }
+
+    // Collect base text data (text, tokens, sentences) for krill format
+    private fun collectKrillBaseData(docId: String) {
+        LOGGER.info("Collecting krill base data for $docId: text=${texts[docId] != null}, tokens=${tokens[docId] != null}, sentences=${sentences[docId] != null}")
+
+        val textData = krillData.getOrPut(docId) {
+            KrillTextData(textId = docId)
+        }
+
+        synchronized(textData) {
+            if (texts[docId] != null) {
+                textData.textContent = texts[docId]!!.toString()
+            }
+            if (tokens[docId] != null) {
+                textData.tokens = tokens[docId]
+            }
+            if (sentences[docId] != null) {
+                textData.sentences = sentences[docId]
+            }
+            // Collect metadata
+            if (metadata[docId] != null) {
+                metadata[docId]!!.forEachIndexed { index, value ->
+                    textData.headerMetadata["field_$index"] = value
+                }
+            }
+            LOGGER.info("  Collected base text data for $docId: ${textData.textContent?.length ?: 0} chars, ${textData.tokens?.size ?: 0} tokens")
+        }
+
+        // Release base data from memory (but keep morpho for later foundries)
+        texts.remove(docId)
+        tokens.remove(docId)
+        sentences.remove(docId)
+        fnames.remove(docId)
+        metadata.remove(docId)
+        extraFeatures.remove(docId)
+    }
+
+    // Extract the appropriate foundry name for a given annotation layer
+    // For combined foundries like "marmot-malt", split into morpho (marmot) and dependency (malt) parts
+    private fun getFoundryForLayer(foundry: String, layer: String): String {
+        return if ("-" in foundry) {
+            val parts = foundry.split("-")
+            when (layer) {
+                "morpho" -> parts[0]  // First part is morphology tagger (e.g., "marmot")
+                "dependency" -> parts.getOrElse(1) { parts[0] }  // Second part is parser (e.g., "malt")
+                else -> foundry
+            }
+        } else {
+            foundry  // Single foundry used for all layers
+        }
+    }
+
+    // Collect morpho data from a specific foundry for krill format
+    // annotationType: "morpho" = collect POS/lemma/features, "dependency" = collect head/deprel only
+    private fun collectKrillMorphoData(docId: String, foundry: String, annotationType: String = "morpho") {
+        LOGGER.info("Collecting krill $annotationType data for $docId, foundry=$foundry, morpho=${morpho[docId]?.size ?: 0}")
+
+        val textData = krillData.getOrPut(docId) {
+            KrillTextData(textId = docId)
+        }
+
+        val morphoDataMap = morpho[docId]
+        if (morphoDataMap != null && morphoDataMap.isNotEmpty()) {
+            // Synchronize on morpho map to avoid concurrent modification
+            synchronized(morphoDataMap) {
+                // Copy the data while holding the lock, filtering by annotation type
+                val morphoDataCopy = morphoDataMap.mapValues { (_, span) ->
+                    // Create a filtered copy of the span based on annotation type
+                    val filteredSpan = MorphoSpan()
+                    if (annotationType == "morpho") {
+                        // Copy only morphological annotations (POS, lemma, features)
+                        filteredSpan.lemma = span.lemma
+                        filteredSpan.upos = span.upos
+                        filteredSpan.xpos = span.xpos
+                        filteredSpan.feats = span.feats
+                        filteredSpan.misc = span.misc
+                    } else if (annotationType == "dependency") {
+                        // Copy only dependency annotations (head, deprel)
+                        filteredSpan.head = span.head
+                        filteredSpan.deprel = span.deprel
+                    }
+                    filteredSpan
+                }.toMutableMap()
+
+                synchronized(textData) {
+                    // Merge with existing morpho data for this foundry (don't overwrite)
+                    val existingFoundryData = textData.morphoByFoundry[foundry]
+                    if (existingFoundryData == null) {
+                        // First time collecting this foundry - just copy
+                        textData.morphoByFoundry[foundry] = morphoDataCopy
+                        LOGGER.info("  Added ${morphoDataCopy.size} $annotationType annotations for $docId from foundry $foundry, total foundries=${textData.morphoByFoundry.keys}")
+                    } else {
+                        // Merge with existing data (e.g., adding dependencies to existing morpho)
+                        var mergedCount = 0
+                        var newCount = 0
+                        morphoDataCopy.forEach { (key, newSpan) ->
+                            val existingSpan = existingFoundryData[key]
+                            if (existingSpan != null) {
+                                // Merge: add new annotations based on type
+                                if (annotationType == "dependency") {
+                                    // Only update dependency fields
+                                    if (newSpan.head != null && newSpan.head != "_") existingSpan.head = newSpan.head
+                                    if (newSpan.deprel != null && newSpan.deprel != "_") existingSpan.deprel = newSpan.deprel
+                                } else if (annotationType == "morpho") {
+                                    // Only update morphological fields (check for "_" since MorphoSpan defaults to "_", not null)
+                                    if (newSpan.lemma != null && newSpan.lemma != "_" && (existingSpan.lemma == null || existingSpan.lemma == "_")) existingSpan.lemma = newSpan.lemma
+                                    if (newSpan.upos != null && newSpan.upos != "_" && (existingSpan.upos == null || existingSpan.upos == "_")) existingSpan.upos = newSpan.upos
+                                    if (newSpan.xpos != null && newSpan.xpos != "_" && (existingSpan.xpos == null || existingSpan.xpos == "_")) existingSpan.xpos = newSpan.xpos
+                                    if (newSpan.feats != null && newSpan.feats != "_" && (existingSpan.feats == null || existingSpan.feats == "_")) existingSpan.feats = newSpan.feats
+                                    if (newSpan.misc != null && newSpan.misc != "_" && (existingSpan.misc == null || existingSpan.misc == "_")) existingSpan.misc = newSpan.misc
+                                }
+                                mergedCount++
+                            } else {
+                                // New span not in existing data
+                                existingFoundryData[key] = newSpan
+                                newCount++
+                            }
+                        }
+                        LOGGER.info("  Merged ${morphoDataCopy.size} $annotationType annotations for $docId from foundry $foundry ($mergedCount merged, $newCount new), total foundries=${textData.morphoByFoundry.keys}")
+                    }
+                }
+            }
+        }
+
+        // Note: Don't clear morpho[docId] here because we might need it for subsequent layers
+        // (e.g., when processing marmot-malt, morpho.xml is collected as "marmot" first,
+        // then dependency.xml needs the data to collect as "malt")
+        // The data will be cleared when the document is fully processed
+    }
+
+    // Old collectKrillData - no longer used, kept for reference
+    private fun collectKrillData(docId: String, foundry: String) {
+        LOGGER.info("Collecting krill data for $docId, foundry=$foundry, morpho=${morpho[docId]?.size ?: 0}")
+
+        // Get or create KrillTextData for this text
+        val wasNew = krillData[docId] == null
+        val textData = krillData.getOrPut(docId) {
+            LOGGER.info("  Creating new KrillTextData for $docId")
+            KrillTextData(textId = docId)
+        }
+        if (!wasNew) {
+            LOGGER.info("  Found existing KrillTextData for $docId, foundries=${textData.morphoByFoundry.keys}")
+        }
+
+        // Collect text content (only from base foundry)
+        if (foundry == "base" && texts[docId] != null) {
+            synchronized(textData) {
+                textData.textContent = texts[docId]!!.toString()
+                textData.tokens = tokens[docId]
+                textData.sentences = sentences[docId]
+                LOGGER.info("  Collected base text data for $docId: ${textData.textContent?.length ?: 0} chars, ${textData.tokens?.size ?: 0} tokens")
+
+                // Collect metadata
+                if (metadata[docId] != null) {
+                    metadata[docId]!!.forEachIndexed { index, value ->
+                        textData.headerMetadata["field_$index"] = value
+                    }
+                }
+            }
+        }
+
+        // Collect morpho annotations from this foundry
+        if (morpho[docId] != null && morpho[docId]!!.isNotEmpty()) {
+            synchronized(textData) {
+                // Make a copy of the morpho data to preserve it
+                textData.morphoByFoundry[foundry] = morpho[docId]!!.toMutableMap()
+                LOGGER.info("  Added ${morpho[docId]!!.size} morpho spans for $docId from foundry $foundry, total foundries=${textData.morphoByFoundry.keys}")
+            }
+        }
+
+        // Release memory for this document
+        arrayOf(tokens, texts, sentences, morpho, fnames, metadata, extraFeatures).forEach { map ->
+            if (map === morpho) {
+                morpho[docId]?.clear()
+            }
+            map.remove(docId)
+        }
+    }
+
+    private fun generateKrillJson(textData: KrillTextData): String {
+        val sb = StringBuilder()
+        sb.append("{")
+
+        // @context and version
+        sb.append("\"@context\":\"http://korap.ids-mannheim.de/ns/koral/0.4/context.jsonld\",")
+        sb.append("\"version\":\"0.4\",")
+
+        // fields (metadata)
+        sb.append("\"fields\":[")
+        val fields = mutableListOf<String>()
+
+        // Extract corpus, doc, and text sigle from textId (e.g., "WUD24_I0083.95367")
+        // Convert underscores to slashes for proper format
+        val textIdWithSlashes = textData.textId.replace("_", "/").replace(".", "/")
+        val sigleParts = textIdWithSlashes.split("/")
+        if (sigleParts.size >= 3) {
+            fields.add(jsonObject(listOf(
+                "value" to jsonString(sigleParts[0]),
+                "type" to jsonString("type:string"),
+                "@type" to jsonString("koral:field"),
+                "key" to jsonString("corpusSigle")
+            )))
+            fields.add(jsonObject(listOf(
+                "@type" to jsonString("koral:field"),
+                "value" to jsonString("${sigleParts[0]}/${sigleParts[1]}"),
+                "type" to jsonString("type:string"),
+                "key" to jsonString("docSigle")
+            )))
+            fields.add(jsonObject(listOf(
+                "@type" to jsonString("koral:field"),
+                "type" to jsonString("type:string"),
+                "value" to jsonString(textIdWithSlashes),
+                "key" to jsonString("textSigle")
+            )))
+        }
+
+        // Add additional metadata fields from header with correct types
+        val fieldOrder = listOf(
+            "corpusEditor", "distributor", "editor", "externalLink", "publisher", "reference",
+            "creationDate", "pubDate", "textClass", "availability", "language", "textType",
+            "textTypeArt", "author", "corpusTitle", "title"
+        )
+
+        fieldOrder.forEach { key ->
+            val value = textData.headerMetadata[key] ?: return@forEach
+
+            // Determine field type and value format
+            val (fieldType, fieldValue) = when (key) {
+                "creationDate", "pubDate" -> {
+                    "type:date" to jsonString(value.toString())
+                }
+                "textClass" -> {
+                    "type:keywords" to when (value) {
+                        is List<*> -> jsonArray(value.map { jsonString(it.toString()) })
+                        else -> jsonArray(listOf(jsonString(value.toString())))
+                    }
+                }
+                "availability", "language" -> {
+                    "type:string" to jsonString(value.toString())
+                }
+                "author", "corpusTitle", "title" -> {
+                    "type:text" to jsonString(value.toString())
+                }
+                "externalLink" -> {
+                    val url = value.toString()
+                    // Extract title from corpus/publisher metadata if available
+                    val title = textData.headerMetadata["publisher"]?.toString() ?: "Link"
+                    val encodedUrl = url.replace(":", "%3A").replace("/", "%2F")
+                    "type:attachement" to jsonString("data:application/x.korap-link;title=$title,$encodedUrl")
+                }
+                else -> {
+                    // corpusEditor, distributor, editor, publisher, reference, textType, textTypeArt
+                    "type:attachement" to jsonString("data:,${value.toString()}")
+                }
+            }
+
+            fields.add(jsonObject(listOf(
+                "key" to jsonString(key),
+                "@type" to jsonString("koral:field"),
+                "value" to fieldValue,
+                "type" to jsonString(fieldType)
+            )))
+        }
+
+        sb.append(fields.joinToString(","))
+        sb.append("],")
+
+        // data section
+        sb.append("\"data\":{")
+        sb.append("\"text\":${jsonString(textData.textContent ?: "")},")
+
+        // layerInfos - list all foundries
+        val layerInfos = mutableListOf<String>()
+        if (textData.sentences != null) {
+            layerInfos.add("dereko/s=spans")
+        }
+
+        // Collect layers by foundry type (with dependency check)
+        val foundryLayers = mutableMapOf<String, MutableSet<String>>()
+        textData.morphoByFoundry.keys.sorted().forEach { foundry ->
+            val shortFoundry = when(foundry) {
+                "base" -> null
+                "tree_tagger" -> "tt"
+                "marmot-malt" -> "marmot"
+                else -> foundry
+            }
+            if (shortFoundry != null) {
+                val layers = foundryLayers.getOrPut(shortFoundry) { mutableSetOf() }
+
+                // Check if this foundry has dependency annotations
+                val hasDependencies = textData.morphoByFoundry[foundry]?.values?.any {
+                    it.head != null && it.head != "_" && it.deprel != null && it.deprel != "_"
+                } ?: false
+
+                if (hasDependencies) {
+                    layers.add("d=rels")
+                }
+                layers.add("l=tokens")
+                layers.add("p=tokens")
+                layers.add("m=tokens")
+            }
+        }
+
+        // Add foundry layers in sorted order
+        foundryLayers.keys.sorted().forEach { foundry ->
+            foundryLayers[foundry]?.sorted()?.forEach { layer ->
+                layerInfos.add("$foundry/$layer")
+            }
+        }
+        sb.append("\"layerInfos\":${jsonString(layerInfos.joinToString(" "))},")
+
+        // stream - token-level annotations
+        sb.append("\"stream\":[")
+        if (textData.tokens != null) {
+            val streamItems = generateKrillStream(textData)
+            sb.append(streamItems.joinToString(","))
+        }
+        sb.append("]")
+
+        sb.append("}")  // close data
+        sb.append("}")  // close root
+
+        return sb.toString()
+    }
+
+    private fun generateKrillStream(textData: KrillTextData): List<String> {
+        val tokens = textData.tokens ?: return emptyList()
+        val text = textData.textContent ?: ""
+        val sentences = textData.sentences ?: emptyArray()
+        val result = mutableListOf<String>()
+
+        // Build offset-to-index map for resolving dependency heads and structural spans
+        val offsetToIndex = mutableMapOf<String, Int>()
+        tokens.forEachIndexed { index, token ->
+            offsetToIndex["${token.from}-${token.to}"] = index
+        }
+
+        // Resolve tokenFrom and tokenTo for structural spans
+        val resolvedStructureSpans = textData.structureSpans.map { span ->
+            // Find first and last token covered by this span
+            var tokenFrom = tokens.indexOfFirst { it.from >= span.from && it.from < span.to }
+            var tokenTo = tokens.indexOfLast { it.to > span.from && it.to <= span.to }
+
+            // Handle edge cases
+            if (tokenFrom == -1) tokenFrom = 0
+            if (tokenTo == -1) tokenTo = tokens.size - 1
+
+            span.copy(tokenFrom = tokenFrom, tokenTo = tokenTo)
+        }
+
+        // Group structural spans by their starting token
+        val spansByToken = mutableMapOf<Int, MutableList<StructureSpan>>()
+        resolvedStructureSpans.forEach { span ->
+            spansByToken.getOrPut(span.tokenFrom) { mutableListOf() }.add(span)
+        }
+
+        // Count paragraph spans (name="p")
+        val paragraphCount = textData.structureSpans.count { it.layer.endsWith(":p") }
+
+        tokens.forEachIndexed { index, token ->
+            val tokenAnnotations = mutableListOf<String>()
+            val spanKey = "${token.from}-${token.to}"
+
+            // Add counts and structural spans only for first token
+            if (index == 0) {
+                if (paragraphCount > 0) {
+                    tokenAnnotations.add(jsonString("-:base/paragraphs\$<i>$paragraphCount"))
+                }
+                if (sentences.isNotEmpty()) {
+                    tokenAnnotations.add(jsonString("-:base/sentences\$<i>${sentences.size}"))
+                }
+                tokenAnnotations.add(jsonString("-:tokens\$<i>${tokens.size}"))
+
+                // Add all structural spans that start at token 0 or cover the whole document
+                val spansAtZero = spansByToken[0] ?: emptyList()
+                spansAtZero.sortedWith(compareBy({ -it.depth }, { it.layer })).forEach { span ->
+                    val spanAnnotation = if (span.attributes.isEmpty()) {
+                        "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}"
+                    } else {
+                        // Spans with attributes get a unique ID
+                        val attrId = span.depth
+                        "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}<s>$attrId"
+                    }
+                    tokenAnnotations.add(jsonString(spanAnnotation))
+
+                    // Add attribute annotations
+                    span.attributes.forEach { (key, value) ->
+                        val attrAnnotation = if (value.isEmpty()) {
+                            "@:dereko/s:$key\$<b>17<s>${span.depth}<i>${span.tokenTo}"
+                        } else {
+                            "@:dereko/s:$key:$value\$<b>17<s>${span.depth}<i>${span.tokenTo}"
+                        }
+                        tokenAnnotations.add(jsonString(attrAnnotation))
+                    }
+                }
+            } else {
+                // Add structural spans that start at this token
+                spansByToken[index]?.sortedWith(compareBy({ -it.depth }, { it.layer }))?.forEach { span ->
+                    val spanAnnotation = if (span.attributes.isEmpty()) {
+                        "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}"
+                    } else {
+                        "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}<s>${span.depth}"
+                    }
+                    tokenAnnotations.add(jsonString(spanAnnotation))
+
+                    span.attributes.forEach { (key, value) ->
+                        val attrAnnotation = if (value.isEmpty()) {
+                            "@:dereko/s:$key\$<b>17<s>${span.depth}<i>${span.tokenTo}"
+                        } else {
+                            "@:dereko/s:$key:$value\$<b>17<s>${span.depth}<i>${span.tokenTo}"
+                        }
+                        tokenAnnotations.add(jsonString(attrAnnotation))
+                    }
+                }
+            }
+
+            // Token offset annotation
+            tokenAnnotations.add(jsonString("_$index\$<i>${token.from}<i>${token.to}"))
+
+            // Collect lemmas from all foundries first (for "i:" annotation)
+            val baseMorpho = textData.morphoByFoundry["base"]?.get(spanKey)
+            val lemma = baseMorpho?.lemma?.takeIf { it != "_" }
+            if (lemma != null) {
+                tokenAnnotations.add(jsonString("i:${lemma.lowercase()}"))
+            }
+
+            // Collect annotations from all foundries for this token
+            val sortedFoundries = textData.morphoByFoundry.keys.sorted()
+            sortedFoundries.forEach { foundry ->
+                val morphoSpan = textData.morphoByFoundry[foundry]?.get(spanKey)
+                if (morphoSpan != null) {
+                    val prefix = when(foundry) {
+                        "tree_tagger" -> "tt"
+                        "marmot-malt" -> "marmot"
+                        "base" -> null  // Skip base for most annotations
+                        else -> foundry
+                    }
+
+                    if (prefix != null) {
+                        // Morphological features (sorted)
+                        if (morphoSpan.feats != null && morphoSpan.feats != "_") {
+                            val features = mutableListOf<String>()
+                            morphoSpan.feats!!.split("|").forEach { feat ->
+                                val parts = feat.split("=")
+                                if (parts.size == 2) {
+                                    val key = parts[0].lowercase()
+                                    val value = parts[1].lowercase()
+                                    features.add("$prefix/m:$key:$value")
+                                }
+                            }
+                            features.sorted().forEach { tokenAnnotations.add(jsonString(it)) }
+                        }
+
+                        // POS (xpos) with optional byte encoding
+                        if (morphoSpan.xpos != null && morphoSpan.xpos != "_") {
+                            tokenAnnotations.add(jsonString("$prefix/p:${morphoSpan.xpos}"))
+                        }
+
+                        // Lemma
+                        if (morphoSpan.lemma != null && morphoSpan.lemma != "_") {
+                            tokenAnnotations.add(jsonString("$prefix/l:${morphoSpan.lemma}"))
+                        }
+
+                        // UPOS
+                        if (morphoSpan.upos != null && morphoSpan.upos != "_") {
+                            tokenAnnotations.add(jsonString("$prefix/u:${morphoSpan.upos}"))
+                        }
+                    }
+
+                    // Dependency relations
+                    if (morphoSpan.head != null && morphoSpan.head != "_" && morphoSpan.deprel != null && morphoSpan.deprel != "_") {
+                        // Head can be either an offset (e.g., "100-110") or a token index (e.g., "1")
+                        val headStr = morphoSpan.head!!
+                        val resolvedHeadIndex = if (headStr.contains("-")) {
+                            // Offset format - resolve to token index
+                            offsetToIndex[headStr]
+                        } else {
+                            // Already a token index (1-based CoNLL-U format)
+                            val idx = headStr.toIntOrNull()
+                            if (idx != null && idx > 0) idx - 1 else null  // Convert 1-based to 0-based
+                        }
+
+                        if (resolvedHeadIndex != null) {
+                            // Regular dependency - outgoing edge to head
+                            tokenAnnotations.add(jsonString(">:$prefix/d:${morphoSpan.deprel}\$<b>32<i>$resolvedHeadIndex"))
+                        } else if (headStr == "0" || (headStr.contains("-") && headStr.startsWith("0-"))) {
+                            // ROOT node - use incoming edge format with full span info
+                            tokenAnnotations.add(jsonString("<:$prefix/d:${morphoSpan.deprel}\$<b>34<i>${token.from}<i>${token.to}<i>$index<i>1"))
+                        }
+                    }
+                }
+            }
+
+            // Surface form (always last)
+            val surfaceForm = if (token.to <= text.length) {
+                text.substring(token.from, token.to)
+            } else {
+                ""
+            }
+            tokenAnnotations.add(jsonString("s:$surfaceForm"))
+
+            result.add(jsonArray(tokenAnnotations))
+        }
+
+        return result
+    }
+
+}  // End of KorapXmlTool class
 
 fun main(args: Array<String>): Unit {
     try { Locale.setDefault(Locale.ROOT) } catch (_: Exception) {}
@@ -1977,7 +2814,7 @@ fun debug(args: Array<String>): Int {
 }
 
 enum class OutputFormat {
-    CONLLU, WORD2VEC, KORAPXML, NOW
+    CONLLU, WORD2VEC, KORAPXML, NOW, KRILL
 }
 
 object ConlluOutputFormat {
@@ -1994,5 +2831,42 @@ object KorapXmlOutputFormat {
 
 object NowOutputFormat {
     const val NAME = "now"
+}
+
+object KrillOutputFormat {
+    const val NAME = "krill"
+}
+
+// JSON utility functions for krill output (no external JSON library dependency)
+fun String.escapeJson(): String {
+    val sb = StringBuilder()
+    for (c in this) {
+        when (c) {
+            '\\' -> sb.append("\\\\")
+            '"' -> sb.append("\\\"")
+            '\b' -> sb.append("\\b")
+            '\n' -> sb.append("\\n")
+            '\r' -> sb.append("\\r")
+            '\t' -> sb.append("\\t")
+            else -> {
+                if (c < ' ') {
+                    sb.append(String.format("\\u%04x", c.code))
+                } else {
+                    sb.append(c)
+                }
+            }
+        }
+    }
+    return sb.toString()
+}
+
+fun jsonString(value: String): String = "\"${value.escapeJson()}\""
+
+fun jsonArray(items: List<String>): String = items.joinToString(",", "[", "]")
+
+fun jsonObject(pairs: List<Pair<String, String>>): String {
+    return pairs.joinToString(",", "{", "}") { (key, value) ->
+        "${jsonString(key)}:${value}"
+    }
 }
 
