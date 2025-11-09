@@ -213,6 +213,13 @@ class KorapXmlTool : Callable<Int> {
     var sequentialInZip: Boolean = false
 
     @Option(
+        names = ["--incremental-krill"],
+        description = ["Enable incremental Krill output (output texts as soon as they have all expected foundries). " +
+                      "Works best when all texts appear in all annotation ZIPs. Default: false."]
+    )
+    var incrementalKrill: Boolean = false
+
+    @Option(
         names = ["--overwrite", "-o"],
         description = ["Overwrite existing files"]
     )
@@ -842,12 +849,11 @@ class KorapXmlTool : Callable<Int> {
         }
         logZipProgress(zipFilePath)
 
-        // For Krill format, check if any texts are now complete and output them
-        // TODO: Re-enable incremental output after fixing edge cases with incomplete texts
-        // if (outputFormat == OutputFormat.KRILL) {
-        //     processedFoundries.add(foundry)
-        //     checkAndOutputCompleteTexts()
-        // }
+        // For Krill format with incremental mode, check if any texts are now complete and output them
+        if (outputFormat == OutputFormat.KRILL && incrementalKrill) {
+            processedFoundries.add(foundry)
+            checkAndOutputCompleteTexts()
+        }
     }
 
     private fun processZipFileSequentially(zipFilePath: String, foundry: String = "base") {
@@ -886,12 +892,11 @@ class KorapXmlTool : Callable<Int> {
         }
         logZipProgress(zipFilePath)
 
-        // For Krill format, check if any texts are now complete and output them
-        // TODO: Re-enable incremental output after fixing edge cases with incomplete texts
-        // if (outputFormat == OutputFormat.KRILL) {
-        //     processedFoundries.add(foundry)
-        //     checkAndOutputCompleteTexts()
-        // }
+        // For Krill format with incremental mode, check if any texts are now complete and output them
+        if (outputFormat == OutputFormat.KRILL && incrementalKrill) {
+            processedFoundries.add(foundry)
+            checkAndOutputCompleteTexts()
+        }
     }
 
     private fun logZipProgress(zipFilePath: String) {
