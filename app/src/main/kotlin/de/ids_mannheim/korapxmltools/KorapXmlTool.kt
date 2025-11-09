@@ -221,7 +221,7 @@ class KorapXmlTool : Callable<Int> {
     @Option(
         names = ["-D", "--output-dir"],
         paramLabel = "DIR",
-        description = ["Output directory for generated files (default: current directory, or for krill format: directory of input ZIPs)"]
+        description = ["Output directory for generated files (default: current directory)"]
     )
     var outputDir: String = "."
 
@@ -410,12 +410,6 @@ class KorapXmlTool : Callable<Int> {
                 val name = File(zip).name
                 name.matches(Regex(".*\\.zip$")) && !name.matches(Regex(".*\\.[^/.]+\\.zip$"))
             } ?: args[0]
-
-            // If output directory not specified, use the directory of the base ZIP
-            if (outputDir == ".") {
-                outputDir = File(baseZip).parent ?: "."
-                LOGGER.info("Output directory not specified, using base ZIP directory: $outputDir")
-            }
 
             val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
             krillOutputFileName = File(outputDir, "$baseZipName.krill.tar").absolutePath
@@ -607,28 +601,46 @@ class KorapXmlTool : Callable<Int> {
         if (outputFormat == OutputFormat.KRILL && krillTarOutputStream != null) {
             try {
                 LOGGER.info("Generating krill JSON files for ${krillData.size} texts")
-                krillData.keys.sorted().forEach { textId ->
-                    val textData = krillData[textId]!!
-                    LOGGER.info("Generating JSON for $textId, foundries=${textData.morphoByFoundry.keys}")
-                    val json = generateKrillJson(textData)
-                    // Convert textId to proper filename format with dashes
-                    val jsonFileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
 
-                    // Compress JSON with GZIP
-                    val byteOut = ByteArrayOutputStream()
-                    val gzipOut = GZIPOutputStream(byteOut)
-                    gzipOut.write(json.toByteArray(Charsets.UTF_8))
-                    gzipOut.close()
-                    val compressedData = byteOut.toByteArray()
+                // Initialize progress bar for krill output
+                val krillProgressBar = if (!quiet) {
+                    ProgressBarBuilder()
+                        .setTaskName(krillOutputFileName?.let { File(it).name } ?: "Krill export")
+                        .setInitialMax(krillData.size.toLong())
+                        .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
+                        .setUpdateIntervalMillis(500)
+                        .build()
+                } else null
 
-                    // Write to TAR
-                    val tarEntry = TarArchiveEntry(jsonFileName)
-                    tarEntry.size = compressedData.size.toLong()
-                    krillTarOutputStream!!.putArchiveEntry(tarEntry)
-                    krillTarOutputStream!!.write(compressedData)
-                    krillTarOutputStream!!.closeArchiveEntry()
+                try {
+                    krillData.keys.sorted().forEach { textId ->
+                        val textData = krillData[textId]!!
+                        LOGGER.info("Generating JSON for $textId, foundries=${textData.morphoByFoundry.keys}")
+                        val json = generateKrillJson(textData)
+                        // Convert textId to proper filename format with dashes
+                        val jsonFileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
 
-                    LOGGER.fine("Wrote krill JSON for $textId (${compressedData.size} bytes compressed)")
+                        // Compress JSON with GZIP
+                        val byteOut = ByteArrayOutputStream()
+                        val gzipOut = GZIPOutputStream(byteOut)
+                        gzipOut.write(json.toByteArray(Charsets.UTF_8))
+                        gzipOut.close()
+                        val compressedData = byteOut.toByteArray()
+
+                        // Write to TAR
+                        val tarEntry = TarArchiveEntry(jsonFileName)
+                        tarEntry.size = compressedData.size.toLong()
+                        krillTarOutputStream!!.putArchiveEntry(tarEntry)
+                        krillTarOutputStream!!.write(compressedData)
+                        krillTarOutputStream!!.closeArchiveEntry()
+
+                        LOGGER.fine("Wrote krill JSON for $textId (${compressedData.size} bytes compressed)")
+
+                        // Update progress bar
+                        krillProgressBar?.step()
+                    }
+                } finally {
+                    krillProgressBar?.close()
                 }
 
                 krillTarOutputStream!!.finish()
