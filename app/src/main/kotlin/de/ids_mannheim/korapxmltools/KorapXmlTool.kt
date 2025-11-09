@@ -386,6 +386,8 @@ class KorapXmlTool : Callable<Int> {
     )
 
     val krillData: ConcurrentHashMap<String, KrillTextData> = ConcurrentHashMap()
+    val corpusMetadata: ConcurrentHashMap<String, MutableMap<String, Any>> = ConcurrentHashMap()
+    val docMetadata: ConcurrentHashMap<String, MutableMap<String, Any>> = ConcurrentHashMap()
 
     fun String.hasCorrespondingBaseZip(): Boolean {
         if (!this.matches(Regex(".*\\.([^/.]+)\\.zip$"))) return false
@@ -1171,14 +1173,24 @@ class KorapXmlTool : Callable<Int> {
             } else if ((extractMetadataRegex.isNotEmpty() || outputFormat == OutputFormat.KRILL) && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
                 //LOGGER.info("Processing header file: " + zipEntry.name)
                 val text = zipFile.getInputStream(zipEntry).bufferedReader().use { it.readText() }
-                val docId =
-                    Regex("<textSigle>([^<]+)</textSigle>").find(text)?.destructured?.component1()
-                        ?.replace(Regex("/"), "_")
-                LOGGER.fine("Processing header file: " + zipEntry.name + " docId: " + docId)
 
-                // For krill format, extract rich metadata
-                if (outputFormat == OutputFormat.KRILL && docId != null) {
-                    collectKrillMetadata(docId, text)
+                // Check what type of header this is
+                val textSigle = Regex("<textSigle>([^<]+)</textSigle>").find(text)?.destructured?.component1()
+                val docSigle = Regex("<dokumentSigle>([^<]+)</dokumentSigle>").find(text)?.destructured?.component1()
+                val corpusSigle = Regex("<korpusSigle>([^<]+)</korpusSigle>").find(text)?.destructured?.component1()
+
+                val docId = textSigle?.replace(Regex("/"), "_")
+                LOGGER.fine("Processing header file: " + zipEntry.name + " docId: " + docId + " corpusSigle: " + corpusSigle + " docSigle: " + docSigle)
+
+                // For krill format, extract rich metadata from text, doc, and corpus levels
+                if (outputFormat == OutputFormat.KRILL) {
+                    if (corpusSigle != null) {
+                        collectCorpusMetadata(corpusSigle, text)
+                    } else if (docSigle != null) {
+                        collectDocMetadata(docSigle, text)
+                    } else if (docId != null) {
+                        collectKrillMetadata(docId, text)
+                    }
                 }
 
                 val meta = ArrayList<String>()
@@ -2232,40 +2244,173 @@ class KorapXmlTool : Callable<Int> {
         }
 
         synchronized(textData) {
-            // Extract various metadata fields
-            Regex("<editor>([^<]+)</editor>").find(headerXml)?.let {
-                textData.headerMetadata["corpusEditor"] = it.groupValues[1]
-                textData.headerMetadata["editor"] = it.groupValues[1]
+            // Extract analytic and monogr sections using indexOf for efficiency (avoid regex backtracking)
+            val analyticStart = headerXml.indexOf("<analytic>")
+            val analyticEnd = headerXml.indexOf("</analytic>")
+            val analyticXml = if (analyticStart >= 0 && analyticEnd > analyticStart) {
+                headerXml.substring(analyticStart, analyticEnd + 11)
+            } else ""
+
+            val monogrStart = headerXml.indexOf("<monogr>")
+            val monogrEnd = headerXml.indexOf("</monogr>")
+            val monogrXml = if (monogrStart >= 0 && monogrEnd > monogrStart) {
+                headerXml.substring(monogrStart, monogrEnd + 9)
+            } else ""
+
+            // Author - try analytic first, then monogr
+            Regex("<h\\.author>([^<]+)</h\\.author>").find(analyticXml)?.let {
+                textData.headerMetadata["author"] = it.groupValues[1].trim()
+            } ?: Regex("<h\\.author>([^<]+)</h\\.author>").find(monogrXml)?.let {
+                textData.headerMetadata["author"] = it.groupValues[1].trim()
+            }
+
+            // Title - try analytic type="main" first, then any analytic title, then monogr
+            Regex("<h\\.title[^>]*type=\"main\"[^>]*>([^<]+)</h\\.title>").find(analyticXml)?.let {
+                textData.headerMetadata["title"] = it.groupValues[1].trim()
+            } ?: Regex("<h\\.title[^>]*>([^<]+)</h\\.title>").find(analyticXml)?.let {
+                textData.headerMetadata["title"] = it.groupValues[1].trim()
+            } ?: Regex("<h\\.title[^>]*type=\"main\"[^>]*>([^<]+)</h\\.title>").find(monogrXml)?.let {
+                textData.headerMetadata["title"] = it.groupValues[1].trim()
+            } ?: Regex("<h\\.title[^>]*>([^<]+)</h\\.title>").find(monogrXml)?.let {
+                textData.headerMetadata["title"] = it.groupValues[1].trim()
+            }
+
+            // Subtitle - try analytic first, then monogr
+            Regex("<h\\.title[^>]*type=\"sub\"[^>]*>([^<]+)</h\\.title>").find(analyticXml)?.let {
+                textData.headerMetadata["subTitle"] = it.groupValues[1].trim()
+            } ?: Regex("<h\\.title[^>]*type=\"sub\"[^>]*>([^<]+)</h\\.title>").find(monogrXml)?.let {
+                textData.headerMetadata["subTitle"] = it.groupValues[1].trim()
+            }
+
+            // Editor/Translator - check for translator (editor with role="translator") first
+            Regex("<editor[^>]*role=\"translator\"[^>]*>([^<]+)</editor>").find(headerXml)?.let {
+                textData.headerMetadata["translator"] = it.groupValues[1].trim()
+            } ?: run {
+                // Not a translator, so look for regular editor - try analytic first, then monogr
+                Regex("<editor[^>]*>([^<]+)</editor>").find(analyticXml)?.let {
+                    textData.headerMetadata["editor"] = it.groupValues[1].trim()
+                } ?: Regex("<editor[^>]*>([^<]+)</editor>").find(monogrXml)?.let {
+                    textData.headerMetadata["editor"] = it.groupValues[1].trim()
+                }
             }
 
             // Publisher
             Regex("<publisher>([^<]+)</publisher>").find(headerXml)?.let {
-                textData.headerMetadata["publisher"] = it.groupValues[1]
+                textData.headerMetadata["publisher"] = it.groupValues[1].trim()
+            }
+
+            // Distributor - from publicationStmt
+            Regex("<distributor>([^<]+)</distributor>").find(headerXml)?.let {
+                val dist = it.groupValues[1].trim()
+                if (dist.isNotEmpty()) {
+                    textData.headerMetadata["distributor"] = dist
+                }
             }
 
             // Availability (license)
             Regex("<availability[^>]*>([^<]+)</availability>").find(headerXml)?.let {
-                textData.headerMetadata["availability"] = it.groupValues[1]
+                textData.headerMetadata["availability"] = it.groupValues[1].trim()
             }
 
-            // Author
-            Regex("<h\\.author>([^<]+)</h\\.author>").find(headerXml)?.let {
-                textData.headerMetadata["author"] = it.groupValues[1].trim()
+            // ISBN - from idno with type="ISBN"
+            Regex("<idno[^>]+type=\"ISBN\"[^>]*>([^<]+)</idno>").find(headerXml)?.let {
+                textData.headerMetadata["ISBN"] = it.groupValues[1].trim()
             }
 
-            // Title (from analytic section)
-            Regex("<analytic>.*?<h\\.title[^>]*>([^<]+)</h\\.title>", RegexOption.DOT_MATCHES_ALL).find(headerXml)?.let {
-                textData.headerMetadata["title"] = it.groupValues[1]
-            }
-
-            // Corpus title (from monogr section)
-            Regex("<monogr>.*?<h\\.title[^>]*>([^<]+)</h\\.title>", RegexOption.DOT_MATCHES_ALL).find(headerXml)?.let {
-                textData.headerMetadata["corpusTitle"] = it.groupValues[1]
-            }
+            // Note: corpusTitle, corpusSubTitle, and docTitle come from corpus/doc headers
+            // They are merged in during JSON generation
 
             // Reference
-            Regex("<reference type=\"complete\"[^>]*>([^<]+)</reference>").find(headerXml)?.let {
-                textData.headerMetadata["reference"] = it.groupValues[1]
+            Regex("<reference[^>]+type=\"complete\"[^>]*>([^<]+)</reference>").find(headerXml)?.let {
+                textData.headerMetadata["reference"] = it.groupValues[1].trim()
+            }
+
+            // URN - from idno with type="URN" - store as resolvable link
+            Regex("<idno[^>]+type=\"URN\"[^>]*>([^<]+)</idno>").find(headerXml)?.let {
+                val urn = it.groupValues[1].trim()
+                // Create nbn-resolving.de URL for the URN
+                val urnUrl = "http://nbn-resolving.de/$urn"
+                textData.headerMetadata["URN"] = mapOf("urn" to urn, "url" to urnUrl)
+            }
+
+            // Text type fields from textDesc section
+            val textDescStart = headerXml.indexOf("<textDesc>")
+            val textDescEnd = headerXml.indexOf("</textDesc>")
+            val textDescXml = if (textDescStart >= 0 && textDescEnd > textDescStart) {
+                headerXml.substring(textDescStart, textDescEnd + 11)
+            } else ""
+
+            if (textDescXml.isNotEmpty()) {
+                // textType
+                Regex("<textType>([^<]+)</textType>").find(textDescXml)?.let {
+                    textData.headerMetadata["textType"] = it.groupValues[1].trim()
+                }
+
+                // textDomain
+                Regex("<textDomain>([^<]+)</textDomain>").find(textDescXml)?.let {
+                    textData.headerMetadata["textDomain"] = it.groupValues[1].trim()
+                }
+
+                // textTypeArt
+                Regex("<textTypeArt>([^<]+)</textTypeArt>").find(textDescXml)?.let {
+                    textData.headerMetadata["textTypeArt"] = it.groupValues[1].trim()
+                }
+
+                // textTypeRef
+                Regex("<textTypeRef>([^<]+)</textTypeRef>").find(textDescXml)?.let {
+                    textData.headerMetadata["textTypeRef"] = it.groupValues[1].trim()
+                }
+
+                // textColumn
+                Regex("<column>([^<]+)</column>").find(textDescXml)?.let {
+                    textData.headerMetadata["textColumn"] = it.groupValues[1].trim()
+                }
+            }
+
+            // Publication place
+            Regex("<pubPlace([^>]*)>([^<]+)</pubPlace>").find(headerXml)?.let {
+                val attrs = it.groupValues[1]
+                val place = it.groupValues[2].trim()
+
+                // Extract key attribute if present
+                Regex("key=\"([^\"]+)\"").find(attrs)?.let { keyMatch ->
+                    textData.headerMetadata["pubPlaceKey"] = keyMatch.groupValues[1]
+                }
+
+                if (place.isNotEmpty()) {
+                    textData.headerMetadata["pubPlace"] = place
+                }
+            }
+
+            // Award - from biblStruct > note with type="award" and subtype attribute
+            val awards = mutableListOf<String>()
+            Regex("<note[^>]+type=\"award\"[^>]+subtype=\"([^\"]+)\"[^>]*>").findAll(headerXml).forEach {
+                awards.add(it.groupValues[1].trim())
+            }
+            if (awards.isNotEmpty()) {
+                textData.headerMetadata["award"] = awards
+            }
+
+            // Text class - from textClass > catRef target attributes
+            val textClassStart = headerXml.indexOf("<textClass>")
+            val textClassEnd = headerXml.indexOf("</textClass>")
+            val textClassXml = if (textClassStart >= 0 && textClassEnd > textClassStart) {
+                headerXml.substring(textClassStart, textClassEnd + 12)
+            } else ""
+
+            if (textClassXml.isNotEmpty()) {
+                val topics = mutableListOf<String>()
+
+                Regex("<catRef[^>]+target=\"([^\"]+)\"[^>]*>").findAll(textClassXml).forEach {
+                    val target = it.groupValues[1]
+                    // Split by '.' and skip first element (as Perl code does)
+                    val parts = target.split('.').drop(1).filter { p -> p.isNotBlank() }
+                    topics.addAll(parts)
+                }
+
+                if (topics.isNotEmpty()) {
+                    textData.headerMetadata["textClass"] = topics
+                }
             }
 
             // Creation date
@@ -2305,15 +2450,92 @@ class KorapXmlTool : Callable<Int> {
             }
 
             // Language - infer from corpus or default to "de" for German corpora
-            textData.headerMetadata["language"] = "de"
+            if (!textData.headerMetadata.containsKey("language")) {
+                textData.headerMetadata["language"] = "de"
+            }
 
-            // Text type (plural form) - might need to be derived or hardcoded based on corpus
-            textData.headerMetadata["textType"] = textData.headerMetadata.getOrDefault("textTypeArt", "Diskussionen") as String + "en"
-
-            // Distributor - default value for IDS corpora
-            textData.headerMetadata["distributor"] = "Leibniz-Institut für Deutsche Sprache"
+            // Text type (plural form) - fallback only if not already set
+            if (!textData.headerMetadata.containsKey("textType")) {
+                val textTypeArt = textData.headerMetadata["textTypeArt"] as? String
+                if (textTypeArt != null) {
+                    textData.headerMetadata["textType"] = textTypeArt + "en"
+                }
+            }
 
             LOGGER.fine("Collected ${textData.headerMetadata.size} metadata fields for $docId")
+        }
+    }
+
+    // Collect corpus-level metadata from corpus header
+    private fun collectCorpusMetadata(corpusSigle: String, headerXml: String) {
+        val metadata = corpusMetadata.getOrPut(corpusSigle) { mutableMapOf() }
+
+        synchronized(metadata) {
+            // Extract corpus title from c.title
+            Regex("<c\\.title>([^<]+)</c\\.title>").find(headerXml)?.let {
+                metadata["corpusTitle"] = it.groupValues[1].trim()
+            }
+
+            // Extract corpus subtitle if present
+            Regex("<c\\.title[^>]*type=\"sub\"[^>]*>([^<]+)</c\\.title>").find(headerXml)?.let {
+                metadata["corpusSubTitle"] = it.groupValues[1].trim()
+            }
+
+            // Extract corpus author if present
+            Regex("<h\\.author>([^<]+)</h\\.author>").find(headerXml)?.let {
+                metadata["corpusAuthor"] = it.groupValues[1].trim()
+            }
+
+            // Extract editor from monogr section
+            val monogrStart = headerXml.indexOf("<monogr>")
+            val monogrEnd = headerXml.indexOf("</monogr>")
+            if (monogrStart >= 0 && monogrEnd > monogrStart) {
+                val monogrXml = headerXml.substring(monogrStart, monogrEnd + 9)
+                Regex("<editor[^>]*>([^<]+)</editor>").find(monogrXml)?.let {
+                    metadata["corpusEditor"] = it.groupValues[1].trim()
+                }
+            }
+
+            // Publisher from corpus level
+            Regex("<publisher>([^<]+)</publisher>").find(headerXml)?.let {
+                metadata["publisher"] = it.groupValues[1].trim()
+            }
+
+            // Distributor from corpus level
+            Regex("<distributor>([^<]+)</distributor>").find(headerXml)?.let {
+                metadata["distributor"] = it.groupValues[1].trim()
+            }
+
+            // Text type from corpus profileDesc
+            val textDescStart = headerXml.indexOf("<textDesc>")
+            val textDescEnd = headerXml.indexOf("</textDesc>")
+            if (textDescStart >= 0 && textDescEnd > textDescStart) {
+                val textDescXml = headerXml.substring(textDescStart, textDescEnd + 11)
+                Regex("<textType>([^<]+)</textType>").find(textDescXml)?.let {
+                    metadata["textType"] = it.groupValues[1].trim()
+                }
+            }
+
+            LOGGER.fine("Collected ${metadata.size} corpus-level metadata fields for $corpusSigle")
+        }
+    }
+
+    // Collect document-level metadata from doc header
+    private fun collectDocMetadata(docSigle: String, headerXml: String) {
+        val metadata = docMetadata.getOrPut(docSigle) { mutableMapOf() }
+
+        synchronized(metadata) {
+            // Extract document title from d.title
+            Regex("<d\\.title>([^<]+)</d\\.title>").find(headerXml)?.let {
+                metadata["docTitle"] = it.groupValues[1].trim()
+            }
+
+            // Extract doc author if present
+            Regex("<h\\.author>([^<]+)</h\\.author>").find(headerXml)?.let {
+                metadata["docAuthor"] = it.groupValues[1].trim()
+            }
+
+            LOGGER.fine("Collected ${metadata.size} doc-level metadata fields for $docSigle")
         }
     }
 
@@ -2602,11 +2824,33 @@ class KorapXmlTool : Callable<Int> {
             )))
         }
 
+        // Merge corpus and doc metadata into text metadata (corpus < doc < text precedence)
+        val corpusSigle = textIdWithSlashes.split("/")[0]
+        val docSigle = textIdWithSlashes.split("/").take(2).joinToString("/")
+
+        // First apply corpus-level metadata (lowest priority)
+        corpusMetadata[corpusSigle]?.forEach { (key, value) ->
+            if (!textData.headerMetadata.containsKey(key)) {
+                textData.headerMetadata[key] = value
+            }
+        }
+
+        // Then apply doc-level metadata (medium priority)
+        docMetadata[docSigle]?.forEach { (key, value) ->
+            if (!textData.headerMetadata.containsKey(key)) {
+                textData.headerMetadata[key] = value
+            }
+        }
+
+        // Text-level metadata is already in textData.headerMetadata (highest priority)
+
         // Add additional metadata fields from header with correct types
         val fieldOrder = listOf(
-            "corpusEditor", "distributor", "editor", "externalLink", "publisher", "reference",
-            "creationDate", "pubDate", "textClass", "availability", "language", "textType",
-            "textTypeArt", "author", "corpusTitle", "title"
+            "corpusEditor", "distributor", "editor", "translator", "externalLink", "publisher", "reference",
+            "creationDate", "pubDate", "textClass", "award", "availability", "language",
+            "ISBN", "URN", "pubPlace", "pubPlaceKey",
+            "textType", "textTypeArt", "textTypeRef", "textDomain", "textColumn",
+            "author", "title", "subTitle", "corpusTitle", "corpusSubTitle", "docTitle"
         )
 
         fieldOrder.forEach { key ->
@@ -2617,16 +2861,51 @@ class KorapXmlTool : Callable<Int> {
                 "creationDate", "pubDate" -> {
                     "type:date" to jsonString(value.toString())
                 }
-                "textClass" -> {
+                "textClass", "award" -> {
                     "type:keywords" to when (value) {
                         is List<*> -> jsonArray(value.map { jsonString(it.toString()) })
                         else -> jsonArray(listOf(jsonString(value.toString())))
                     }
                 }
-                "availability", "language" -> {
+                "availability", "language", "ISBN", "pubPlace", "pubPlaceKey",
+                "textType", "textTypeArt", "textTypeRef", "textDomain", "textColumn" -> {
                     "type:string" to jsonString(value.toString())
                 }
-                "author", "corpusTitle", "title" -> {
+                "URN" -> {
+                    // URN is stored as a map with urn and url keys
+                    when (value) {
+                        is Map<*, *> -> {
+                            val urn = value["urn"]?.toString() ?: ""
+                            val url = value["url"]?.toString() ?: ""
+                            val encodedUrn = urn.urlEncode()
+                            val encodedUrl = url.urlEncode()
+                            "type:attachement" to jsonString("data:application/x.korap-link;title=$encodedUrn,$encodedUrl")
+                        }
+                        else -> {
+                            // Fallback if URN is stored as plain string (shouldn't happen)
+                            "type:string" to jsonString(value.toString())
+                        }
+                    }
+                }
+                "translator" -> {
+                    // Check environment variable for type
+                    val translatorAsText = System.getenv("K2K_TRANSLATOR_TEXT")?.isNotEmpty() == true
+                    if (translatorAsText) {
+                        "type:text" to jsonString(value.toString())
+                    } else {
+                        "type:attachement" to jsonString("data:,${value.toString()}")
+                    }
+                }
+                "publisher" -> {
+                    // Check environment variable for type
+                    val publisherAsString = System.getenv("K2K_PUBLISHER_STRING")?.isNotEmpty() == true
+                    if (publisherAsString) {
+                        "type:string" to jsonString(value.toString())
+                    } else {
+                        "type:attachement" to jsonString("data:,${value.toString()}")
+                    }
+                }
+                "author", "title", "subTitle", "corpusTitle", "corpusSubTitle", "docTitle" -> {
                     "type:text" to jsonString(value.toString())
                 }
                 "externalLink" -> {
@@ -2637,7 +2916,7 @@ class KorapXmlTool : Callable<Int> {
                     "type:attachement" to jsonString("data:application/x.korap-link;title=$title,$encodedUrl")
                 }
                 else -> {
-                    // corpusEditor, distributor, editor, publisher, reference, textType, textTypeArt
+                    // corpusEditor, distributor, editor, reference - all ATTACHMENT
                     "type:attachement" to jsonString("data:,${value.toString()}")
                 }
             }
@@ -3139,5 +3418,9 @@ fun jsonObject(pairs: List<Pair<String, String>>): String {
     return pairs.joinToString(",", "{", "}") { (key, value) ->
         "${jsonString(key)}:${value}"
     }
+}
+
+fun String.urlEncode(): String {
+    return java.net.URLEncoder.encode(this, "UTF-8")
 }
 
