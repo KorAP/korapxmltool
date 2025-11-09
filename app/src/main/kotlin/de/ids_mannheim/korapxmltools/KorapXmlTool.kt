@@ -3258,12 +3258,12 @@ class KorapXmlTool : Callable<Int> {
 
             // Add i: annotation (lowercase surface form)
             if (surfaceForm.isNotEmpty()) {
-                tokenAnnotations.add(jsonString("i:${surfaceForm.lowercase()}"))
+                tokenAnnotations.add(jsonString("i:${surfaceForm.lowercase().escapeKrillValue()}"))
             }
 
             // Add inverse dependency annotations (<:) for dependents pointing to this token as head
             inverseDeps[index]?.sortedBy { "${it.foundry}/${it.deprel}" }?.forEach { inv ->
-                tokenAnnotations.add(jsonString("<:${inv.foundry}/d:${inv.deprel}\$<b>32<i>${inv.dependentIndex}"))
+                tokenAnnotations.add(jsonString("<:${inv.foundry}/d:${inv.deprel.escapeKrillValue()}\$<b>32<i>${inv.dependentIndex}"))
             }
 
             // Collect annotations from all foundries for this token
@@ -3285,8 +3285,8 @@ class KorapXmlTool : Callable<Int> {
                             morphoSpan.feats!!.split("|").forEach { feat ->
                                 val parts = feat.split("=")
                                 if (parts.size == 2) {
-                                    val key = parts[0].lowercase()
-                                    val value = parts[1].lowercase()
+                                    val key = parts[0].lowercase().escapeKrillValue()
+                                    val value = parts[1].lowercase().escapeKrillValue()
                                     features.add("$prefix/m:$key:$value")
                                 }
                             }
@@ -3295,17 +3295,17 @@ class KorapXmlTool : Callable<Int> {
 
                         // POS (xpos) with optional byte encoding
                         if (morphoSpan.xpos != null && morphoSpan.xpos != "_") {
-                            tokenAnnotations.add(jsonString("$prefix/p:${morphoSpan.xpos}"))
+                            tokenAnnotations.add(jsonString("$prefix/p:${morphoSpan.xpos!!.escapeKrillValue()}"))
                         }
 
                         // Lemma
                         if (morphoSpan.lemma != null && morphoSpan.lemma != "_") {
-                            tokenAnnotations.add(jsonString("$prefix/l:${morphoSpan.lemma}"))
+                            tokenAnnotations.add(jsonString("$prefix/l:${morphoSpan.lemma!!.escapeKrillValue()}"))
                         }
 
                         // UPOS (skip for tree_tagger as it only has xpos)
                         if (morphoSpan.upos != null && morphoSpan.upos != "_" && foundry != "tree_tagger") {
-                            tokenAnnotations.add(jsonString("$prefix/u:${morphoSpan.upos}"))
+                            tokenAnnotations.add(jsonString("$prefix/u:${morphoSpan.upos!!.escapeKrillValue()}"))
                         }
                     }
 
@@ -3324,17 +3324,17 @@ class KorapXmlTool : Callable<Int> {
 
                         if (resolvedHeadIndex != null) {
                             // Regular dependency - outgoing edge to head
-                            tokenAnnotations.add(jsonString(">:$prefix/d:${morphoSpan.deprel}\$<b>32<i>$resolvedHeadIndex"))
+                            tokenAnnotations.add(jsonString(">:$prefix/d:${morphoSpan.deprel!!.escapeKrillValue()}\$<b>32<i>$resolvedHeadIndex"))
                         } else if (headStr == "0" || (headStr.contains("-") && headStr.startsWith("0-"))) {
                             // ROOT node - use incoming edge format with full span info
-                            tokenAnnotations.add(jsonString("<:$prefix/d:${morphoSpan.deprel}\$<b>34<i>${token.from}<i>${token.to}<i>$index<i>1"))
+                            tokenAnnotations.add(jsonString("<:$prefix/d:${morphoSpan.deprel!!.escapeKrillValue()}\$<b>34<i>${token.from}<i>${token.to}<i>$index<i>1"))
                         }
                     }
                 }
             }
 
             // Surface form (always last)
-            tokenAnnotations.add(jsonString("s:$surfaceForm"))
+            tokenAnnotations.add(jsonString("s:${surfaceForm.escapeKrillValue()}"))
 
             result.add(jsonArray(tokenAnnotations))
         }
@@ -3408,6 +3408,15 @@ fun String.escapeKrillAttribute(): String {
         .replace(":", "%3A")
         .replace("<", "%3C")
         .replace(">", "%3E")
+}
+
+// Escape special characters in Krill annotation values (POS tags, lemmas, etc.)
+// The $ character is used as a delimiter in Krill format (e.g., "_1$<i>100")
+// and must be percent-encoded when it appears in actual annotation values
+fun String.escapeKrillValue(): String {
+    // Use URL/percent encoding like escapeKrillAttribute
+    // Only escape $ for now as it's the main delimiter causing the MultiTerm parser to fail
+    return this.replace("$", "%24")
 }
 
 fun jsonString(value: String): String = "\"${value.escapeJson()}\""
