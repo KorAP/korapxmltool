@@ -388,6 +388,9 @@ class KorapXmlTool : Callable<Int> {
     val krillData: ConcurrentHashMap<String, KrillTextData> = ConcurrentHashMap()
     val corpusMetadata: ConcurrentHashMap<String, MutableMap<String, Any>> = ConcurrentHashMap()
     val docMetadata: ConcurrentHashMap<String, MutableMap<String, Any>> = ConcurrentHashMap()
+    val expectedFoundries: MutableSet<String> = mutableSetOf("base")
+    val processedFoundries: MutableSet<String> = mutableSetOf()
+    var krillOutputCount = java.util.concurrent.atomic.AtomicInteger(0)
 
     fun String.hasCorrespondingBaseZip(): Boolean {
         if (!this.matches(Regex(".*\\.([^/.]+)\\.zip$"))) return false
@@ -402,6 +405,17 @@ class KorapXmlTool : Callable<Int> {
     }
 
     fun korapxml2conllu(args: Array<String>) {
+        // Reset Krill state for fresh run (important for tests)
+        if (outputFormat == OutputFormat.KRILL) {
+            expectedFoundries.clear()
+            expectedFoundries.add("base")
+            processedFoundries.clear()
+            krillOutputCount.set(0)
+            krillData.clear()
+            corpusMetadata.clear()
+            docMetadata.clear()
+        }
+
         // Initialize shared entry executor (used inside each zip)
         entryExecutor = Executors.newFixedThreadPool(maxThreads)
 
@@ -430,6 +444,30 @@ class KorapXmlTool : Callable<Int> {
             val fileOutputStream = FileOutputStream(krillOutputFileName!!)
             krillTarOutputStream = TarArchiveOutputStream(fileOutputStream)
             LOGGER.info("Initialized krill TAR output stream")
+
+            // Extract expected foundries from input ZIP filenames for incremental output
+            args.forEach { zipPath ->
+                val zipName = File(zipPath).name
+                // Match pattern: name.foundry.zip (e.g., corpus.spacy.zip)
+                val foundryMatch = Regex("^(.+?)\\.([^.]+)\\.zip$").find(zipName)
+                if (foundryMatch != null) {
+                    val foundry = foundryMatch.groupValues[2]
+                    // Handle compound foundries like "marmot-malt" which contains both "marmot" and "malt"
+                    if (foundry.contains("-")) {
+                        foundry.split("-").forEach { subFoundry ->
+                            expectedFoundries.add(subFoundry)
+                            LOGGER.info("Expecting foundry: $subFoundry from $zipName")
+                        }
+                    } else {
+                        expectedFoundries.add(foundry)
+                        LOGGER.info("Expecting foundry: $foundry from $zipName")
+                    }
+                } else if (zipName.endsWith(".zip")) {
+                    // Base ZIP without foundry suffix
+                    LOGGER.info("Base ZIP detected: $zipName")
+                }
+            }
+            LOGGER.info("Expected foundries for Krill output: ${expectedFoundries.sorted()}")
         }
 
         if (annotateWith.isNotEmpty()) {
@@ -599,46 +637,35 @@ class KorapXmlTool : Callable<Int> {
         // Shutdown entry executor
         entryExecutor?.shutdown()
 
-        // Finalize krill output: generate JSON files and close TAR
+        // Finalize krill output: output any remaining incomplete texts and close TAR
         if (outputFormat == OutputFormat.KRILL && krillTarOutputStream != null) {
             try {
-                LOGGER.info("Generating krill JSON files for ${krillData.size} texts")
+                val remainingCount = krillData.size
+                if (remainingCount > 0) {
+                    LOGGER.info("Outputting $remainingCount remaining incomplete texts (already output: $krillOutputCount)")
+                } else {
+                    LOGGER.info("All texts already output incrementally ($krillOutputCount total)")
+                }
 
-                // Initialize progress bar for krill output
-                val krillProgressBar = if (!quiet) {
+                // Initialize progress bar for remaining texts
+                val krillProgressBar = if (!quiet && remainingCount > 0) {
                     ProgressBarBuilder()
-                        .setTaskName(krillOutputFileName?.let { File(it).name } ?: "Krill export")
-                        .setInitialMax(krillData.size.toLong())
+                        .setTaskName("Remaining texts")
+                        .setInitialMax(remainingCount.toLong())
                         .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
                         .setUpdateIntervalMillis(500)
                         .build()
                 } else null
 
                 try {
+                    // Output remaining texts (may be incomplete if not all ZIPs covered all texts)
                     krillData.keys.sorted().forEach { textId ->
                         val textData = krillData[textId]!!
-                        LOGGER.info("Generating JSON for $textId, foundries=${textData.morphoByFoundry.keys}")
-                        val json = generateKrillJson(textData)
-                        // Convert textId to proper filename format with dashes
-                        val jsonFileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
-
-                        // Compress JSON with GZIP
-                        val byteOut = ByteArrayOutputStream()
-                        val gzipOut = GZIPOutputStream(byteOut)
-                        gzipOut.write(json.toByteArray(Charsets.UTF_8))
-                        gzipOut.close()
-                        val compressedData = byteOut.toByteArray()
-
-                        // Write to TAR
-                        val tarEntry = TarArchiveEntry(jsonFileName)
-                        tarEntry.size = compressedData.size.toLong()
-                        krillTarOutputStream!!.putArchiveEntry(tarEntry)
-                        krillTarOutputStream!!.write(compressedData)
-                        krillTarOutputStream!!.closeArchiveEntry()
-
-                        LOGGER.fine("Wrote krill JSON for $textId (${compressedData.size} bytes compressed)")
-
-                        // Update progress bar
+                        val textFoundries = textData.morphoByFoundry.keys.toSet() + setOf("base")
+                        if (!textFoundries.containsAll(expectedFoundries)) {
+                            LOGGER.warning("Outputting incomplete text $textId with foundries ${textFoundries} (expected: $expectedFoundries)")
+                        }
+                        outputKrillText(textId, textData)
                         krillProgressBar?.step()
                     }
                 } finally {
@@ -647,7 +674,7 @@ class KorapXmlTool : Callable<Int> {
 
                 krillTarOutputStream!!.finish()
                 krillTarOutputStream!!.close()
-                LOGGER.info("Closed krill TAR file: $krillOutputFileName")
+                LOGGER.info("Closed krill TAR file: $krillOutputFileName (total texts output: $krillOutputCount)")
             } catch (e: Exception) {
                 LOGGER.severe("ERROR generating krill output: ${e.message}")
                 e.printStackTrace()
@@ -814,6 +841,13 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.fine("NOT closing ZIP in processZipFile - will close after worker pool finishes")
         }
         logZipProgress(zipFilePath)
+
+        // For Krill format, check if any texts are now complete and output them
+        // TODO: Re-enable incremental output after fixing edge cases with incomplete texts
+        // if (outputFormat == OutputFormat.KRILL) {
+        //     processedFoundries.add(foundry)
+        //     checkAndOutputCompleteTexts()
+        // }
     }
 
     private fun processZipFileSequentially(zipFilePath: String, foundry: String = "base") {
@@ -851,6 +885,13 @@ class KorapXmlTool : Callable<Int> {
             }
         }
         logZipProgress(zipFilePath)
+
+        // For Krill format, check if any texts are now complete and output them
+        // TODO: Re-enable incremental output after fixing edge cases with incomplete texts
+        // if (outputFormat == OutputFormat.KRILL) {
+        //     processedFoundries.add(foundry)
+        //     checkAndOutputCompleteTexts()
+        // }
     }
 
     private fun logZipProgress(zipFilePath: String) {
@@ -2783,6 +2824,82 @@ class KorapXmlTool : Callable<Int> {
                 morpho[docId]?.clear()
             }
             map.remove(docId)
+        }
+    }
+
+    // Check if a text has all expected foundries and output it if complete
+    private fun checkAndOutputCompleteTexts() {
+        if (outputFormat != OutputFormat.KRILL || krillTarOutputStream == null) return
+
+        val textsToOutput = mutableListOf<String>()
+
+        // Find texts that have all expected foundries
+        krillData.forEach { (textId, textData) ->
+            val textFoundries = textData.morphoByFoundry.keys.toSet() + setOf("base")
+            if (textFoundries.containsAll(expectedFoundries)) {
+                textsToOutput.add(textId)
+            }
+        }
+
+        // Output and remove complete texts
+        textsToOutput.sorted().forEach { textId ->
+            val textData = krillData.remove(textId)
+            if (textData != null) {
+                outputKrillText(textId, textData)
+            }
+        }
+
+        if (textsToOutput.isNotEmpty()) {
+            LOGGER.info("Output ${textsToOutput.size} complete texts (${krillData.size} still pending)")
+        }
+    }
+
+    // Output a single text to Krill TAR (thread-safe)
+    private fun outputKrillText(textId: String, textData: KrillTextData) {
+        try {
+            // Merge corpus and doc metadata
+            val textIdWithSlashes = textData.textId.replace("_", "/").replace(".", "/")
+            val corpusSigle = textIdWithSlashes.split("/")[0]
+            val docSigle = textIdWithSlashes.split("/").take(2).joinToString("/")
+
+            // Apply corpus-level metadata
+            corpusMetadata[corpusSigle]?.forEach { (key, value) ->
+                if (!textData.headerMetadata.containsKey(key)) {
+                    textData.headerMetadata[key] = value
+                }
+            }
+
+            // Apply doc-level metadata
+            docMetadata[docSigle]?.forEach { (key, value) ->
+                if (!textData.headerMetadata.containsKey(key)) {
+                    textData.headerMetadata[key] = value
+                }
+            }
+
+            val json = generateKrillJson(textData)
+            val jsonFileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
+
+            // Compress JSON with GZIP
+            val byteOut = ByteArrayOutputStream()
+            val gzipOut = GZIPOutputStream(byteOut)
+            gzipOut.write(json.toByteArray(Charsets.UTF_8))
+            gzipOut.close()
+            val compressedData = byteOut.toByteArray()
+
+            // Write to TAR (synchronized for thread safety)
+            synchronized(krillTarOutputStream!!) {
+                val tarEntry = TarArchiveEntry(jsonFileName)
+                tarEntry.size = compressedData.size.toLong()
+                krillTarOutputStream!!.putArchiveEntry(tarEntry)
+                krillTarOutputStream!!.write(compressedData)
+                krillTarOutputStream!!.closeArchiveEntry()
+            }
+
+            val count = krillOutputCount.incrementAndGet()
+            LOGGER.fine("Output Krill JSON for $textId ($count total)")
+        } catch (e: Exception) {
+            LOGGER.severe("ERROR outputting Krill JSON for $textId: ${e.message}")
+            e.printStackTrace()
         }
     }
 
