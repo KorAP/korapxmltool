@@ -2941,7 +2941,7 @@ class KorapXmlTool : Callable<Int> {
                         val attrAnnotation = if (value.isEmpty()) {
                             "@:dereko/s:$key\$<b>17<s>${span.depth}<i>${span.tokenTo}"
                         } else {
-                            "@:dereko/s:$key:$value\$<b>17<s>${span.depth}<i>${span.tokenTo}"
+                            "@:dereko/s:$key:${value.escapeKrillAttribute()}\$<b>17<s>${span.depth}<i>${span.tokenTo}"
                         }
                         tokenAnnotations.add(jsonString(attrAnnotation))
                     }
@@ -2960,7 +2960,7 @@ class KorapXmlTool : Callable<Int> {
                         val attrAnnotation = if (value.isEmpty()) {
                             "@:dereko/s:$key\$<b>17<s>${span.depth}<i>${span.tokenTo}"
                         } else {
-                            "@:dereko/s:$key:$value\$<b>17<s>${span.depth}<i>${span.tokenTo}"
+                            "@:dereko/s:$key:${value.escapeKrillAttribute()}\$<b>17<s>${span.depth}<i>${span.tokenTo}"
                         }
                         tokenAnnotations.add(jsonString(attrAnnotation))
                     }
@@ -3119,6 +3119,16 @@ fun String.escapeJson(): String {
         }
     }
     return sb.toString()
+}
+
+// Escape special characters in Krill attribute values
+// These characters have special meaning in the Krill annotation format
+fun String.escapeKrillAttribute(): String {
+    return this.replace("#", "%23")
+        .replace("$", "%24")
+        .replace(":", "%3A")
+        .replace("<", "%3C")
+        .replace(">", "%3E")
 }
 
 fun jsonString(value: String): String = "\"${value.escapeJson()}\""
