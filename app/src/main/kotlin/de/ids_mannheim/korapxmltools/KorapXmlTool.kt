@@ -1173,7 +1173,7 @@ class KorapXmlTool : Callable<Int> {
                             fnames[docId] = zipEntry.name
                         }
                         val tokenSpans: NodeList = doc.getElementsByTagName("span")
-                        tokens[docId] = extractSpans(tokenSpans)
+                        tokens[docId] = extractSpans(tokenSpans, docId)
 
                         // For krill format with base foundry, collect base text data immediately
                         if (outputFormat == OutputFormat.KRILL && foundry == "base") {
@@ -1192,7 +1192,7 @@ class KorapXmlTool : Callable<Int> {
                         if (outputFormat == OutputFormat.KRILL) {
                             val morphoFoundry = getFoundryForLayer(foundry, "morpho")
                             collectKrillMorphoDataDirect(docId, morphoFoundry, morphoSpans, "morpho")
-                            tokens[docId] = extractSpans(fsSpans)
+                            tokens[docId] = extractSpans(fsSpans, docId)
                         } else {
                             // For other formats, use the shared morpho map
                             // Merge with existing morpho data (e.g., from dependency.xml)
@@ -1216,7 +1216,7 @@ class KorapXmlTool : Callable<Int> {
                                     LOGGER.fine("Merged morpho.xml with existing data for $docId (preserved ${morphoMap.count { it.value.head != "_" }} dependency relations)")
                                 }
                             }
-                            tokens[docId] = extractSpans(fsSpans)
+                            tokens[docId] = extractSpans(fsSpans, docId)
                         }
                     }
 
@@ -1989,7 +1989,7 @@ class KorapXmlTool : Callable<Int> {
             .toString()
     }
 
-    private fun extractSpans(spans: NodeList): Array<Span> {
+    private fun extractSpans(spans: NodeList, docId: String): Array<Span> {
         val list = ArrayList<Span>()
         IntStream.range(0, spans.length).forEach { idx ->
             val node = spans.item(idx)
@@ -1997,14 +1997,14 @@ class KorapXmlTool : Callable<Int> {
                 val fromAttr = node.getAttribute("from")
                 val toAttr = node.getAttribute("to")
                 if (fromAttr.isNullOrEmpty() || toAttr.isNullOrEmpty()) {
-                    LOGGER.warning("Skipping span with empty from/to attribute: from='$fromAttr' to='$toAttr'")
+                    LOGGER.warning("[$docId] Skipping span with empty from/to attribute: from='$fromAttr' to='$toAttr'")
                 } else {
                     try {
                         val from = Integer.parseInt(fromAttr)
                         val to = Integer.parseInt(toAttr)
                         list.add(Span(from, to))
                     } catch (e: NumberFormatException) {
-                        LOGGER.warning("Skipping span with invalid numeric offsets: from='$fromAttr' to='$toAttr' : ${e.message}")
+                        LOGGER.warning("[$docId] Skipping span with invalid numeric offsets: from='$fromAttr' to='$toAttr' : ${e.message}")
                     }
                 }
             }
