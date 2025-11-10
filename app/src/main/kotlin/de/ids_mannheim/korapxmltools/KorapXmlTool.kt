@@ -1016,6 +1016,14 @@ class KorapXmlTool : Callable<Int> {
         LOGGER.fine("Collected ${entries.size} entries from ZIP, foundry=$foundry")
         if (entries.isEmpty()) return
 
+        // Sort entries by text ID (first path component) to ensure texts complete as early as possible
+        // This is crucial for incremental output - all ZIPs will process texts in the same order
+        entries.sortBy { entry ->
+            // Extract text ID from path like "TEXT.ID/layer/file.xml"
+            entry.name.substringBefore('/')
+        }
+        LOGGER.fine("Sorted entries by text ID for incremental processing")
+
         // Determine document count for progress: prefer data.xml, fallback to tokens.xml
         documentCount = entries.count { it.name.contains("data.xml") }
         if (documentCount == 0) {
@@ -2945,8 +2953,9 @@ class KorapXmlTool : Callable<Int> {
     private fun scanAndOutputCompleteTexts() {
         if (shutdownIncrementalWriter || !tarStreamOpen) return
 
-        // Get all texts that we know about (from zipInventory)
-        val allTexts = zipInventory.values.flatten().toSet()
+        // Get all texts that we know about (from zipInventory), sorted to match processing order
+        // This ensures we check texts in the same order they're being processed
+        val allTexts = zipInventory.values.flatten().toSet().sorted()
 
         var outputCount = 0
         for (textId in allTexts) {
