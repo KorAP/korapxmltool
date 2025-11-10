@@ -3039,46 +3039,63 @@ class KorapXmlTool : Callable<Int> {
                 .build()
         } else null
 
-        val dbFactory = DocumentBuilderFactory.newInstance()
-        val dBuilder = dbFactory.newDocumentBuilder()
+        // Scan ZIPs in parallel for faster startup
+        val scanParallelism = (zipParallelism ?: maxThreads).coerceAtLeast(1)
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(scanParallelism)
 
-        zipPaths.forEach { zipPath ->
-            val textsInThisZip = mutableSetOf<String>()
-            LOGGER.info("Scanning $zipPath...")
+        try {
+            val futures = zipPaths.map { zipPath ->
+                executor.submit<Pair<String, MutableSet<String>>> {
+                    val textsInThisZip = mutableSetOf<String>()
+                    LOGGER.info("Scanning $zipPath...")
 
-            try {
-                ApacheZipFile(File(zipPath)).use { zipFile ->
-                    val entries = zipFile.entries
-                    while (entries.hasMoreElements()) {
-                        val entry = entries.nextElement()
-                        // Look for data.xml or tokens.xml to identify texts
-                        if (entry.name.matches(Regex(".*(data|tokens)\\.xml$"))) {
-                            try {
-                                // Parse XML to extract docId attribute
-                                val doc = zipFile.getInputStream(entry).use { inputStream ->
-                                    XMLCommentFilterReader(inputStream, "UTF-8").use { reader ->
-                                        dBuilder.parse(InputSource(reader))
+                    try {
+                        val dbFactory = DocumentBuilderFactory.newInstance()
+                        val dBuilder = dbFactory.newDocumentBuilder()
+
+                        ApacheZipFile(File(zipPath)).use { zipFile ->
+                            val entries = zipFile.entries
+                            while (entries.hasMoreElements()) {
+                                val entry = entries.nextElement()
+                                // Look for data.xml or tokens.xml to identify texts
+                                if (entry.name.matches(Regex(".*(data|tokens)\\.xml$"))) {
+                                    try {
+                                        // Parse XML to extract docId attribute
+                                        val doc = zipFile.getInputStream(entry).use { inputStream ->
+                                            XMLCommentFilterReader(inputStream, "UTF-8").use { reader ->
+                                                dBuilder.parse(InputSource(reader))
+                                            }
+                                        }
+                                        doc.documentElement.normalize()
+                                        val docId = doc.documentElement.getAttribute("docid")
+                                        if (docId.isNotEmpty()) {
+                                            textsInThisZip.add(docId)
+                                        }
+                                    } catch (e: Exception) {
+                                        // Skip entries that can't be parsed
+                                        LOGGER.fine("Skipped entry ${entry.name}: ${e.message}")
                                     }
                                 }
-                                doc.documentElement.normalize()
-                                val docId = doc.documentElement.getAttribute("docid")
-                                if (docId.isNotEmpty()) {
-                                    textsInThisZip.add(docId)
-                                }
-                            } catch (e: Exception) {
-                                // Skip entries that can't be parsed
-                                LOGGER.fine("Skipped entry ${entry.name}: ${e.message}")
                             }
                         }
+                        LOGGER.info("  $zipPath contains ${textsInThisZip.size} texts")
+                    } catch (e: Exception) {
+                        LOGGER.warning("Failed to scan $zipPath: ${e.message}")
                     }
+
+                    scanProgressBar?.step()
+                    Pair(zipPath, textsInThisZip)
                 }
-                zipInventory[zipPath] = textsInThisZip
-                LOGGER.info("  $zipPath contains ${textsInThisZip.size} texts")
-            } catch (e: Exception) {
-                LOGGER.warning("Failed to scan $zipPath: ${e.message}")
             }
 
-            scanProgressBar?.step()
+            // Collect results
+            futures.forEach { future ->
+                val (zipPath, texts) = future.get()
+                zipInventory[zipPath] = texts
+            }
+        } finally {
+            executor.shutdown()
+            executor.awaitTermination(1, java.util.concurrent.TimeUnit.HOURS)
         }
 
         scanProgressBar?.close()
