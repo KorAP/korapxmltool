@@ -3029,6 +3029,16 @@ class KorapXmlTool : Callable<Int> {
         LOGGER.info("Building per-ZIP inventory to track text completeness...")
         zipInventory.clear()
 
+        // Show progress bar for ZIP scanning phase
+        val scanProgressBar = if (!quiet && zipPaths.size > 1) {
+            ProgressBarBuilder()
+                .setTaskName("Scanning ZIPs")
+                .setInitialMax(zipPaths.size.toLong())
+                .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
+                .setUpdateIntervalMillis(500)
+                .build()
+        } else null
+
         val dbFactory = DocumentBuilderFactory.newInstance()
         val dBuilder = dbFactory.newDocumentBuilder()
 
@@ -3067,7 +3077,11 @@ class KorapXmlTool : Callable<Int> {
             } catch (e: Exception) {
                 LOGGER.warning("Failed to scan $zipPath: ${e.message}")
             }
+
+            scanProgressBar?.step()
         }
+
+        scanProgressBar?.close()
 
         LOGGER.info("ZIP inventory built: ${zipPaths.size} ZIPs scanned")
         // Calculate total unique texts
