@@ -321,6 +321,45 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
+        // For krill format, redirect logging to file before any logging occurs
+        if (outputFormat == OutputFormat.KRILL) {
+            // Find the base ZIP (one without a foundry suffix)
+            val baseZip = zipFileNames!!.firstOrNull { zip ->
+                val name = File(zip).name
+                name.matches(Regex(".*\\.zip$")) && !name.matches(Regex(".*\\.[^/.]+\\.zip$"))
+            } ?: zipFileNames!![0]
+
+            val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
+            val krillOutputPath = File(outputDir, "$baseZipName.krill.tar").absolutePath
+            val logFilePath = krillOutputPath.replace(Regex("\\.tar$"), ".log")
+
+            // Set up file handler for logging
+            val fileHandler = java.util.logging.FileHandler(logFilePath, true)
+            fileHandler.formatter = ColoredFormatter()
+
+            // Remove existing console handlers so logs only go to file
+            for (logHandler in LOGGER.handlers.toList()) {
+                LOGGER.removeHandler(logHandler)
+            }
+            LOGGER.addHandler(fileHandler)
+
+            // Mirror System.err to the same log file
+            val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
+            val oldErr = System.err
+            System.setErr(errPs)
+
+            // Restore System.err and remove file handler on shutdown
+            Runtime.getRuntime().addShutdownHook(Thread {
+                try {
+                    LOGGER.info("Shutting down; closing krill log handler")
+                    LOGGER.removeHandler(fileHandler)
+                    fileHandler.close()
+                } catch (_: Exception) {}
+                try { System.setErr(oldErr) } catch (_: Exception) {}
+                try { errPs.close() } catch (_: Exception) {}
+            })
+        }
+
         LOGGER.info("Processing zip files: " + zipFileNames!!.joinToString(", "))
 
         korapxml2conllu(zipFileNames!!)
@@ -529,34 +568,6 @@ class KorapXmlTool : Callable<Int> {
             val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
             krillOutputFileName = File(outputDir, "$baseZipName.krill.tar").absolutePath
             LOGGER.info("Initializing krill TAR output: $krillOutputFileName")
-
-            // Redirect logging to file - remove console handler so only progress bar appears on screen
-            val logFilePath = krillOutputFileName!!.replace(Regex("\\.tar$"), ".log")
-            val fileHandler = java.util.logging.FileHandler(logFilePath, true)
-            fileHandler.formatter = ColoredFormatter()
-
-            // Remove existing console handlers so logs only go to file
-            for (handler in LOGGER.handlers.toList()) {
-                LOGGER.removeHandler(handler)
-            }
-            LOGGER.addHandler(fileHandler)
-            LOGGER.info("Logging redirected to: $logFilePath")
-
-            // Mirror System.err to the same log file
-            val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
-            val oldErr = System.err
-            System.setErr(errPs)
-
-            // Restore System.err and remove file handler on shutdown
-            Runtime.getRuntime().addShutdownHook(Thread {
-                try {
-                    LOGGER.info("Shutting down; closing krill log handler")
-                    LOGGER.removeHandler(fileHandler)
-                    fileHandler.close()
-                } catch (_: Exception) {}
-                try { System.setErr(oldErr) } catch (_: Exception) {}
-                try { errPs.close() } catch (_: Exception) {}
-            })
 
             if (File(krillOutputFileName!!).exists() && !overwrite) {
                 LOGGER.severe("Output file $krillOutputFileName already exists. Use --overwrite to overwrite.")
