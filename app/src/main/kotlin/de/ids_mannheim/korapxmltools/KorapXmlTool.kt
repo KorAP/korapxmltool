@@ -625,8 +625,10 @@ class KorapXmlTool : Callable<Int> {
                 }
             }
 
-            // Start dedicated writer thread for incremental output
-            startIncrementalWriterThread()
+            // Temporarily disable incremental writer to fix race condition
+            // where texts are output before all dependency.xml files are processed
+            // TODO: Fix properly by tracking entry completion, not just submission
+            // startIncrementalWriterThread()
         }
 
         if (annotateWith.isNotEmpty()) {
@@ -807,7 +809,7 @@ class KorapXmlTool : Callable<Int> {
                 if (remainingCount > 0) {
                     LOGGER.info("Outputting $remainingCount remaining incomplete texts (already output: $krillOutputCount)")
                 } else {
-                    LOGGER.info("All texts already output incrementally ($krillOutputCount total)")
+                    LOGGER.info("Outputting remaining texts ($krillOutputCount already output incrementally)")
                 }
 
                 // Continue using the same progress bar for remaining texts (no separate bar)
@@ -1353,6 +1355,9 @@ class KorapXmlTool : Callable<Int> {
                         // For krill format, collect dependency data directly without using shared morpho map
                         if (outputFormat == OutputFormat.KRILL) {
                             val depFoundry = getFoundryForLayer(foundry, "dependency")
+                            // Debug: check if depMap has actual dependency data
+                            val depsWithData = depMap.filter { it.value.head != null && it.value.head != "_" && it.value.deprel != null && it.value.deprel != "_" }.size
+                            LOGGER.fine("About to collect dependency data for $docId, foundry=$depFoundry, format=$outputFormat, total=${depMap.size}, withData=$depsWithData")
                             collectKrillMorphoDataDirect(docId, depFoundry, depMap, "dependency")
                         } else {
                             // For other formats, merge dependency info into existing morpho data
@@ -2863,7 +2868,10 @@ class KorapXmlTool : Callable<Int> {
     // This version takes the morpho data as a parameter to avoid contamination from other foundries
     private fun collectKrillMorphoDataDirect(docId: String, foundry: String, morphoDataMap: MutableMap<String, MorphoSpan>, annotationType: String = "morpho") {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
-        if (outputTexts.contains(docId)) return
+        if (outputTexts.contains(docId)) {
+            LOGGER.fine("Skipping collection for $docId/$foundry/$annotationType: already output")
+            return
+        }
 
         LOGGER.info("Collecting krill $annotationType data (direct) for $docId, foundry=$foundry, morpho=${morphoDataMap.size}")
 
@@ -2891,9 +2899,12 @@ class KorapXmlTool : Callable<Int> {
                 filteredSpan
             }.toMutableMap()
 
+            LOGGER.fine("Filtered $annotationType data: original=${morphoDataMap.size}, filtered=${morphoDataCopy.size}")
+
             synchronized(textData) {
                 // Merge with existing morpho data for this foundry (don't overwrite)
                 val existingFoundryData = textData.morphoByFoundry[foundry]
+                LOGGER.fine("  existingFoundryData for $foundry is ${if (existingFoundryData == null) "null" else "present (${existingFoundryData.size} entries)"}")
                 if (existingFoundryData == null) {
                     // First time collecting this foundry - just copy
                     textData.morphoByFoundry[foundry] = morphoDataCopy
@@ -3087,8 +3098,8 @@ class KorapXmlTool : Callable<Int> {
     }
 
     // Scan all texts and output any that are complete
-    private fun scanAndOutputCompleteTexts() {
-        if (shutdownIncrementalWriter || !tarStreamOpen) return
+    private fun scanAndOutputCompleteTexts(forceScan: Boolean = false) {
+        if ((shutdownIncrementalWriter && !forceScan) || !tarStreamOpen) return
 
         // Get all texts that we know about (from zipInventory), sorted to match processing order
         // This ensures we check texts in the same order they're being processed
@@ -3096,8 +3107,8 @@ class KorapXmlTool : Callable<Int> {
 
         var outputCount = 0
         for (textId in allTexts) {
-            // Check again if stream is still open (may have been closed during iteration)
-            if (!tarStreamOpen) break
+            // Check if shutdown was requested, thread was interrupted, or stream was closed
+            if (shutdownIncrementalWriter || Thread.currentThread().isInterrupted || !tarStreamOpen) break
 
             // Skip if already output
             if (outputTexts.contains(textId)) continue
@@ -3164,15 +3175,12 @@ class KorapXmlTool : Callable<Int> {
             val cancelledTasks = incrementalOutputScheduler?.shutdownNow()
             LOGGER.fine("Cancelled ${cancelledTasks?.size ?: 0} pending scheduled tasks")
 
-            // Wait for currently executing tasks to finish (increased timeout for safety)
+            // Wait for currently executing tasks to finish
+            // Note: This may take some time if a scan is in progress on a large corpus
             try {
                 var waitTime = 0L
                 while (!incrementalOutputScheduler!!.awaitTermination(1, java.util.concurrent.TimeUnit.SECONDS)) {
                     waitTime++
-                    if (waitTime >= 10) {
-                        LOGGER.warning("Writer scheduler did not terminate after ${waitTime}s, giving up")
-                        break
-                    }
                     LOGGER.fine("Waiting for writer scheduler to terminate... (${waitTime}s)")
                 }
                 if (waitTime > 0) {
@@ -3184,8 +3192,10 @@ class KorapXmlTool : Callable<Int> {
             }
 
             // Do one final scan after scheduler has stopped completely
+            val remainingBeforeScan = krillData.size
             LOGGER.info("Doing final scan for remaining texts...")
-            scanAndOutputCompleteTexts()
+            scanAndOutputCompleteTexts(forceScan = true)
+            LOGGER.info("Final scan completed, output ${remainingBeforeScan - krillData.size} texts")
 
             incrementalOutputScheduler = null
         }
@@ -3642,6 +3652,16 @@ class KorapXmlTool : Callable<Int> {
         data class RootDep(val tokenIndex: Int, val foundry: String)
         val inverseDeps = mutableMapOf<Int, MutableList<InverseDep>>()
         val rootTokens = mutableListOf<RootDep>()
+
+        // Debug: log foundries and first token's dependency data
+        if (tokens.isNotEmpty()) {
+            val firstSpanKey = "${tokens[0].from}-${tokens[0].to}"
+            LOGGER.fine("Generating krill stream: foundries=${textData.morphoByFoundry.keys}")
+            textData.morphoByFoundry.forEach { (foundry, morphoMap) ->
+                val span = morphoMap[firstSpanKey]
+                LOGGER.fine("  Foundry $foundry: span=$span, head=${span?.head}, deprel=${span?.deprel}")
+            }
+        }
 
         tokens.forEachIndexed { index, token ->
             val spanKey = "${token.from}-${token.to}"
