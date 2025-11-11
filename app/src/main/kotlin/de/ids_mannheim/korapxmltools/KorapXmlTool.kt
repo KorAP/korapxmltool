@@ -213,13 +213,6 @@ class KorapXmlTool : Callable<Int> {
     var sequentialInZip: Boolean = false
 
     @Option(
-        names = ["--incremental-krill"],
-        description = ["Enable incremental Krill output (output texts as soon as they have all expected foundries). " +
-                      "Works best when all texts appear in all annotation ZIPs. Default: false."]
-    )
-    var incrementalKrill: Boolean = false
-
-    @Option(
         names = ["--overwrite", "-o"],
         description = ["Overwrite existing files"]
     )
@@ -605,26 +598,24 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.info("Expected foundries for Krill output: ${expectedFoundries.sorted()}")
 
             // Build inventory of which texts exist in which ZIPs for incremental output
-            if (incrementalKrill) {
-                buildZipInventory(args)
+            buildZipInventory(args)
 
-                // Initialize progress bar for incremental output
-                if (!quiet) {
-                    val totalTexts = zipInventory.values.flatten().toSet().size
-                    if (totalTexts > 0) {
-                        incrementalProgressBar = ProgressBarBuilder()
-                            .setTaskName("Processing texts")
-                            .setInitialMax(totalTexts.toLong())
-                            .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
-                            .setUpdateIntervalMillis(500)
-                            .showSpeed()
-                            .build()
-                    }
+            // Initialize progress bar for incremental output
+            if (!quiet) {
+                val totalTexts = zipInventory.values.flatten().toSet().size
+                if (totalTexts > 0) {
+                    incrementalProgressBar = ProgressBarBuilder()
+                        .setTaskName("Processing texts")
+                        .setInitialMax(totalTexts.toLong())
+                        .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
+                        .setUpdateIntervalMillis(500)
+                        .showSpeed()
+                        .build()
                 }
-
-                // Start dedicated writer thread for incremental output
-                startIncrementalWriterThread()
             }
+
+            // Start dedicated writer thread for incremental output
+            startIncrementalWriterThread()
         }
 
         if (annotateWith.isNotEmpty()) {
@@ -795,10 +786,8 @@ class KorapXmlTool : Callable<Int> {
         entryExecutor?.shutdown()
 
         // Stop incremental writer thread if running
-        if (incrementalKrill) {
-            stopIncrementalWriterThread()
-            // Keep incrementalProgressBar open - continue using it for remaining texts
-        }
+        stopIncrementalWriterThread()
+        // Keep incrementalProgressBar open - continue using it for remaining texts
 
         // Finalize krill output: output any remaining incomplete texts and close TAR
         if (outputFormat == OutputFormat.KRILL && krillTarOutputStream != null) {
@@ -819,14 +808,9 @@ class KorapXmlTool : Callable<Int> {
                     val textFoundries = textData.morphoByFoundry.keys.toSet() + setOf("base")
 
                     // Build expected foundries from inventory: which ZIPs contain this text?
-                    val expectedForThisText = if (incrementalKrill) {
-                        // Find which ZIPs should have contained this text and extract their foundries
-                        zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
-                            .map { zipPath -> getFoundryFromZipFileName(File(zipPath).name) }
-                            .toSet()
-                    } else {
-                        expectedFoundries
-                    }
+                    val expectedForThisText = zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
+                        .map { zipPath -> getFoundryFromZipFileName(File(zipPath).name) }
+                        .toSet()
 
                     if (!textFoundries.containsAll(expectedForThisText)) {
                         LOGGER.warning("Outputting incomplete text $textId with foundries ${textFoundries.sorted()} (expected: ${expectedForThisText.sorted()})")
@@ -1021,7 +1005,7 @@ class KorapXmlTool : Callable<Int> {
         logZipProgress(zipFilePath)
 
         // Track foundry as processed
-        if (outputFormat == OutputFormat.KRILL && incrementalKrill) {
+        if (outputFormat == OutputFormat.KRILL) {
             processedFoundries.add(foundry)
         }
     }
@@ -1063,7 +1047,7 @@ class KorapXmlTool : Callable<Int> {
         logZipProgress(zipFilePath)
 
         // Track foundry as processed
-        if (outputFormat == OutputFormat.KRILL && incrementalKrill) {
+        if (outputFormat == OutputFormat.KRILL) {
             processedFoundries.add(foundry)
         }
     }
@@ -1391,7 +1375,7 @@ class KorapXmlTool : Callable<Int> {
                 }
 
                 // Mark text as processed from this ZIP for incremental output
-                if (outputFormat == OutputFormat.KRILL && incrementalKrill) {
+                if (outputFormat == OutputFormat.KRILL) {
                     // Mark this text as processed from this ZIP (writer thread will scan periodically)
                     processedTextsPerZip.getOrPut(zipPath) { mutableSetOf() }.add(docId)
                 }
@@ -2428,7 +2412,7 @@ class KorapXmlTool : Callable<Int> {
     // Collect structural spans from structure.xml for krill format
     private fun collectKrillStructureSpans(docId: String, spans: NodeList) {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
-        if (incrementalKrill && outputTexts.contains(docId)) return
+        if (outputTexts.contains(docId)) return
 
         val textData = krillData.getOrPut(docId) {
             KrillTextData(textId = docId)
@@ -2500,7 +2484,7 @@ class KorapXmlTool : Callable<Int> {
     // Collect rich metadata from header.xml for krill format
     private fun collectKrillMetadata(docId: String, headerXml: String) {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
-        if (incrementalKrill && outputTexts.contains(docId)) return
+        if (outputTexts.contains(docId)) return
 
         val textData = krillData.getOrPut(docId) {
             KrillTextData(textId = docId)
@@ -2805,7 +2789,7 @@ class KorapXmlTool : Callable<Int> {
     // Collect base text data (text, tokens, sentences) for krill format
     private fun collectKrillBaseData(docId: String) {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
-        if (incrementalKrill && outputTexts.contains(docId)) return
+        if (outputTexts.contains(docId)) return
 
         LOGGER.info("Collecting krill base data for $docId: text=${texts[docId] != null}, tokens=${tokens[docId] != null}, sentences=${sentences[docId] != null}")
 
@@ -2865,7 +2849,7 @@ class KorapXmlTool : Callable<Int> {
     // This version takes the morpho data as a parameter to avoid contamination from other foundries
     private fun collectKrillMorphoDataDirect(docId: String, foundry: String, morphoDataMap: MutableMap<String, MorphoSpan>, annotationType: String = "morpho") {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
-        if (incrementalKrill && outputTexts.contains(docId)) return
+        if (outputTexts.contains(docId)) return
 
         LOGGER.info("Collecting krill $annotationType data (direct) for $docId, foundry=$foundry, morpho=${morphoDataMap.size}")
 
@@ -2937,7 +2921,7 @@ class KorapXmlTool : Callable<Int> {
     // annotationType: "morpho" = collect POS/lemma/features, "dependency" = collect head/deprel only
     private fun collectKrillMorphoData(docId: String, foundry: String, annotationType: String = "morpho") {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
-        if (incrementalKrill && outputTexts.contains(docId)) return
+        if (outputTexts.contains(docId)) return
 
         LOGGER.info("Collecting krill $annotationType data for $docId, foundry=$foundry, morpho=${morpho[docId]?.size ?: 0}")
 
@@ -3017,7 +3001,7 @@ class KorapXmlTool : Callable<Int> {
     // Old collectKrillData - no longer used, kept for reference
     private fun collectKrillData(docId: String, foundry: String) {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
-        if (incrementalKrill && outputTexts.contains(docId)) return
+        if (outputTexts.contains(docId)) return
 
         LOGGER.info("Collecting krill data for $docId, foundry=$foundry, morpho=${morpho[docId]?.size ?: 0}")
 
@@ -3068,7 +3052,7 @@ class KorapXmlTool : Callable<Int> {
 
     // Start timer-based scanner for incremental output
     private fun startIncrementalWriterThread() {
-        if (outputFormat != OutputFormat.KRILL || !incrementalKrill || krillTarOutputStream == null) return
+        if (outputFormat != OutputFormat.KRILL || krillTarOutputStream == null) return
 
         shutdownIncrementalWriter = false
         incrementalOutputScheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
