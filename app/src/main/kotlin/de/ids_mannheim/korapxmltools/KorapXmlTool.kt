@@ -3214,6 +3214,10 @@ class KorapXmlTool : Callable<Int> {
                     val textsInThisZip = mutableSetOf<String>()
                     LOGGER.info("Scanning $zipPath...")
 
+                    // Determine if this is a base ZIP or annotation foundry
+                    val zipName = File(zipPath).name
+                    val isAnnotationFoundry = zipName.matches(Regex(".*\\.[^/.]+\\.zip$"))
+
                     try {
                         val dbFactory = DocumentBuilderFactory.newInstance()
                         val dBuilder = dbFactory.newDocumentBuilder()
@@ -3222,8 +3226,15 @@ class KorapXmlTool : Callable<Int> {
                             val entries = zipFile.entries
                             while (entries.hasMoreElements()) {
                                 val entry = entries.nextElement()
-                                // Look for data.xml or tokens.xml to identify texts
-                                if (entry.name.matches(Regex(".*(data|tokens)\\.xml$"))) {
+                                // For base ZIPs: look for data.xml or tokens.xml
+                                // For annotation foundries: also look for morpho.xml or dependency.xml
+                                val pattern = if (isAnnotationFoundry) {
+                                    Regex(".*(data|tokens|morpho|dependency)\\.xml$")
+                                } else {
+                                    Regex(".*(data|tokens)\\.xml$")
+                                }
+
+                                if (entry.name.matches(pattern)) {
                                     try {
                                         // Parse XML to extract docId attribute
                                         val doc = zipFile.getInputStream(entry).use { inputStream ->
@@ -3243,7 +3254,13 @@ class KorapXmlTool : Callable<Int> {
                                 }
                             }
                         }
-                        LOGGER.info("  $zipPath contains ${textsInThisZip.size} texts")
+
+                        // Use different wording for base vs annotation foundries
+                        if (isAnnotationFoundry) {
+                            LOGGER.info("  $zipPath has annotations on ${textsInThisZip.size} texts")
+                        } else {
+                            LOGGER.info("  $zipPath contains ${textsInThisZip.size} texts")
+                        }
                     } catch (e: Exception) {
                         LOGGER.warning("Failed to scan $zipPath: ${e.message}")
                     }
