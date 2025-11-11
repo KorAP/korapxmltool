@@ -3977,13 +3977,14 @@ fun String.escapeKrillAttribute(): String {
         .replace(">", "%3E")
 }
 
-// Escape special characters in Krill annotation values (POS tags, lemmas, etc.)
+// Escape special characters in Krill annotation values (POS tags, lemmas, surface forms, etc.)
 // The $ character is used as a delimiter in Krill format (e.g., "_1$<i>100")
-// and must be percent-encoded when it appears in actual annotation values
+// The # character is used for offset notation in Krill format
+// Both must be percent-encoded when they appear in actual annotation values
 fun String.escapeKrillValue(): String {
     // Use URL/percent encoding like escapeKrillAttribute
-    // Only escape $ for now as it's the main delimiter causing the MultiTerm parser to fail
-    return this.replace("$", "%24")
+    return this.replace("#", "%23")
+        .replace("$", "%24")
 }
 
 fun jsonString(value: String): String = "\"${value.escapeJson()}\""
