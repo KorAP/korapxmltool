@@ -3331,10 +3331,26 @@ class KorapXmlTool : Callable<Int> {
 
             val count = krillOutputCount.incrementAndGet()
             LOGGER.fine("Output Krill JSON for $textId ($count total)")
+
+            // Free memory: remove text data from all data structures after successful output
+            freeTextMemory(textId)
         } catch (e: Exception) {
             LOGGER.severe("ERROR outputting Krill JSON for $textId: ${e.message}")
             e.printStackTrace()
         }
+    }
+
+    // Free memory for a text that has been output
+    private fun freeTextMemory(docId: String) {
+        texts.remove(docId)
+        sentences.remove(docId)
+        tokens.remove(docId)
+        morpho.remove(docId)
+        fnames.remove(docId)
+        metadata.remove(docId)
+        extraFeatures.remove(docId)
+        // krillData is already removed by the caller (either scanner or finalization loop)
+        LOGGER.fine("Freed memory for text $docId")
     }
 
     private fun generateKrillJson(textData: KrillTextData): String {
