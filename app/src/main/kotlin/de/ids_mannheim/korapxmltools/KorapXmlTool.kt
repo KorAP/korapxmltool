@@ -537,6 +537,34 @@ class KorapXmlTool : Callable<Int> {
             krillOutputFileName = File(outputDir, "$baseZipName.krill.tar").absolutePath
             LOGGER.info("Initializing krill TAR output: $krillOutputFileName")
 
+            // Redirect logging to file - remove console handler so only progress bar appears on screen
+            val logFilePath = krillOutputFileName!!.replace(Regex("\\.tar$"), ".log")
+            val fileHandler = java.util.logging.FileHandler(logFilePath, true)
+            fileHandler.formatter = ColoredFormatter()
+
+            // Remove existing console handlers so logs only go to file
+            for (handler in LOGGER.handlers.toList()) {
+                LOGGER.removeHandler(handler)
+            }
+            LOGGER.addHandler(fileHandler)
+            LOGGER.info("Logging redirected to: $logFilePath")
+
+            // Mirror System.err to the same log file
+            val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
+            val oldErr = System.err
+            System.setErr(errPs)
+
+            // Restore System.err and remove file handler on shutdown
+            Runtime.getRuntime().addShutdownHook(Thread {
+                try {
+                    LOGGER.info("Shutting down; closing krill log handler")
+                    LOGGER.removeHandler(fileHandler)
+                    fileHandler.close()
+                } catch (_: Exception) {}
+                try { System.setErr(oldErr) } catch (_: Exception) {}
+                try { errPs.close() } catch (_: Exception) {}
+            })
+
             if (File(krillOutputFileName!!).exists() && !overwrite) {
                 LOGGER.severe("Output file $krillOutputFileName already exists. Use --overwrite to overwrite.")
                 exitProcess(1)
