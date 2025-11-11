@@ -2786,18 +2786,23 @@ class KorapXmlTool : Callable<Int> {
         }
 
         synchronized(textData) {
-            if (texts[docId] != null) {
-                textData.textContent = texts[docId]!!.toString()
+            // Capture values locally to avoid TOCTOU race conditions
+            val text = texts[docId]
+            if (text != null) {
+                textData.textContent = text.toString()
             }
-            if (tokens[docId] != null) {
-                textData.tokens = tokens[docId]
+            val tokenArray = tokens[docId]
+            if (tokenArray != null) {
+                textData.tokens = tokenArray
             }
-            if (sentences[docId] != null) {
-                textData.sentences = sentences[docId]
+            val sentenceArray = sentences[docId]
+            if (sentenceArray != null) {
+                textData.sentences = sentenceArray
             }
             // Collect metadata
-            if (metadata[docId] != null) {
-                metadata[docId]!!.forEachIndexed { index, value ->
+            val metadataArray = metadata[docId]
+            if (metadataArray != null) {
+                metadataArray.forEachIndexed { index, value ->
                     textData.headerMetadata["field_$index"] = value
                 }
             }
