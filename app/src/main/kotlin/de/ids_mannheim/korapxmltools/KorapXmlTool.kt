@@ -625,10 +625,15 @@ class KorapXmlTool : Callable<Int> {
                 }
             }
 
-            // Temporarily disable incremental writer to fix race condition
-            // where texts are output before all dependency.xml files are processed
-            // TODO: Fix properly by tracking entry completion, not just submission
-            // startIncrementalWriterThread()
+            // Start dedicated writer thread for incremental output
+            // Only enable if we have multiple texts to benefit from incremental processing
+            val totalTexts = zipInventory.values.flatten().toSet().size
+            if (totalTexts > 1) {
+                startIncrementalWriterThread()
+                LOGGER.info("Enabled incremental output for $totalTexts texts")
+            } else {
+                LOGGER.info("Disabled incremental output (only $totalTexts text)")
+            }
         }
 
         if (annotateWith.isNotEmpty()) {
