@@ -1355,9 +1355,6 @@ class KorapXmlTool : Callable<Int> {
                         // For krill format, collect dependency data directly without using shared morpho map
                         if (outputFormat == OutputFormat.KRILL) {
                             val depFoundry = getFoundryForLayer(foundry, "dependency")
-                            // Debug: check if depMap has actual dependency data
-                            val depsWithData = depMap.filter { it.value.head != null && it.value.head != "_" && it.value.deprel != null && it.value.deprel != "_" }.size
-                            LOGGER.fine("About to collect dependency data for $docId, foundry=$depFoundry, format=$outputFormat, total=${depMap.size}, withData=$depsWithData")
                             collectKrillMorphoDataDirect(docId, depFoundry, depMap, "dependency")
                         } else {
                             // For other formats, merge dependency info into existing morpho data
@@ -2868,10 +2865,7 @@ class KorapXmlTool : Callable<Int> {
     // This version takes the morpho data as a parameter to avoid contamination from other foundries
     private fun collectKrillMorphoDataDirect(docId: String, foundry: String, morphoDataMap: MutableMap<String, MorphoSpan>, annotationType: String = "morpho") {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
-        if (outputTexts.contains(docId)) {
-            LOGGER.fine("Skipping collection for $docId/$foundry/$annotationType: already output")
-            return
-        }
+        if (outputTexts.contains(docId)) return
 
         LOGGER.info("Collecting krill $annotationType data (direct) for $docId, foundry=$foundry, morpho=${morphoDataMap.size}")
 
@@ -2899,12 +2893,9 @@ class KorapXmlTool : Callable<Int> {
                 filteredSpan
             }.toMutableMap()
 
-            LOGGER.fine("Filtered $annotationType data: original=${morphoDataMap.size}, filtered=${morphoDataCopy.size}")
-
             synchronized(textData) {
                 // Merge with existing morpho data for this foundry (don't overwrite)
                 val existingFoundryData = textData.morphoByFoundry[foundry]
-                LOGGER.fine("  existingFoundryData for $foundry is ${if (existingFoundryData == null) "null" else "present (${existingFoundryData.size} entries)"}")
                 if (existingFoundryData == null) {
                     // First time collecting this foundry - just copy
                     textData.morphoByFoundry[foundry] = morphoDataCopy
@@ -3652,16 +3643,6 @@ class KorapXmlTool : Callable<Int> {
         data class RootDep(val tokenIndex: Int, val foundry: String)
         val inverseDeps = mutableMapOf<Int, MutableList<InverseDep>>()
         val rootTokens = mutableListOf<RootDep>()
-
-        // Debug: log foundries and first token's dependency data
-        if (tokens.isNotEmpty()) {
-            val firstSpanKey = "${tokens[0].from}-${tokens[0].to}"
-            LOGGER.fine("Generating krill stream: foundries=${textData.morphoByFoundry.keys}")
-            textData.morphoByFoundry.forEach { (foundry, morphoMap) ->
-                val span = morphoMap[firstSpanKey]
-                LOGGER.fine("  Foundry $foundry: span=$span, head=${span?.head}, deprel=${span?.deprel}")
-            }
-        }
 
         tokens.forEachIndexed { index, token ->
             val spanKey = "${token.from}-${token.to}"
