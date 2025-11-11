@@ -1282,9 +1282,12 @@ class KorapXmlTool : Callable<Int> {
                             extraFeatures[docId] = extractMiscSpans(spans)
                         sentences[docId] = extractSentenceSpans(spans)
 
-                        // For krill format, collect structural spans (only from base foundry to avoid duplicates)
+                        // For krill format, collect structural spans and base data (only from base foundry to avoid duplicates)
                         if (outputFormat == OutputFormat.KRILL && foundry == "base") {
                             collectKrillStructureSpans(docId, spans)
+                            // Also collect base data here to ensure sentences are included
+                            // (handles race condition where structure.xml is processed after tokens.xml)
+                            collectKrillBaseData(docId)
                         }
                     }
 
