@@ -616,7 +616,7 @@ class KorapXmlTool : Callable<Int> {
                 val totalTexts = zipInventory.values.flatten().toSet().size
                 if (totalTexts > 0) {
                     incrementalProgressBar = ProgressBarBuilder()
-                        .setTaskName("Processing texts")
+                        .setTaskName("$baseZipName.krill.tar")
                         .setInitialMax(totalTexts.toLong())
                         .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
                         .setUpdateIntervalMillis(500)
