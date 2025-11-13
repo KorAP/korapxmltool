@@ -4,3 +4,8 @@
 # Ignore Gradle build output directory
 build
 .idea/copilot*
+.gitlab-ci-local/
+.gradle-user-home/
+.claude/
+index*/
+corpora/
