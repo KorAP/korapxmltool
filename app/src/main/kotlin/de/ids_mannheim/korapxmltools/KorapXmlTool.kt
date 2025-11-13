@@ -471,6 +471,44 @@ class KorapXmlTool : Callable<Int> {
         var corenlpConstituencyCollected: Boolean = false
     )
 
+    private val BASE_STRUCTURE_FOUNDRIES = setOf("base", "dereko")
+
+    private fun StructureSpan.splitFoundryAndLayer(): Pair<String, String>? {
+        val separatorIdx = layer.indexOf('/')
+        if (separatorIdx <= 0 || separatorIdx == layer.length - 1) {
+            return null
+        }
+        val foundry = layer.substring(0, separatorIdx)
+        val descriptor = layer.substring(separatorIdx + 1)
+        if (foundry.isBlank() || descriptor.isBlank()) {
+            return null
+        }
+        return foundry to descriptor
+    }
+
+    private fun Collection<StructureSpan>.foundriesWithSentenceSpans(): Set<String> =
+        this.mapNotNull { span ->
+            val (foundry, descriptor) = span.splitFoundryAndLayer() ?: return@mapNotNull null
+            if (descriptor == "s:s") foundry else null
+        }.toSet()
+
+    private fun Collection<StructureSpan>.foundriesWithConstituencySpans(): Set<String> =
+        this.mapNotNull { span ->
+            val (foundry, descriptor) = span.splitFoundryAndLayer() ?: return@mapNotNull null
+            if (descriptor.startsWith("c:")) foundry else null
+        }.toSet()
+
+    private fun Collection<StructureSpan>.sentenceCountsByFoundry(): Map<String, Int> {
+        val counts = mutableMapOf<String, Int>()
+        this.forEach { span ->
+            val (foundry, descriptor) = span.splitFoundryAndLayer() ?: return@forEach
+            if (descriptor == "s:s") {
+                counts[foundry] = counts.getOrDefault(foundry, 0) + 1
+            }
+        }
+        return counts
+    }
+
     data class StructureSpan(
         val layer: String,  // e.g., "base/s:s", "dereko/s:p"
         val from: Int,
@@ -1401,7 +1439,7 @@ class KorapXmlTool : Callable<Int> {
                     }
 
                     "sentences.xml" -> {
-                        println("sentences entry foundry=$foundry for $docId from ${zipEntry.name}")
+                        LOGGER.fine("Sentences entry foundry=$foundry for $docId from ${zipEntry.name}")
                         if (outputFormat == OutputFormat.KRILL && foundry.startsWith("corenlp")) {
                             val sentenceSpans: NodeList = doc.getElementsByTagName("span")
                             collectCorenlpSentences(docId, sentenceSpans)
@@ -3654,18 +3692,16 @@ class KorapXmlTool : Callable<Int> {
         sb.append("\"data\":{")
         sb.append("\"text\":${jsonString(textData.textContent ?: "")},")
 
-        val hasCorenlpSentences = textData.structureSpans.any { it.layer == "corenlp/s:s" }
-        val hasCorenlpConstituency = textData.structureSpans.any { it.layer.startsWith("corenlp/c:") }
+        val sentenceSpanFoundries = textData.structureSpans.foundriesWithSentenceSpans()
+        val constituencySpanFoundries = textData.structureSpans.foundriesWithConstituencySpans()
+        val externalSentenceFoundries = sentenceSpanFoundries.filterNot { it in BASE_STRUCTURE_FOUNDRIES }.toSortedSet()
+        val externalConstitFoundries = constituencySpanFoundries.filterNot { it in BASE_STRUCTURE_FOUNDRIES }.toSortedSet()
         val layerInfos = mutableListOf<String>()
         if (textData.sentences != null) {
             layerInfos.add("dereko/s=spans")
         }
-        if (hasCorenlpSentences) {
-            layerInfos.add("corenlp/s=spans")
-        }
-        if (hasCorenlpConstituency) {
-            layerInfos.add("corenlp/c=spans")
-        }
+        externalSentenceFoundries.forEach { layerInfos.add("$it/s=spans") }
+        externalConstitFoundries.forEach { layerInfos.add("$it/c=spans") }
 
         // Collect layers by foundry type (checking what data actually exists)
         val foundryLayers = mutableMapOf<String, MutableSet<String>>()
@@ -3743,15 +3779,22 @@ class KorapXmlTool : Callable<Int> {
             foundries.add("dereko/structure/base-sentences-paragraphs-pagebreaks")
         }
 
-        if (hasCorenlpSentences || hasCorenlpConstituency) {
-            if (!foundries.contains("corenlp")) {
-                foundries.add("corenlp")
+        val advertisedStructureFoundries = (externalSentenceFoundries + externalConstitFoundries).toSortedSet()
+        advertisedStructureFoundries.forEach { foundry ->
+            if (!foundries.contains(foundry)) {
+                foundries.add(foundry)
             }
-            if (hasCorenlpSentences && !foundries.contains("corenlp/sentences")) {
-                foundries.add("corenlp/sentences")
+            if (externalSentenceFoundries.contains(foundry)) {
+                val sentencesEntry = "$foundry/sentences"
+                if (!foundries.contains(sentencesEntry)) {
+                    foundries.add(sentencesEntry)
+                }
             }
-            if (hasCorenlpConstituency && !foundries.contains("corenlp/structure")) {
-                foundries.add("corenlp/structure")
+            if (externalConstitFoundries.contains(foundry)) {
+                val structureEntry = "$foundry/structure"
+                if (!foundries.contains(structureEntry)) {
+                    foundries.add(structureEntry)
+                }
             }
         }
 
@@ -3926,18 +3969,16 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
-        val hasCorenlpSentences = resolvedStructureSpans.any { it.layer == "corenlp/s:s" }
-        val hasCorenlpConstituency = resolvedStructureSpans.any { it.layer.startsWith("corenlp/c:") }
+        val resolvedSentenceFoundries = resolvedStructureSpans.foundriesWithSentenceSpans()
+        val resolvedConstitFoundries = resolvedStructureSpans.foundriesWithConstituencySpans()
+        val externalSentenceFoundries = resolvedSentenceFoundries.filterNot { it in BASE_STRUCTURE_FOUNDRIES }.toSortedSet()
+        val externalConstitFoundries = resolvedConstitFoundries.filterNot { it in BASE_STRUCTURE_FOUNDRIES }.toSortedSet()
         val layerInfos = mutableListOf<String>()
         if (textData.sentences != null) {
             layerInfos.add("dereko/s=spans")
         }
-        if (hasCorenlpSentences) {
-            layerInfos.add("corenlp/s=spans")
-        }
-        if (hasCorenlpConstituency) {
-            layerInfos.add("corenlp/c=spans")
-        }
+        externalSentenceFoundries.forEach { layerInfos.add("$it/s=spans") }
+        externalConstitFoundries.forEach { layerInfos.add("$it/c=spans") }
 
         // Group structural spans by their starting token
         val spansByToken = mutableMapOf<Int, MutableList<StructureSpan>>()
@@ -3947,7 +3988,10 @@ class KorapXmlTool : Callable<Int> {
 
         // Count paragraph spans (name="p")
         val paragraphCount = allStructureSpans.count { it.layer.endsWith(":p") }
-        val corenlpSentenceCount = resolvedStructureSpans.count { it.layer == "corenlp/s:s" }
+        val sentenceCountsByFoundry = resolvedStructureSpans.sentenceCountsByFoundry()
+        val externalSentenceCounts = sentenceCountsByFoundry.entries
+            .filter { (foundry, _) -> foundry !in BASE_STRUCTURE_FOUNDRIES }
+            .sortedBy { it.key }
 
         tokens.forEachIndexed { index, token ->
             val tokenAnnotations = mutableListOf<String>()
@@ -3961,8 +4005,8 @@ class KorapXmlTool : Callable<Int> {
                 if (sentences.isNotEmpty()) {
                     tokenAnnotations.add(jsonString("-:base/sentences\$<i>${sentences.size}"))
                 }
-                if (corenlpSentenceCount > 0) {
-                    tokenAnnotations.add(jsonString("-:corenlp/sentences\$<i>$corenlpSentenceCount"))
+                externalSentenceCounts.forEach { (foundry, count) ->
+                    tokenAnnotations.add(jsonString("-:$foundry/sentences\$<i>$count"))
                 }
                 tokenAnnotations.add(jsonString("-:tokens\$<i>${tokens.size}"))
 
