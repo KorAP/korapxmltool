@@ -25,6 +25,7 @@ class KorapXmlToolTest {
     val zca20scrambled = loadResource("zca20-scrambled.zip").path
     val wdf19 = loadResource("wdf19.zip").path
     val wdd17 = loadResource("wdd17sample.zip").path
+    val wud24Corenlp = loadResource("wud24_sample.corenlp.zip").path
 
     @Before
     fun setUpStreams() {
@@ -683,7 +684,7 @@ class KorapXmlToolTest {
         }
 
         try {
-            val defaultArgs = arrayOf("-f", "krill", "-D", defaultDir.path, baseZip, spacyZip)
+            val defaultArgs = arrayOf("-f", "krill", "-D", defaultDir.path, baseZip, spacyZip, wud24Corenlp)
             val defaultExit = debug(defaultArgs)
             assertTrue(defaultExit == 0, "Krill conversion should succeed without --non-word-tokens")
 
@@ -711,7 +712,7 @@ class KorapXmlToolTest {
         }
 
         try {
-            val flagArgs = arrayOf("-f", "krill", "--non-word-tokens", "-D", flagDir.path, baseZip, spacyZip)
+            val flagArgs = arrayOf("-f", "krill", "--non-word-tokens", "-D", flagDir.path, baseZip, spacyZip, wud24Corenlp)
             val flagExit = debug(flagArgs)
             assertTrue(flagExit == 0, "Krill conversion should succeed with --non-word-tokens")
 
@@ -737,6 +738,10 @@ class KorapXmlToolTest {
     fun krillDefaultMatchesPerlReference() {
         val baseZip = loadResource("wud24_sample.zip").path
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
+        val marmotMaltZip = loadResource("wud24_sample.marmot-malt.zip").path
+        val opennlpZip = loadResource("wud24_sample.opennlp.zip").path
+        val treeTaggerZip = loadResource("wud24_sample.tree_tagger.zip").path
+        val corenlpZip = wud24Corenlp
         val referenceTar = File(loadResource("wud24_sample.wonwtopt.krill.tar").toURI())
         assertTrue(referenceTar.exists(), "Reference Krill tar is missing: ${referenceTar.path}")
 
@@ -747,7 +752,15 @@ class KorapXmlToolTest {
         }
 
         try {
-            val args = arrayOf("-f", "krill", "-D", kotlinDir.path, baseZip, spacyZip)
+            val args = arrayOf(
+                "-f", "krill",
+                "-D", kotlinDir.path,
+                baseZip,
+                spacyZip,
+                marmotMaltZip,
+                treeTaggerZip,
+                corenlpZip
+            )
             val exitCode = debug(args)
             assertTrue(exitCode == 0, "Krill conversion should succeed for reference comparison")
 
@@ -781,6 +794,9 @@ class KorapXmlToolTest {
     fun krillNonWordTokensMatchesPerlReference() {
         val baseZip = loadResource("wud24_sample.zip").path
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
+        val marmotMaltZip = loadResource("wud24_sample.marmot-malt.zip").path
+        val treeTaggerZip = loadResource("wud24_sample.tree_tagger.zip").path
+        val corenlpZipNwt = wud24Corenlp
         val referenceTar = File(loadResource("wud24_sample.nwt.krill.tar").toURI())
         assertTrue(referenceTar.exists(), "Non-word-token reference tar missing: ${referenceTar.path}")
 
@@ -791,7 +807,16 @@ class KorapXmlToolTest {
         }
 
         try {
-            val args = arrayOf("-f", "krill", "--non-word-tokens", "-D", kotlinDir.path, baseZip, spacyZip)
+            val args = arrayOf(
+                "-f", "krill",
+                "--non-word-tokens",
+                "-D", kotlinDir.path,
+                baseZip,
+                spacyZip,
+                marmotMaltZip,
+                treeTaggerZip,
+                corenlpZipNwt
+            )
             val exitCode = debug(args)
             assertTrue(exitCode == 0, "Krill conversion with --non-word-tokens should succeed for reference comparison")
 
@@ -809,8 +834,10 @@ class KorapXmlToolTest {
                 "\"s:!\"",
                 "\"marmot/p:\\$,\"",
                 "\"spacy/p:\\$,\"",
-                "\"opennlp/p:\\$,\"",
-                "\"tt/p:\\$,\""
+                "\"tt/p:\\$,\"",
+                "\"-:corenlp/sentences\$<i>11\"",
+                "corenlp/s=spans",
+                "corenlp/c=spans"
             )
             referenceJsons.forEach { (doc, referenceJson) ->
                 val kotlinJson = kotlinJsons.getValue(doc)

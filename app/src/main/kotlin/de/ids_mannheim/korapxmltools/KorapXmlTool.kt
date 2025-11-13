@@ -466,7 +466,9 @@ class KorapXmlTool : Callable<Int> {
         var sentences: Array<Span>? = null,
         var morphoByFoundry: MutableMap<String, MutableMap<String, MorphoSpan>> = mutableMapOf(),
         var structureSpans: MutableList<StructureSpan> = mutableListOf(),
-        var extractedAttributes: MutableMap<String, String> = mutableMapOf()
+        var extractedAttributes: MutableMap<String, String> = mutableMapOf(),
+        var corenlpSentencesCollected: Boolean = false,
+        var corenlpConstituencyCollected: Boolean = false
     )
 
     data class StructureSpan(
@@ -1177,8 +1179,6 @@ class KorapXmlTool : Callable<Int> {
         val entriesByTextId = entries.groupBy { getTextIdFromPath(it.name) }
         val textIds = entriesByTextId.keys.sorted()  // Process text IDs in lexicographic order
 
-        LOGGER.info("processZipEntriesWithPool: processing ${entries.size} entries (${textIds.size} texts) with foundry=$foundry")
-
         // Initialize watermark for this foundry if not exists (set to first text ID)
         if (!foundryWatermarks.containsKey(foundry) && textIds.isNotEmpty()) {
             foundryWatermarks.putIfAbsent(foundry, textIds.first())
@@ -1252,7 +1252,7 @@ class KorapXmlTool : Callable<Int> {
         }
 
         try {
-            if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho|dependency)\\.xml$"))) {
+            if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency)\\.xml$"))) {
                 LOGGER.finer("Processing entry: ${zipEntry.name}, foundry=$foundry")
                 // Ensure the entry stream and reader are closed to avoid native memory buildup
                 val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
@@ -1397,6 +1397,21 @@ class KorapXmlTool : Callable<Int> {
                                 }
                             }
                             LOGGER.info("Dependency merge complete: $mergedCount merged, $newCount new entries (heads will be resolved during output)")
+                        }
+                    }
+
+                    "sentences.xml" -> {
+                        println("sentences entry foundry=$foundry for $docId from ${zipEntry.name}")
+                        if (outputFormat == OutputFormat.KRILL && foundry.startsWith("corenlp")) {
+                            val sentenceSpans: NodeList = doc.getElementsByTagName("span")
+                            collectCorenlpSentences(docId, sentenceSpans)
+                        }
+                    }
+
+                    "constituency.xml" -> {
+                        if (outputFormat == OutputFormat.KRILL && foundry.startsWith("corenlp")) {
+                            val constituencySpans: NodeList = doc.getElementsByTagName("span")
+                            collectCorenlpConstituency(docId, constituencySpans)
                         }
                     }
                 }
@@ -2508,6 +2523,127 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
+    private data class CorenlpConstituencyNode(
+        val id: String,
+        val from: Int,
+        val to: Int,
+        val label: String,
+        val children: MutableList<String> = mutableListOf()
+    )
+
+    private fun collectCorenlpSentences(docId: String, spans: NodeList) {
+        if (outputTexts.contains(docId)) return
+
+        val textData = krillData.getOrPut(docId) {
+            KrillTextData(textId = docId)
+        }
+
+        synchronized(textData) {
+            if (textData.corenlpSentencesCollected) return
+            for (i in 0 until spans.length) {
+                val span = spans.item(i) as? Element ?: continue
+                val from = span.getAttribute("from").toIntOrNull() ?: continue
+                val to = span.getAttribute("to").toIntOrNull() ?: continue
+                textData.structureSpans.add(
+                    StructureSpan(
+                        layer = "corenlp/s:s",
+                        from = from,
+                        to = to,
+                        tokenFrom = -1,
+                        tokenTo = -1,
+                        depth = 0,
+                        attributes = emptyMap()
+                    )
+                )
+            }
+            textData.corenlpSentencesCollected = true
+        }
+    }
+
+    private fun collectCorenlpConstituency(docId: String, spans: NodeList) {
+        if (outputTexts.contains(docId)) return
+
+        val nodesById = mutableMapOf<String, CorenlpConstituencyNode>()
+        val nonRootIds = mutableSetOf<String>()
+
+        for (i in 0 until spans.length) {
+            val span = spans.item(i) as? Element ?: continue
+            val id = span.getAttribute("id")
+            if (id.isNullOrBlank()) continue
+            val from = span.getAttribute("from").toIntOrNull() ?: continue
+            val to = span.getAttribute("to").toIntOrNull() ?: continue
+
+            val fsList = span.getElementsByTagName("fs")
+            if (fsList.length == 0) continue
+            val fsElement = fsList.item(0) as? Element ?: continue
+            val fElements = fsElement.getElementsByTagName("f")
+            var label: String? = null
+            for (j in 0 until fElements.length) {
+                val f = fElements.item(j) as? Element ?: continue
+                if (f.getAttribute("name") == "const") {
+                    label = f.textContent?.trim()
+                    break
+                }
+            }
+            if (label.isNullOrBlank()) continue
+
+            val node = CorenlpConstituencyNode(id, from, to, label)
+
+            val relElements = span.getElementsByTagName("rel")
+            for (j in 0 until relElements.length) {
+                val rel = relElements.item(j) as? Element ?: continue
+                if (rel.getAttribute("label") != "dominates") continue
+                val target = rel.getAttribute("target")
+                if (!target.isNullOrBlank()) {
+                    node.children.add(target)
+                    nonRootIds.add(target)
+                } else {
+                    val uri = rel.getAttribute("uri")
+                    if (!uri.isNullOrBlank()) {
+                        val normalized = uri.removePrefix("morpho.xml#")
+                        if (normalized.isNotBlank()) {
+                            nonRootIds.add(normalized)
+                        }
+                    }
+                }
+            }
+            nodesById[id] = node
+        }
+
+        if (nodesById.isEmpty()) return
+
+        val textData = krillData.getOrPut(docId) {
+            KrillTextData(textId = docId)
+        }
+
+        synchronized(textData) {
+            if (textData.corenlpConstituencyCollected) return
+            LOGGER.fine("Collecting corenlp constituency for $docId: ${nodesById.size} nodes, roots=${nodesById.keys.count { it !in nonRootIds }}")
+
+            fun traverse(nodeId: String, depth: Int) {
+                val node = nodesById[nodeId] ?: return
+                textData.structureSpans.add(
+                    StructureSpan(
+                        layer = "corenlp/c:${node.label}",
+                        from = node.from,
+                        to = node.to,
+                        tokenFrom = -1,
+                        tokenTo = -1,
+                        depth = depth,
+                        attributes = emptyMap()
+                    )
+                )
+                node.children.forEach { childId ->
+                    traverse(childId, depth + 1)
+                }
+            }
+
+            val rootIds = nodesById.keys.filter { it !in nonRootIds }
+            rootIds.forEach { traverse(it, 0) }
+            textData.corenlpConstituencyCollected = true
+        }
+    }
+
     // Collect rich metadata from header.xml for krill format
     private fun collectKrillMetadata(docId: String, headerXml: String) {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
@@ -3518,10 +3654,17 @@ class KorapXmlTool : Callable<Int> {
         sb.append("\"data\":{")
         sb.append("\"text\":${jsonString(textData.textContent ?: "")},")
 
-        // layerInfos - list all foundries
+        val hasCorenlpSentences = textData.structureSpans.any { it.layer == "corenlp/s:s" }
+        val hasCorenlpConstituency = textData.structureSpans.any { it.layer.startsWith("corenlp/c:") }
         val layerInfos = mutableListOf<String>()
         if (textData.sentences != null) {
             layerInfos.add("dereko/s=spans")
+        }
+        if (hasCorenlpSentences) {
+            layerInfos.add("corenlp/s=spans")
+        }
+        if (hasCorenlpConstituency) {
+            layerInfos.add("corenlp/c=spans")
         }
 
         // Collect layers by foundry type (checking what data actually exists)
@@ -3598,6 +3741,18 @@ class KorapXmlTool : Callable<Int> {
             foundries.add("dereko")
             foundries.add("dereko/structure")
             foundries.add("dereko/structure/base-sentences-paragraphs-pagebreaks")
+        }
+
+        if (hasCorenlpSentences || hasCorenlpConstituency) {
+            if (!foundries.contains("corenlp")) {
+                foundries.add("corenlp")
+            }
+            if (hasCorenlpSentences && !foundries.contains("corenlp/sentences")) {
+                foundries.add("corenlp/sentences")
+            }
+            if (hasCorenlpConstituency && !foundries.contains("corenlp/structure")) {
+                foundries.add("corenlp/structure")
+            }
         }
 
         // Add annotation foundries with their layers
@@ -3771,6 +3926,19 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
+        val hasCorenlpSentences = resolvedStructureSpans.any { it.layer == "corenlp/s:s" }
+        val hasCorenlpConstituency = resolvedStructureSpans.any { it.layer.startsWith("corenlp/c:") }
+        val layerInfos = mutableListOf<String>()
+        if (textData.sentences != null) {
+            layerInfos.add("dereko/s=spans")
+        }
+        if (hasCorenlpSentences) {
+            layerInfos.add("corenlp/s=spans")
+        }
+        if (hasCorenlpConstituency) {
+            layerInfos.add("corenlp/c=spans")
+        }
+
         // Group structural spans by their starting token
         val spansByToken = mutableMapOf<Int, MutableList<StructureSpan>>()
         resolvedStructureSpans.forEach { span ->
@@ -3779,6 +3947,7 @@ class KorapXmlTool : Callable<Int> {
 
         // Count paragraph spans (name="p")
         val paragraphCount = allStructureSpans.count { it.layer.endsWith(":p") }
+        val corenlpSentenceCount = resolvedStructureSpans.count { it.layer == "corenlp/s:s" }
 
         tokens.forEachIndexed { index, token ->
             val tokenAnnotations = mutableListOf<String>()
@@ -3791,6 +3960,9 @@ class KorapXmlTool : Callable<Int> {
                 }
                 if (sentences.isNotEmpty()) {
                     tokenAnnotations.add(jsonString("-:base/sentences\$<i>${sentences.size}"))
+                }
+                if (corenlpSentenceCount > 0) {
+                    tokenAnnotations.add(jsonString("-:corenlp/sentences\$<i>$corenlpSentenceCount"))
                 }
                 tokenAnnotations.add(jsonString("-:tokens\$<i>${tokens.size}"))
 
