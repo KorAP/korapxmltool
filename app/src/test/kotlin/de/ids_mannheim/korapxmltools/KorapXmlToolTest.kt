@@ -803,7 +803,15 @@ class KorapXmlToolTest {
 
             assertEquals(referenceJsons.keys, kotlinJsons.keys, "Kotlin and reference JSON sets differ (nwt)")
 
-            val tokensToCheck = listOf("\"s:,\"", "\"s:.\"", "\"s:!\"")
+            val tokensToCheck = listOf(
+                "\"s:,\"",
+                "\"s:.\"",
+                "\"s:!\"",
+                "\"marmot/p:\\$,\"",
+                "\"spacy/p:\\$,\"",
+                "\"opennlp/p:\\$,\"",
+                "\"tt/p:\\$,\""
+            )
             referenceJsons.forEach { (doc, referenceJson) ->
                 val kotlinJson = kotlinJsons.getValue(doc)
                 tokensToCheck.forEach { token ->

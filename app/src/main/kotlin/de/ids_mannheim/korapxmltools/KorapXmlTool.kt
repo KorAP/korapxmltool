@@ -4015,9 +4015,9 @@ fun String.escapeKrillAttribute(): String {
 // The # character is used for offset notation in Krill format
 // Both must be percent-encoded when they appear in actual annotation values
 fun String.escapeKrillValue(): String {
-    // Use URL/percent encoding like escapeKrillAttribute
-    return this.replace("#", "%23")
-        .replace("$", "%24")
+    // Match legacy korapxml2krill escaping that uses backslashes
+    return this.replace("#", "\\#")
+        .replace("$", "\\$")
 }
 
 fun jsonString(value: String): String = "\"${value.escapeJson()}\""
