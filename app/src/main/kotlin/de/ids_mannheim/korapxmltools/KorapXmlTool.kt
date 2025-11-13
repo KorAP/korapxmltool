@@ -30,11 +30,13 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.stream.IntStream
 import java.util.zip.GZIPOutputStream
+import kotlin.text.Charsets
 import me.tongfei.progressbar.ProgressBar
 import me.tongfei.progressbar.ProgressBarBuilder
 import me.tongfei.progressbar.ProgressBarStyle
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.transform.OutputKeys
@@ -472,6 +474,28 @@ class KorapXmlTool : Callable<Int> {
     )
 
     private val BASE_STRUCTURE_FOUNDRIES = setOf("base", "dereko")
+
+    private val safeDomFactory: DocumentBuilderFactory by lazy {
+        DocumentBuilderFactory.newInstance().apply {
+            isNamespaceAware = false
+            trySetFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+            trySetFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+            trySetFeature("http://xml.org/sax/features/external-general-entities", false)
+            trySetFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            try {
+                setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
+            } catch (_: Exception) {}
+            try {
+                setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun DocumentBuilderFactory.trySetFeature(feature: String, enabled: Boolean) {
+        try {
+            setFeature(feature, enabled)
+        } catch (_: Exception) {}
+    }
 
     private fun StructureSpan.splitFoundryAndLayer(): Pair<String, String>? {
         val separatorIdx = layer.indexOf('/')
@@ -960,6 +984,51 @@ class KorapXmlTool : Callable<Int> {
         }
         sb.append('$')
         return Regex(sb.toString())
+    }
+
+    private fun NodeList.asElementSequence(): Sequence<Element> = sequence {
+        for (i in 0 until length) {
+            val node = item(i)
+            if (node is Element) {
+                yield(node)
+            }
+        }
+    }
+
+    private fun Element?.childElements(tagName: String): Sequence<Element> =
+        this?.getElementsByTagName(tagName)?.asElementSequence() ?: emptySequence()
+
+    private fun Element?.firstElement(tagName: String, predicate: (Element) -> Boolean = { true }): Element? =
+        childElements(tagName).firstOrNull(predicate)
+
+    private fun Element?.firstText(tagName: String, predicate: (Element) -> Boolean = { true }): String? =
+        firstElement(tagName, predicate)?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun Element?.collectTexts(tagName: String, predicate: (Element) -> Boolean = { true }): List<String> =
+        childElements(tagName)
+            .filter(predicate)
+            .mapNotNull { el -> el.textContent?.trim()?.takeIf { it.isNotEmpty() } }
+            .toList()
+
+    private fun MutableMap<String, Any>.putIfNotBlank(key: String, value: String?) {
+        val trimmed = value?.trim()
+        if (!trimmed.isNullOrEmpty()) {
+            this[key] = trimmed
+        }
+    }
+
+    private fun Element?.collectCatRefTopics(): List<String> {
+        if (this == null) return emptyList()
+        val topics = mutableListOf<String>()
+        val catRefs = this.getElementsByTagName("catRef")
+        for (i in 0 until catRefs.length) {
+            val element = catRefs.item(i) as? Element ?: continue
+            val target = element.getAttribute("target")
+            if (!target.isNullOrBlank()) {
+                topics.addAll(target.split('.').drop(1).filter { it.isNotBlank() })
+            }
+        }
+        return topics
     }
 
 
@@ -1492,25 +1561,24 @@ class KorapXmlTool : Callable<Int> {
                     LOGGER.fine("NOT ready to process $docId yet: textOK=${texts[docId] != null || !textRequired}, sentencesOK=${sentences[docId] != null}, tokensOK=${tokens[docId] != null}, morphoOK=${!morphoRequired || morpho[docId] != null}")
                 }
             } else if ((extractMetadataRegex.isNotEmpty() || outputFormat == OutputFormat.KRILL) && zipEntry.name.matches(Regex(".*/header\\.xml$"))) {
-                //LOGGER.info("Processing header file: " + zipEntry.name)
-                val text = zipFile.getInputStream(zipEntry).bufferedReader().use { it.readText() }
+                val headerBytes = zipFile.getInputStream(zipEntry).use { it.readBytes() }
+                val text = headerBytes.toString(Charsets.UTF_8)
+                val headerDoc = safeDomFactory.newDocumentBuilder().parse(ByteArrayInputStream(headerBytes))
+                val headerRoot = headerDoc.documentElement
+                headerRoot.normalize()
 
-                // Check what type of header this is
-                val textSigle = Regex("<textSigle>([^<]+)</textSigle>").find(text)?.destructured?.component1()
-                val docSigle = Regex("<dokumentSigle>([^<]+)</dokumentSigle>").find(text)?.destructured?.component1()
-                val corpusSigle = Regex("<korpusSigle>([^<]+)</korpusSigle>").find(text)?.destructured?.component1()
+                val textSigle = headerRoot.firstText("textSigle")
+                val docSigle = headerRoot.firstText("dokumentSigle")
+                val corpusSigle = headerRoot.firstText("korpusSigle")
 
-                val docId = textSigle?.replace(Regex("/"), "_")
+                val docId = textSigle?.replace('/', '_')
                 LOGGER.fine("Processing header file: " + zipEntry.name + " docId: " + docId + " corpusSigle: " + corpusSigle + " docSigle: " + docSigle)
 
-                // For krill format, extract rich metadata from text, doc, and corpus levels
                 if (outputFormat == OutputFormat.KRILL) {
-                    if (corpusSigle != null) {
-                        collectCorpusMetadata(corpusSigle, text)
-                    } else if (docSigle != null) {
-                        collectDocMetadata(docSigle, text)
-                    } else if (docId != null) {
-                        collectKrillMetadata(docId, text)
+                    when {
+                        corpusSigle != null -> collectCorpusMetadata(corpusSigle, headerRoot)
+                        docSigle != null -> collectDocMetadata(docSigle, headerRoot)
+                        docId != null -> collectKrillMetadata(docId, headerRoot)
                     }
                 }
 
@@ -1537,9 +1605,8 @@ class KorapXmlTool : Callable<Int> {
                         else -> true
                     }
                     if ((texts[docId] != null || !textRequired) && sentences[docId] != null && tokens[docId] != null
-                         && (!morphoRequired || morpho[docId] != null)
-                     ) {
-                        // Be quiet on INFO; per-text logs only on FINE and below
+                        && (!morphoRequired || morpho[docId] != null)
+                    ) {
                         LOGGER.info("Processing text (meta-ready): $docId in thread ${Thread.currentThread().threadId()}")
                         processText(docId, foundry)
                     }
@@ -2683,306 +2750,142 @@ class KorapXmlTool : Callable<Int> {
     }
 
     // Collect rich metadata from header.xml for krill format
-    private fun collectKrillMetadata(docId: String, headerXml: String) {
-        // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
+    private fun collectKrillMetadata(docId: String, headerRoot: Element) {
         if (outputTexts.contains(docId)) return
 
-        val textData = krillData.getOrPut(docId) {
-            KrillTextData(textId = docId)
-        }
+        val textData = krillData.getOrPut(docId) { KrillTextData(textId = docId) }
 
         synchronized(textData) {
-            // Extract analytic and monogr sections using indexOf for efficiency (avoid regex backtracking)
-            val analyticStart = headerXml.indexOf("<analytic>")
-            val analyticEnd = headerXml.indexOf("</analytic>")
-            val analyticXml = if (analyticStart >= 0 && analyticEnd > analyticStart) {
-                headerXml.substring(analyticStart, analyticEnd + 11)
-            } else ""
+            val metadata = textData.headerMetadata
+            val analytic = headerRoot.firstElement("analytic")
+            val monogr = headerRoot.firstElement("monogr")
+            val textDesc = headerRoot.firstElement("textDesc")
+            val textClassElement = headerRoot.firstElement("textClass")
 
-            val monogrStart = headerXml.indexOf("<monogr>")
-            val monogrEnd = headerXml.indexOf("</monogr>")
-            val monogrXml = if (monogrStart >= 0 && monogrEnd > monogrStart) {
-                headerXml.substring(monogrStart, monogrEnd + 9)
-            } else ""
+            metadata.putIfNotBlank("author", analytic.firstText("h.author") ?: monogr.firstText("h.author"))
 
-            // Author - try analytic first, then monogr
-            Regex("<h\\.author>([^<]+)</h\\.author>").find(analyticXml)?.let {
-                textData.headerMetadata["author"] = it.groupValues[1].trim()
-            } ?: Regex("<h\\.author>([^<]+)</h\\.author>").find(monogrXml)?.let {
-                textData.headerMetadata["author"] = it.groupValues[1].trim()
+            val mainTitle = analytic.firstText("h.title") { it.getAttribute("type") == "main" }
+                ?: analytic.firstText("h.title")
+                ?: monogr.firstText("h.title") { it.getAttribute("type") == "main" }
+                ?: monogr.firstText("h.title")
+            metadata.putIfNotBlank("title", mainTitle)
+
+            metadata.putIfNotBlank(
+                "subTitle",
+                analytic.firstText("h.title") { it.getAttribute("type") == "sub" }
+                    ?: monogr.firstText("h.title") { it.getAttribute("type") == "sub" }
+            )
+
+            val translator = headerRoot.firstText("editor") { it.getAttribute("role") == "translator" }
+            if (translator != null) {
+                metadata["translator"] = translator
+            } else {
+                metadata.putIfNotBlank("editor", analytic.firstText("editor") ?: monogr.firstText("editor"))
             }
 
-            // Title - try analytic type="main" first, then any analytic title, then monogr
-            Regex("<h\\.title[^>]*type=\"main\"[^>]*>([^<]+)</h\\.title>").find(analyticXml)?.let {
-                textData.headerMetadata["title"] = it.groupValues[1].trim()
-            } ?: Regex("<h\\.title[^>]*>([^<]+)</h\\.title>").find(analyticXml)?.let {
-                textData.headerMetadata["title"] = it.groupValues[1].trim()
-            } ?: Regex("<h\\.title[^>]*type=\"main\"[^>]*>([^<]+)</h\\.title>").find(monogrXml)?.let {
-                textData.headerMetadata["title"] = it.groupValues[1].trim()
-            } ?: Regex("<h\\.title[^>]*>([^<]+)</h\\.title>").find(monogrXml)?.let {
-                textData.headerMetadata["title"] = it.groupValues[1].trim()
-            }
+            metadata.putIfNotBlank("publisher", headerRoot.firstText("publisher"))
+            metadata.putIfNotBlank("distributor", headerRoot.firstText("distributor"))
+            metadata.putIfNotBlank("availability", headerRoot.firstText("availability"))
+            metadata.putIfNotBlank("ISBN", headerRoot.firstText("idno") { it.getAttribute("type") == "ISBN" })
 
-            // Subtitle - try analytic first, then monogr
-            Regex("<h\\.title[^>]*type=\"sub\"[^>]*>([^<]+)</h\\.title>").find(analyticXml)?.let {
-                textData.headerMetadata["subTitle"] = it.groupValues[1].trim()
-            } ?: Regex("<h\\.title[^>]*type=\"sub\"[^>]*>([^<]+)</h\\.title>").find(monogrXml)?.let {
-                textData.headerMetadata["subTitle"] = it.groupValues[1].trim()
-            }
+            headerRoot.firstElement("reference") { it.getAttribute("type") == "complete" }
+                ?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { metadata["reference"] = it }
 
-            // Editor/Translator - check for translator (editor with role="translator") first
-            Regex("<editor[^>]*role=\"translator\"[^>]*>([^<]+)</editor>").find(headerXml)?.let {
-                textData.headerMetadata["translator"] = it.groupValues[1].trim()
-            } ?: run {
-                // Not a translator, so look for regular editor - try analytic first, then monogr
-                Regex("<editor[^>]*>([^<]+)</editor>").find(analyticXml)?.let {
-                    textData.headerMetadata["editor"] = it.groupValues[1].trim()
-                } ?: Regex("<editor[^>]*>([^<]+)</editor>").find(monogrXml)?.let {
-                    textData.headerMetadata["editor"] = it.groupValues[1].trim()
-                }
-            }
-
-            // Publisher
-            Regex("<publisher>([^<]+)</publisher>").find(headerXml)?.let {
-                textData.headerMetadata["publisher"] = it.groupValues[1].trim()
-            }
-
-            // Distributor - from publicationStmt
-            Regex("<distributor>([^<]+)</distributor>").find(headerXml)?.let {
-                val dist = it.groupValues[1].trim()
-                if (dist.isNotEmpty()) {
-                    textData.headerMetadata["distributor"] = dist
-                }
-            }
-
-            // Availability (license)
-            Regex("<availability[^>]*>([^<]+)</availability>").find(headerXml)?.let {
-                textData.headerMetadata["availability"] = it.groupValues[1].trim()
-            }
-
-            // ISBN - from idno with type="ISBN"
-            Regex("<idno[^>]+type=\"ISBN\"[^>]*>([^<]+)</idno>").find(headerXml)?.let {
-                textData.headerMetadata["ISBN"] = it.groupValues[1].trim()
-            }
-
-            // Note: corpusTitle, corpusSubTitle, and docTitle come from corpus/doc headers
-            // They are merged in during JSON generation
-
-            // Reference
-            Regex("<reference[^>]+type=\"complete\"[^>]*>([^<]+)</reference>").find(headerXml)?.let {
-                textData.headerMetadata["reference"] = it.groupValues[1].trim()
-            }
-
-            // URN - from idno with type="URN" - store as resolvable link
-            Regex("<idno[^>]+type=\"URN\"[^>]*>([^<]+)</idno>").find(headerXml)?.let {
-                val urn = it.groupValues[1].trim()
-                // Create nbn-resolving.de URL for the URN
-                val urnUrl = "http://nbn-resolving.de/$urn"
-                textData.headerMetadata["URN"] = mapOf("urn" to urn, "url" to urnUrl)
-            }
-
-            // Text type fields from textDesc section
-            val textDescStart = headerXml.indexOf("<textDesc>")
-            val textDescEnd = headerXml.indexOf("</textDesc>")
-            val textDescXml = if (textDescStart >= 0 && textDescEnd > textDescStart) {
-                headerXml.substring(textDescStart, textDescEnd + 11)
-            } else ""
-
-            if (textDescXml.isNotEmpty()) {
-                // textType
-                Regex("<textType>([^<]+)</textType>").find(textDescXml)?.let {
-                    textData.headerMetadata["textType"] = it.groupValues[1].trim()
+            headerRoot.firstElement("idno") { it.getAttribute("type") == "URN" }
+                ?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { urn ->
+                    metadata["URN"] = mapOf("urn" to urn, "url" to "http://nbn-resolving.de/$urn")
                 }
 
-                // textDomain
-                Regex("<textDomain>([^<]+)</textDomain>").find(textDescXml)?.let {
-                    textData.headerMetadata["textDomain"] = it.groupValues[1].trim()
-                }
+            metadata.putIfNotBlank("textType", textDesc.firstText("textType"))
+            metadata.putIfNotBlank("textDomain", textDesc.firstText("textDomain"))
+            metadata.putIfNotBlank("textTypeArt", textDesc.firstText("textTypeArt"))
+            metadata.putIfNotBlank("textTypeRef", textDesc.firstText("textTypeRef"))
+            metadata.putIfNotBlank("textColumn", textDesc.firstText("column"))
 
-                // textTypeArt
-                Regex("<textTypeArt>([^<]+)</textTypeArt>").find(textDescXml)?.let {
-                    textData.headerMetadata["textTypeArt"] = it.groupValues[1].trim()
-                }
-
-                // textTypeRef
-                Regex("<textTypeRef>([^<]+)</textTypeRef>").find(textDescXml)?.let {
-                    textData.headerMetadata["textTypeRef"] = it.groupValues[1].trim()
-                }
-
-                // textColumn
-                Regex("<column>([^<]+)</column>").find(textDescXml)?.let {
-                    textData.headerMetadata["textColumn"] = it.groupValues[1].trim()
-                }
+            headerRoot.firstElement("pubPlace")?.let { placeElement ->
+                placeElement.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { metadata["pubPlace"] = it }
+                placeElement.getAttribute("key").takeIf { it.isNotBlank() }?.let { metadata["pubPlaceKey"] = it }
             }
 
-            // Publication place
-            Regex("<pubPlace([^>]*)>([^<]+)</pubPlace>").find(headerXml)?.let {
-                val attrs = it.groupValues[1]
-                val place = it.groupValues[2].trim()
-
-                // Extract key attribute if present
-                Regex("key=\"([^\"]+)\"").find(attrs)?.let { keyMatch ->
-                    textData.headerMetadata["pubPlaceKey"] = keyMatch.groupValues[1]
-                }
-
-                if (place.isNotEmpty()) {
-                    textData.headerMetadata["pubPlace"] = place
-                }
-            }
-
-            // Award - from biblStruct > note with type="award" and subtype attribute
-            val awards = mutableListOf<String>()
-            Regex("<note[^>]+type=\"award\"[^>]+subtype=\"([^\"]+)\"[^>]*>").findAll(headerXml).forEach {
-                awards.add(it.groupValues[1].trim())
-            }
+            val awards = headerRoot.childElements("note")
+                .mapNotNull { note ->
+                    val subtype = note.getAttribute("subtype")
+                    if (note.getAttribute("type") == "award" && subtype.isNotBlank()) subtype.trim() else null
+                }.toList()
             if (awards.isNotEmpty()) {
-                textData.headerMetadata["award"] = awards
+                metadata["award"] = awards
             }
 
-            // Text class - from textClass > catRef target attributes
-            val textClassStart = headerXml.indexOf("<textClass>")
-            val textClassEnd = headerXml.indexOf("</textClass>")
-            val textClassXml = if (textClassStart >= 0 && textClassEnd > textClassStart) {
-                headerXml.substring(textClassStart, textClassEnd + 12)
-            } else ""
+            val textClassTopics = textClassElement.collectCatRefTopics()
+            val fallbackTopics = if (textClassTopics.isEmpty()) headerRoot.collectCatRefTopics() else emptyList()
+            val finalTopics = if (textClassTopics.isNotEmpty()) textClassTopics else fallbackTopics
+            if (finalTopics.isNotEmpty()) {
+                metadata["textClass"] = finalTopics
+            }
 
-            if (textClassXml.isNotEmpty()) {
-                val topics = mutableListOf<String>()
+            headerRoot.firstText("creatDate")?.replace(".", "-")?.let {
+                metadata["creationDate"] = it
+            }
 
-                Regex("<catRef[^>]+target=\"([^\"]+)\"[^>]*>").findAll(textClassXml).forEach {
-                    val target = it.groupValues[1]
-                    // Split by '.' and skip first element (as Perl code does)
-                    val parts = target.split('.').drop(1).filter { p -> p.isNotBlank() }
-                    topics.addAll(parts)
+            var year: String? = null
+            var month: String? = null
+            var day: String? = null
+            headerRoot.childElements("pubDate").forEach { element ->
+                val value = element.textContent?.trim()?.takeIf { it.isNotEmpty() } ?: return@forEach
+                when (element.getAttribute("type")) {
+                    "year" -> year = value
+                    "month" -> month = value
+                    "day" -> day = value
                 }
-
-                if (topics.isNotEmpty()) {
-                    textData.headerMetadata["textClass"] = topics
-                }
             }
-
-            // Creation date
-            Regex("<creatDate>([^<]+)</creatDate>").find(headerXml)?.let {
-                val dateStr = it.groupValues[1].replace(".", "-")
-                textData.headerMetadata["creationDate"] = dateStr
-            }
-
-            // Publication date (from year/month/day elements)
-            val year = Regex("<pubDate type=\"year\">([^<]+)</pubDate>").find(headerXml)?.groupValues?.get(1)
-            val month = Regex("<pubDate type=\"month\">([^<]+)</pubDate>").find(headerXml)?.groupValues?.get(1)
-            val day = Regex("<pubDate type=\"day\">([^<]+)</pubDate>").find(headerXml)?.groupValues?.get(1)
             if (year != null && month != null && day != null) {
-                val monthPadded = month.padStart(2, '0')
-                val dayPadded = day.padStart(2, '0')
-                textData.headerMetadata["pubDate"] = "$year-$monthPadded-$dayPadded"
+                metadata["pubDate"] = "${year}-${month!!.padStart(2, '0')}-${day!!.padStart(2, '0')}"
             }
 
-            // Text class (from catRef)
-            Regex("<catRef[^>]+target=\"([^\"]+)\"").find(headerXml)?.let {
-                val target = it.groupValues[1]
-                // Extract topics from "topic.staat-gesellschaft.biographien-interviews"
-                val topics = target.split(".").drop(1) // Drop "topic" prefix
-                if (topics.isNotEmpty()) {
-                    textData.headerMetadata["textClass"] = topics
-                }
+            headerRoot.firstElement("ref") { it.getAttribute("type") == "page_url" }
+                ?.getAttribute("target")?.takeIf { it.isNotBlank() }?.let { metadata["externalLink"] = it }
+
+            if (!metadata.containsKey("language")) {
+                metadata["language"] = "de"
             }
 
-            // Text type
-            Regex("<textTypeArt>([^<]+)</textTypeArt>").find(headerXml)?.let {
-                textData.headerMetadata["textTypeArt"] = it.groupValues[1]
-            }
-
-            // External link (from page_url ref)
-            Regex("<ref type=\"page_url\" target=\"([^\"]+)\"").find(headerXml)?.let {
-                textData.headerMetadata["externalLink"] = it.groupValues[1]
-            }
-
-            // Language - infer from corpus or default to "de" for German corpora
-            if (!textData.headerMetadata.containsKey("language")) {
-                textData.headerMetadata["language"] = "de"
-            }
-
-            // Text type (plural form) - fallback only if not already set
-            if (!textData.headerMetadata.containsKey("textType")) {
-                val textTypeArt = textData.headerMetadata["textTypeArt"] as? String
+            if (!metadata.containsKey("textType")) {
+                val textTypeArt = metadata["textTypeArt"] as? String
                 if (textTypeArt != null) {
-                    textData.headerMetadata["textType"] = textTypeArt + "en"
+                    metadata["textType"] = textTypeArt + "en"
                 }
             }
 
-            LOGGER.fine("Collected ${textData.headerMetadata.size} metadata fields for $docId")
+            LOGGER.fine("Collected ${metadata.size} metadata fields for $docId")
         }
     }
 
     // Collect corpus-level metadata from corpus header
-    private fun collectCorpusMetadata(corpusSigle: String, headerXml: String) {
+    private fun collectCorpusMetadata(corpusSigle: String, headerRoot: Element) {
         val metadata = corpusMetadata.getOrPut(corpusSigle) { mutableMapOf() }
 
         synchronized(metadata) {
-            // Extract corpus title from c.title
-            Regex("<c\\.title>([^<]+)</c\\.title>").find(headerXml)?.let {
-                metadata["corpusTitle"] = it.groupValues[1].trim()
-            }
-
-            // Extract corpus subtitle if present
-            Regex("<c\\.title[^>]*type=\"sub\"[^>]*>([^<]+)</c\\.title>").find(headerXml)?.let {
-                metadata["corpusSubTitle"] = it.groupValues[1].trim()
-            }
-
-            // Extract corpus author if present
-            Regex("<h\\.author>([^<]+)</h\\.author>").find(headerXml)?.let {
-                metadata["corpusAuthor"] = it.groupValues[1].trim()
-            }
-
-            // Extract editor from monogr section
-            val monogrStart = headerXml.indexOf("<monogr>")
-            val monogrEnd = headerXml.indexOf("</monogr>")
-            if (monogrStart >= 0 && monogrEnd > monogrStart) {
-                val monogrXml = headerXml.substring(monogrStart, monogrEnd + 9)
-                Regex("<editor[^>]*>([^<]+)</editor>").find(monogrXml)?.let {
-                    metadata["corpusEditor"] = it.groupValues[1].trim()
-                }
-            }
-
-            // Publisher from corpus level
-            Regex("<publisher>([^<]+)</publisher>").find(headerXml)?.let {
-                metadata["publisher"] = it.groupValues[1].trim()
-            }
-
-            // Distributor from corpus level
-            Regex("<distributor>([^<]+)</distributor>").find(headerXml)?.let {
-                metadata["distributor"] = it.groupValues[1].trim()
-            }
-
-            // Text type from corpus profileDesc
-            val textDescStart = headerXml.indexOf("<textDesc>")
-            val textDescEnd = headerXml.indexOf("</textDesc>")
-            if (textDescStart >= 0 && textDescEnd > textDescStart) {
-                val textDescXml = headerXml.substring(textDescStart, textDescEnd + 11)
-                Regex("<textType>([^<]+)</textType>").find(textDescXml)?.let {
-                    metadata["textType"] = it.groupValues[1].trim()
-                }
-            }
-
+            metadata.putIfNotBlank("corpusTitle", headerRoot.firstText("c.title"))
+            metadata.putIfNotBlank(
+                "corpusSubTitle",
+                headerRoot.firstText("c.title") { it.getAttribute("type") == "sub" }
+            )
+            metadata.putIfNotBlank("corpusAuthor", headerRoot.firstText("h.author"))
+            metadata.putIfNotBlank("corpusEditor", headerRoot.firstElement("monogr").firstText("editor"))
+            metadata.putIfNotBlank("publisher", headerRoot.firstText("publisher"))
+            metadata.putIfNotBlank("distributor", headerRoot.firstText("distributor"))
+            metadata.putIfNotBlank("textType", headerRoot.firstElement("textDesc").firstText("textType"))
             LOGGER.fine("Collected ${metadata.size} corpus-level metadata fields for $corpusSigle")
         }
     }
 
     // Collect document-level metadata from doc header
-    private fun collectDocMetadata(docSigle: String, headerXml: String) {
+    private fun collectDocMetadata(docSigle: String, headerRoot: Element) {
         val metadata = docMetadata.getOrPut(docSigle) { mutableMapOf() }
 
         synchronized(metadata) {
-            // Extract document title from d.title
-            Regex("<d\\.title>([^<]+)</d\\.title>").find(headerXml)?.let {
-                metadata["docTitle"] = it.groupValues[1].trim()
-            }
-
-            // Extract doc author if present
-            Regex("<h\\.author>([^<]+)</h\\.author>").find(headerXml)?.let {
-                metadata["docAuthor"] = it.groupValues[1].trim()
-            }
-
+            metadata.putIfNotBlank("docTitle", headerRoot.firstText("d.title"))
+            metadata.putIfNotBlank("docAuthor", headerRoot.firstText("h.author"))
             LOGGER.fine("Collected ${metadata.size} doc-level metadata fields for $docSigle")
         }
     }
