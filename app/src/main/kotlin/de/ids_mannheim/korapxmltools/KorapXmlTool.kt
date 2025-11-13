@@ -157,6 +157,12 @@ class KorapXmlTool : Callable<Int> {
     )
     var tokenSeparator: String = if (outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) " " else "\n"
 
+    @Option(
+        names = ["--non-word-tokens", "--nwt", "-nwt"],
+        description = ["Include punctuation and other non-word tokens when generating Krill output (matches korapxml2krill --non-word-tokens flag)."]
+    )
+    var includeNonWordTokens: Boolean = false
+
     @Option(names = ["--offsets"], description = ["Not yet implemented: offsets"])
     var offsets: Boolean = false
 
@@ -3632,9 +3638,18 @@ class KorapXmlTool : Callable<Int> {
     }
 
     private fun generateKrillStream(textData: KrillTextData): List<String> {
-        val tokens = textData.tokens ?: return emptyList()
+        val rawTokens = textData.tokens ?: return emptyList()
         val text = textData.textContent ?: ""
         val sentences = textData.sentences ?: emptyArray()
+        val tokens: List<Span> = if (includeNonWordTokens || text.isEmpty()) {
+            rawTokens.toList()
+        } else {
+            rawTokens.filter { span -> shouldKeepTokenForKrill(text, span) }
+        }
+        if (tokens.isEmpty()) {
+            LOGGER.fine("No tokens remained for ${textData.textId} after filtering non-word tokens")
+            return emptyList()
+        }
         val result = mutableListOf<String>()
 
         // Build offset-to-index map for resolving dependency heads and structural spans
@@ -3918,6 +3933,15 @@ class KorapXmlTool : Callable<Int> {
         return result
     }
 
+    private fun shouldKeepTokenForKrill(text: String, span: Span): Boolean {
+        if (text.isEmpty()) return true
+        val safeFrom = span.from.coerceIn(0, text.length)
+        val safeTo = span.to.coerceIn(safeFrom, text.length)
+        if (safeFrom >= safeTo) return false
+        val surface = text.substring(safeFrom, safeTo)
+        return surface.any { it.isLetterOrDigit() || it == '_' }
+    }
+
 }  // End of KorapXmlTool class
 
 fun main(args: Array<String>): Unit {
@@ -4009,4 +4033,3 @@ fun jsonObject(pairs: List<Pair<String, String>>): String {
 fun String.urlEncode(): String {
     return java.net.URLEncoder.encode(this, "UTF-8")
 }
-

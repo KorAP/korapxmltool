@@ -8,6 +8,7 @@ import java.io.PrintStream
 import java.net.URL
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -667,6 +668,186 @@ class KorapXmlToolTest {
             }
         } finally {
             tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun krillRespectsNonWordTokenOption() {
+        val baseZip = loadResource("wud24_sample.zip").path
+        val spacyZip = loadResource("wud24_sample.spacy.zip").path
+
+        val defaultDir = File.createTempFile("krill_default", "").let {
+            it.delete()
+            it.mkdirs()
+            it
+        }
+
+        try {
+            val defaultArgs = arrayOf("-f", "krill", "-D", defaultDir.path, baseZip, spacyZip)
+            val defaultExit = debug(defaultArgs)
+            assertTrue(defaultExit == 0, "Krill conversion should succeed without --non-word-tokens")
+
+            val defaultTar = File(defaultDir, "wud24_sample.krill.tar")
+            assertTrue(defaultTar.exists(), "Default krill tar should exist")
+
+            val defaultJsons = readKrillJson(defaultTar).values
+            assertTrue(defaultJsons.isNotEmpty(), "Default Krill tar should contain JSON files")
+            assertTrue(
+                defaultJsons.all { !it.contains("\"s:,\"") },
+                "Default Krill output should skip comma tokens"
+            )
+            assertTrue(
+                defaultJsons.all { !it.contains("\"s:!\"") },
+                "Default Krill output should skip exclamation mark tokens"
+            )
+        } finally {
+            defaultDir.deleteRecursively()
+        }
+
+        val flagDir = File.createTempFile("krill_nwt", "").let {
+            it.delete()
+            it.mkdirs()
+            it
+        }
+
+        try {
+            val flagArgs = arrayOf("-f", "krill", "--non-word-tokens", "-D", flagDir.path, baseZip, spacyZip)
+            val flagExit = debug(flagArgs)
+            assertTrue(flagExit == 0, "Krill conversion should succeed with --non-word-tokens")
+
+            val flagTar = File(flagDir, "wud24_sample.krill.tar")
+            assertTrue(flagTar.exists(), "Krill tar should exist when --non-word-tokens is set")
+
+            val flagJsons = readKrillJson(flagTar).values
+            assertTrue(flagJsons.isNotEmpty(), "Krill tar should contain JSON files when --non-word-tokens is set")
+            assertTrue(
+                flagJsons.any { it.contains("\"s:,\"") },
+                "Krill output should include commas when --non-word-tokens is set"
+            )
+            assertTrue(
+                flagJsons.any { it.contains("\"s:!\"") },
+                "Krill output should include exclamation marks when --non-word-tokens is set"
+            )
+        } finally {
+            flagDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun krillDefaultMatchesPerlReference() {
+        val baseZip = loadResource("wud24_sample.zip").path
+        val spacyZip = loadResource("wud24_sample.spacy.zip").path
+        val referenceTar = File(loadResource("wud24_sample.wonwtopt.krill.tar").toURI())
+        assertTrue(referenceTar.exists(), "Reference Krill tar is missing: ${referenceTar.path}")
+
+        val kotlinDir = File.createTempFile("krill_reference_cmp", "").let {
+            it.delete()
+            it.mkdirs()
+            it
+        }
+
+        try {
+            val args = arrayOf("-f", "krill", "-D", kotlinDir.path, baseZip, spacyZip)
+            val exitCode = debug(args)
+            assertTrue(exitCode == 0, "Krill conversion should succeed for reference comparison")
+
+            val kotlinTar = File(kotlinDir, "wud24_sample.krill.tar")
+            assertTrue(kotlinTar.exists(), "Kotlin-produced Krill tar should exist at ${kotlinTar.path}")
+
+            val kotlinJsons = readKrillJson(kotlinTar)
+            val referenceJsons = readKrillJson(referenceTar)
+
+            assertEquals(referenceJsons.keys, kotlinJsons.keys, "Kotlin and reference JSON sets differ")
+
+            val tokensToCheck = listOf("\"s:,\"", "\"s:.\"")
+            referenceJsons.forEach { (doc, referenceJson) ->
+                val kotlinJson = kotlinJsons.getValue(doc)
+                tokensToCheck.forEach { token ->
+                    val refHas = referenceJson.contains(token)
+                    val kotlinHas = kotlinJson.contains(token)
+                    assertEquals(
+                        refHas,
+                        kotlinHas,
+                        "Mismatch for $token in document $doc compared to reference"
+                    )
+                }
+            }
+        } finally {
+            kotlinDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun krillNonWordTokensMatchesPerlReference() {
+        val baseZip = loadResource("wud24_sample.zip").path
+        val spacyZip = loadResource("wud24_sample.spacy.zip").path
+        val referenceTar = File(loadResource("wud24_sample.nwt.krill.tar").toURI())
+        assertTrue(referenceTar.exists(), "Non-word-token reference tar missing: ${referenceTar.path}")
+
+        val kotlinDir = File.createTempFile("krill_reference_nwt", "").let {
+            it.delete()
+            it.mkdirs()
+            it
+        }
+
+        try {
+            val args = arrayOf("-f", "krill", "--non-word-tokens", "-D", kotlinDir.path, baseZip, spacyZip)
+            val exitCode = debug(args)
+            assertTrue(exitCode == 0, "Krill conversion with --non-word-tokens should succeed for reference comparison")
+
+            val kotlinTar = File(kotlinDir, "wud24_sample.krill.tar")
+            assertTrue(kotlinTar.exists(), "Kotlin-produced Krill tar (nwt) should exist at ${kotlinTar.path}")
+
+            val kotlinJsons = readKrillJson(kotlinTar)
+            val referenceJsons = readKrillJson(referenceTar)
+
+            assertEquals(referenceJsons.keys, kotlinJsons.keys, "Kotlin and reference JSON sets differ (nwt)")
+
+            val tokensToCheck = listOf("\"s:,\"", "\"s:.\"", "\"s:!\"")
+            referenceJsons.forEach { (doc, referenceJson) ->
+                val kotlinJson = kotlinJsons.getValue(doc)
+                tokensToCheck.forEach { token ->
+                    val refHas = referenceJson.contains(token)
+                    val kotlinHas = kotlinJson.contains(token)
+                    assertEquals(
+                        refHas,
+                        kotlinHas,
+                        "Mismatch for $token in document $doc compared to nwt reference"
+                    )
+                }
+            }
+        } finally {
+            kotlinDir.deleteRecursively()
+        }
+    }
+
+    private fun readKrillJson(tarFile: File): Map<String, String> {
+        val extractDir = File.createTempFile("krill_extract", "").let {
+            it.delete()
+            it.mkdirs()
+            it
+        }
+
+        return try {
+            val tarProcess = ProcessBuilder("tar", "-xf", tarFile.path, "-C", extractDir.path)
+                .redirectErrorStream(true)
+                .start()
+            assertTrue(tarProcess.waitFor() == 0, "Tar extraction should succeed for ${tarFile.path}")
+
+            val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") }.orEmpty()
+            assertTrue(jsonFiles.isNotEmpty(), "No JSON files found in ${tarFile.path}")
+
+            jsonFiles.associate { jsonFile ->
+                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                    .start()
+                    .inputStream
+                    .bufferedReader()
+                    .use { it.readText() }
+                jsonFile.name to jsonContent
+            }
+        } finally {
+            extractDir.deleteRecursively()
         }
     }
 }
