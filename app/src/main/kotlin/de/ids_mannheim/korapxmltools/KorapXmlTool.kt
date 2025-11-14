@@ -897,7 +897,10 @@ class KorapXmlTool : Callable<Int> {
 
                     // Build expected foundries from inventory: which ZIPs contain this text?
                     val expectedForThisText = zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
-                        .map { zipPath -> getFoundryFromZipFileName(File(zipPath).name) }
+                        .flatMap { zipPath ->
+                            val foundry = getFoundryFromZipFileName(File(zipPath).name)
+                            if (foundry.contains("-")) foundry.split("-") else listOf(foundry)
+                        }
                         .toSet()
 
                     if (!textFoundries.containsAll(expectedForThisText)) {
