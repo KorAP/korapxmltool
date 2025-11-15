@@ -2898,7 +2898,7 @@ class KorapXmlTool : Callable<Int> {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
         if (outputTexts.contains(docId)) return
 
-        LOGGER.info("Collecting krill base data for $docId: text=${texts[docId] != null}, tokens=${tokens[docId] != null}, sentences=${sentences[docId] != null}")
+        LOGGER.info("Processing base data for $docId: text=${texts[docId] != null}, tokens=${tokens[docId] != null}, sentences=${sentences[docId] != null}, foundry=base")
 
         val textData = krillData.getOrPut(docId) {
             KrillTextData(textId = docId)

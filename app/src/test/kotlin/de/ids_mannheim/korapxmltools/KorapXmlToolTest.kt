@@ -473,6 +473,7 @@ class KorapXmlToolTest {
         val generatedTar = ensureKrillTar("wud24_full_foundries") { outputDir ->
             arrayOf(
                 "-f", "krill",
+                "-l", "info",
                 "-D", outputDir.path,
                 baseZip,
                 spacyZip,
@@ -483,6 +484,33 @@ class KorapXmlToolTest {
         }
         assertTrue(generatedTar.exists(), "Generated krill tar should exist at ${generatedTar.path}")
         assertTrue(generatedTar.length() > 0, "Generated tar should not be empty")
+
+        // Check that log file exists
+        val logFile = File(generatedTar.path.replace(Regex("\\.tar$"), ".log"))
+        assertTrue(logFile.exists(), "Log file should exist at ${logFile.path}")
+        assertTrue(logFile.length() > 0, "Log file should not be empty")
+
+        // Check that texts are processed in alphabetical order for each foundry
+        val logContent = logFile.readText()
+        val foundries = listOf("spacy", "marmot", "opennlp", "treetagger")
+
+        foundries.forEach { foundry ->
+            // Extract text IDs for this foundry from log using regex
+            val pattern = Regex("Processing.*for ([^ :]+).*foundry=$foundry")
+            val textIds = pattern.findAll(logContent)
+                .map { it.groupValues[1] }
+                .toList()
+
+            if (textIds.isNotEmpty()) {
+                // Check if text IDs are in alphabetical order
+                val sortedTextIds = textIds.sorted()
+                assertEquals(
+                    sortedTextIds,
+                    textIds,
+                    "Text IDs for foundry '$foundry' should be processed in alphabetical order. Expected: $sortedTextIds, but got: $textIds"
+                )
+            }
+        }
 
         // Extract tar to verify it contains JSON files
         val extractDir = File.createTempFile("extract", "").let {
