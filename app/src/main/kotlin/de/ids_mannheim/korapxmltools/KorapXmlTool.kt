@@ -1094,7 +1094,10 @@ class KorapXmlTool : Callable<Int> {
                 }
             }
             if (parserName != null) {
-                labelParts.add(parserName!!)
+                // Only add parser foundry if it's different from tagger foundry
+                if (taggerName == null || taggerName != parserName) {
+                    labelParts.add(parserName!!)
+                }
             }
             if (labelParts.isNotEmpty()) {
                 targetFoundry = labelParts.joinToString("-")
