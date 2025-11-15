@@ -469,8 +469,9 @@ class KorapXmlTool : Callable<Int> {
         var morphoByFoundry: MutableMap<String, MutableMap<String, MorphoSpan>> = mutableMapOf(),
         var structureSpans: MutableList<StructureSpan> = mutableListOf(),
         var extractedAttributes: MutableMap<String, String> = mutableMapOf(),
-        var corenlpSentencesCollected: Boolean = false,
-        var corenlpConstituencyCollected: Boolean = false
+        var  lpSentencesCollected: Boolean = false,
+        var sentencesCollectedByFoundry: MutableSet<String> = mutableSetOf(),
+        var constituencyCollectedByFoundry: MutableSet<String> = mutableSetOf()
     )
 
     private val BASE_STRUCTURE_FOUNDRIES = setOf("base", "dereko")
@@ -1512,16 +1513,16 @@ class KorapXmlTool : Callable<Int> {
 
                     "sentences.xml" -> {
                         LOGGER.fine("Sentences entry foundry=$foundry for $docId from ${zipEntry.name}")
-                        if (outputFormat == OutputFormat.KRILL && foundry.startsWith("corenlp")) {
+                        if (outputFormat == OutputFormat.KRILL) {
                             val sentenceSpans: NodeList = doc.getElementsByTagName("span")
-                            collectCorenlpSentences(docId, sentenceSpans)
+                            collectSentences(docId, foundry, sentenceSpans)
                         }
                     }
 
                     "constituency.xml" -> {
-                        if (outputFormat == OutputFormat.KRILL && foundry.startsWith("corenlp")) {
+                        if (outputFormat == OutputFormat.KRILL) {
                             val constituencySpans: NodeList = doc.getElementsByTagName("span")
-                            collectCorenlpConstituency(docId, constituencySpans)
+                            collectConstituency(docId, foundry, constituencySpans)
                         }
                     }
                 }
@@ -2631,7 +2632,7 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
-    private data class CorenlpConstituencyNode(
+    private data class ConstituencyNode(
         val id: String,
         val from: Int,
         val to: Int,
@@ -2639,7 +2640,7 @@ class KorapXmlTool : Callable<Int> {
         val children: MutableList<String> = mutableListOf()
     )
 
-    private fun collectCorenlpSentences(docId: String, spans: NodeList) {
+    private fun collectSentences(docId: String, foundry: String, spans: NodeList) {
         if (outputTexts.contains(docId)) return
 
         val textData = krillData.getOrPut(docId) {
@@ -2647,14 +2648,14 @@ class KorapXmlTool : Callable<Int> {
         }
 
         synchronized(textData) {
-            if (textData.corenlpSentencesCollected) return
+            if (textData.sentencesCollectedByFoundry.contains(foundry)) return
             for (i in 0 until spans.length) {
                 val span = spans.item(i) as? Element ?: continue
                 val from = span.getAttribute("from").toIntOrNull() ?: continue
                 val to = span.getAttribute("to").toIntOrNull() ?: continue
                 textData.structureSpans.add(
                     StructureSpan(
-                        layer = "corenlp/s:s",
+                        layer = "$foundry/s:s",
                         from = from,
                         to = to,
                         tokenFrom = -1,
@@ -2664,14 +2665,14 @@ class KorapXmlTool : Callable<Int> {
                     )
                 )
             }
-            textData.corenlpSentencesCollected = true
+            textData.sentencesCollectedByFoundry.add(foundry)
         }
     }
 
-    private fun collectCorenlpConstituency(docId: String, spans: NodeList) {
+    private fun collectConstituency(docId: String, foundry: String, spans: NodeList) {
         if (outputTexts.contains(docId)) return
 
-        val nodesById = mutableMapOf<String, CorenlpConstituencyNode>()
+        val nodesById = mutableMapOf<String, ConstituencyNode>()
         val nonRootIds = mutableSetOf<String>()
 
         for (i in 0 until spans.length) {
@@ -2695,7 +2696,7 @@ class KorapXmlTool : Callable<Int> {
             }
             if (label.isNullOrBlank()) continue
 
-            val node = CorenlpConstituencyNode(id, from, to, label)
+            val node = ConstituencyNode(id, from, to, label)
 
             val relElements = span.getElementsByTagName("rel")
             for (j in 0 until relElements.length) {
@@ -2725,14 +2726,14 @@ class KorapXmlTool : Callable<Int> {
         }
 
         synchronized(textData) {
-            if (textData.corenlpConstituencyCollected) return
-            LOGGER.fine("Collecting corenlp constituency for $docId: ${nodesById.size} nodes, roots=${nodesById.keys.count { it !in nonRootIds }}")
+            if (textData.constituencyCollectedByFoundry.contains(foundry)) return
+            LOGGER.fine("Collecting constituency for $docId from foundry $foundry: ${nodesById.size} nodes, roots=${nodesById.keys.count { it !in nonRootIds }}")
 
             fun traverse(nodeId: String, depth: Int) {
                 val node = nodesById[nodeId] ?: return
                 textData.structureSpans.add(
                     StructureSpan(
-                        layer = "corenlp/c:${node.label}",
+                        layer = "$foundry/c:${node.label}",
                         from = node.from,
                         to = node.to,
                         tokenFrom = -1,
@@ -2748,7 +2749,7 @@ class KorapXmlTool : Callable<Int> {
 
             val rootIds = nodesById.keys.filter { it !in nonRootIds }
             rootIds.forEach { traverse(it, 0) }
-            textData.corenlpConstituencyCollected = true
+            textData.constituencyCollectedByFoundry.add(foundry)
         }
     }
 
