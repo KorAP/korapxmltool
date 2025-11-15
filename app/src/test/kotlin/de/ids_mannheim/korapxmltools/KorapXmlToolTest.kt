@@ -1,6 +1,7 @@
 package de.ids_mannheim.korapxmltools
 
 import org.junit.After
+import org.junit.AfterClass
 import org.junit.Before
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -13,6 +14,42 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class KorapXmlToolTest {
+    companion object {
+        private data class KrillTarResult(val outputDir: File, val tar: File)
+
+        private val krillTarCache = mutableMapOf<String, KrillTarResult>()
+
+        private fun ensureKrillTar(
+            key: String,
+            tarName: String = "wud24_sample.krill.tar",
+            argsBuilder: (File) -> Array<String>
+        ): File {
+            return krillTarCache.getOrPut(key) {
+                val outputDir = createTempDir("krill_cache_$key")
+                val args = argsBuilder(outputDir)
+                val exitCode = debug(args)
+                assertTrue(exitCode == 0, "Krill conversion should succeed for cached fixture '$key'")
+                val tar = File(outputDir, tarName)
+                assertTrue(tar.exists(), "Expected $tarName for cached fixture '$key'")
+                KrillTarResult(outputDir, tar)
+            }.tar
+        }
+
+        private fun createTempDir(prefix: String): File {
+            return File.createTempFile(prefix, "").apply {
+                delete()
+                mkdirs()
+            }
+        }
+
+        @JvmStatic
+        @AfterClass
+        fun cleanupKrillTarCache() {
+            krillTarCache.values.forEach { it.outputDir.deleteRecursively() }
+            krillTarCache.clear()
+        }
+    }
+
     private val outContent = ByteArrayOutputStream(10000000)
     private val errContent = ByteArrayOutputStream()
     private val originalOut: PrintStream = System.out
@@ -433,73 +470,64 @@ class KorapXmlToolTest {
         val opennlpZip = loadResource("wud24_sample.opennlp.zip").path
         val treeTaggerZip = loadResource("wud24_sample.tree_tagger.zip").path
 
-        // Create temporary output directory
-        val tempDir = File.createTempFile("krill_test", "").let {
+        val generatedTar = ensureKrillTar("wud24_full_foundries") { outputDir ->
+            arrayOf(
+                "-f", "krill",
+                "-D", outputDir.path,
+                baseZip,
+                spacyZip,
+                marmotMaltZip,
+                opennlpZip,
+                treeTaggerZip
+            )
+        }
+        assertTrue(generatedTar.exists(), "Generated krill tar should exist at ${generatedTar.path}")
+        assertTrue(generatedTar.length() > 0, "Generated tar should not be empty")
+
+        // Extract tar to verify it contains JSON files
+        val extractDir = File.createTempFile("extract", "").let {
             it.delete()
             it.mkdirs()
             it
         }
 
         try {
-            // Generate krill output to temp directory
-            val args = arrayOf("-f", "krill", "-D", tempDir.path, baseZip, spacyZip, marmotMaltZip, opennlpZip, treeTaggerZip)
-            val exitCode = debug(args)
+            // Extract tar
+            val tarProcess = ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path)
+                .redirectErrorStream(true)
+                .start()
+            assertTrue(tarProcess.waitFor() == 0, "Tar extraction should succeed")
 
-            // Check that generation succeeded
-            assertTrue(exitCode == 0, "Krill conversion should succeed")
+            // Get list of JSON files
+            val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
+            assertTrue(jsonFiles.isNotEmpty(), "Tar should contain JSON.gz files")
 
-            // Expected output file name
-            val generatedTar = File(tempDir, "wud24_sample.krill.tar")
-            assertTrue(generatedTar.exists(), "Generated krill tar should exist at ${generatedTar.path}")
-            assertTrue(generatedTar.length() > 0, "Generated tar should not be empty")
-
-            // Extract tar to verify it contains JSON files
-            val extractDir = File.createTempFile("extract", "").let {
-                it.delete()
-                it.mkdirs()
-                it
-            }
-
-            try {
-                // Extract tar
-                val tarProcess = ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path)
-                    .redirectErrorStream(true)
+            // Verify each JSON file is valid
+            jsonFiles.forEach { jsonFile ->
+                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
                     .start()
-                assertTrue(tarProcess.waitFor() == 0, "Tar extraction should succeed")
+                    .inputStream
+                    .bufferedReader()
+                    .readText()
 
-                // Get list of JSON files
-                val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
-                assertTrue(jsonFiles.isNotEmpty(), "Tar should contain JSON.gz files")
+                // Check required fields in JSON
+                assertTrue(jsonContent.contains("\"@context\""), "JSON should have @context")
+                assertTrue(jsonContent.contains("\"@type\":\"koral:corpus\""), "JSON should have correct @type")
+                assertTrue(jsonContent.contains("\"data\""), "JSON should have data section")
+                assertTrue(jsonContent.contains("\"foundries\""), "JSON should have foundries")
+                assertTrue(jsonContent.contains("\"layerInfos\""), "JSON should have layerInfos")
+                assertTrue(jsonContent.contains("\"name\":\"tokens\""), "JSON should have name field")
+                assertTrue(jsonContent.contains("\"stream\""), "JSON should have stream")
+                assertTrue(jsonContent.contains("\"text\""), "JSON should have text")
 
-                // Verify each JSON file is valid
-                jsonFiles.forEach { jsonFile ->
-                    val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                        .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                        .start()
-                        .inputStream
-                        .bufferedReader()
-                        .readText()
-
-                    // Check required fields in JSON
-                    assertTrue(jsonContent.contains("\"@context\""), "JSON should have @context")
-                    assertTrue(jsonContent.contains("\"@type\":\"koral:corpus\""), "JSON should have correct @type")
-                    assertTrue(jsonContent.contains("\"data\""), "JSON should have data section")
-                    assertTrue(jsonContent.contains("\"foundries\""), "JSON should have foundries")
-                    assertTrue(jsonContent.contains("\"layerInfos\""), "JSON should have layerInfos")
-                    assertTrue(jsonContent.contains("\"name\":\"tokens\""), "JSON should have name field")
-                    assertTrue(jsonContent.contains("\"stream\""), "JSON should have stream")
-                    assertTrue(jsonContent.contains("\"text\""), "JSON should have text")
-
-                    // Check for multiple foundries
-                    assertTrue(jsonContent.contains("spacy"), "JSON should contain spacy foundry")
-                    assertTrue(jsonContent.contains("marmot") || jsonContent.contains("malt"), "JSON should contain marmot or malt foundry")
-                    assertTrue(jsonContent.contains("treetagger"), "JSON should contain treetagger foundry")
-                }
-            } finally {
-                extractDir.deleteRecursively()
+                // Check for multiple foundries
+                assertTrue(jsonContent.contains("spacy"), "JSON should contain spacy foundry")
+                assertTrue(jsonContent.contains("marmot") || jsonContent.contains("malt"), "JSON should contain marmot or malt foundry")
+                assertTrue(jsonContent.contains("treetagger"), "JSON should contain treetagger foundry")
             }
         } finally {
-            tempDir.deleteRecursively()
+            extractDir.deleteRecursively()
         }
     }
 
@@ -509,51 +537,39 @@ class KorapXmlToolTest {
         val baseZip = loadResource("wud24_sample.zip").path
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
 
-        val tempDir = File.createTempFile("krill_inverse_test", "").let {
+        val generatedTar = ensureKrillTar("wud24_base_spacy") { outputDir ->
+            arrayOf("-f", "krill", "-D", outputDir.path, baseZip, spacyZip)
+        }
+        assertTrue(generatedTar.exists())
+
+        // Extract and check for inverse dependencies
+        val extractDir = File.createTempFile("extract_inv", "").let {
             it.delete()
             it.mkdirs()
             it
         }
 
         try {
-            val args = arrayOf("-f", "krill", "-D", tempDir.path, baseZip, spacyZip)
-            val exitCode = debug(args)
-            assertTrue(exitCode == 0, "Krill conversion should succeed")
+            ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path).start().waitFor()
+            val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
+            assertTrue(jsonFiles.isNotEmpty())
 
-            val generatedTar = File(tempDir, "wud24_sample.krill.tar")
-            assertTrue(generatedTar.exists())
+            jsonFiles.forEach { jsonFile ->
+                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                    .start()
+                    .inputStream
+                    .bufferedReader()
+                    .readText()
 
-            // Extract and check for inverse dependencies
-            val extractDir = File.createTempFile("extract_inv", "").let {
-                it.delete()
-                it.mkdirs()
-                it
-            }
-
-            try {
-                ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path).start().waitFor()
-                val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
-                assertTrue(jsonFiles.isNotEmpty())
-
-                jsonFiles.forEach { jsonFile ->
-                    val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                        .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                        .start()
-                        .inputStream
-                        .bufferedReader()
-                        .readText()
-
-                    // Check for inverse dependency annotations (format: <:foundry/d:label$...)
-                    assertTrue(
-                        jsonContent.contains("<:") && jsonContent.contains("/d:"),
-                        "JSON should contain inverse dependency annotations"
-                    )
-                }
-            } finally {
-                extractDir.deleteRecursively()
+                // Check for inverse dependency annotations (format: <:foundry/d:label$...)
+                assertTrue(
+                    jsonContent.contains("<:") && jsonContent.contains("/d:"),
+                    "JSON should contain inverse dependency annotations"
+                )
             }
         } finally {
-            tempDir.deleteRecursively()
+            extractDir.deleteRecursively()
         }
     }
 
@@ -563,54 +579,42 @@ class KorapXmlToolTest {
         val baseZip = loadResource("wud24_sample.zip").path
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
 
-        val tempDir = File.createTempFile("krill_base_test", "").let {
+        val generatedTar = ensureKrillTar("wud24_base_spacy") { outputDir ->
+            arrayOf("-f", "krill", "-D", outputDir.path, baseZip, spacyZip)
+        }
+        assertTrue(generatedTar.exists())
+
+        val extractDir = File.createTempFile("extract_base", "").let {
             it.delete()
             it.mkdirs()
             it
         }
 
         try {
-            val args = arrayOf("-f", "krill", "-D", tempDir.path, baseZip, spacyZip)
-            val exitCode = debug(args)
-            assertTrue(exitCode == 0, "Krill conversion should succeed")
+            ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path).start().waitFor()
+            val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
+            assertTrue(jsonFiles.isNotEmpty())
 
-            val generatedTar = File(tempDir, "wud24_sample.krill.tar")
-            assertTrue(generatedTar.exists())
+            jsonFiles.forEach { jsonFile ->
+                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                    .start()
+                    .inputStream
+                    .bufferedReader()
+                    .readText()
 
-            val extractDir = File.createTempFile("extract_base", "").let {
-                it.delete()
-                it.mkdirs()
-                it
-            }
-
-            try {
-                ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path).start().waitFor()
-                val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
-                assertTrue(jsonFiles.isNotEmpty())
-
-                jsonFiles.forEach { jsonFile ->
-                    val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                        .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                        .start()
-                        .inputStream
-                        .bufferedReader()
-                        .readText()
-
-                    // Check for base structure spans
-                    assertTrue(
-                        jsonContent.contains("base/s:t"),
-                        "JSON should contain base text span (base/s:t)"
-                    )
-                    assertTrue(
-                        jsonContent.contains("base/s:s"),
-                        "JSON should contain base sentence spans (base/s:s)"
-                    )
-                }
-            } finally {
-                extractDir.deleteRecursively()
+                // Check for base structure spans
+                assertTrue(
+                    jsonContent.contains("base/s:t"),
+                    "JSON should contain base text span (base/s:t)"
+                )
+                assertTrue(
+                    jsonContent.contains("base/s:s"),
+                    "JSON should contain base sentence spans (base/s:s)"
+                )
             }
         } finally {
-            tempDir.deleteRecursively()
+            extractDir.deleteRecursively()
         }
     }
 
@@ -623,52 +627,40 @@ class KorapXmlToolTest {
         val opennlpZip = loadResource("wud24_sample.opennlp.zip").path
         val treeTaggerZip = loadResource("wud24_sample.tree_tagger.zip").path
 
-        val tempDir = File.createTempFile("krill_foundries_test", "").let {
+        val generatedTar = ensureKrillTar("wud24_full_foundries") { outputDir ->
+            arrayOf("-f", "krill", "-D", outputDir.path, baseZip, spacyZip, marmotZip, opennlpZip, treeTaggerZip)
+        }
+        assertTrue(generatedTar.exists())
+
+        val extractDir = File.createTempFile("extract_foundries", "").let {
             it.delete()
             it.mkdirs()
             it
         }
 
         try {
-            val args = arrayOf("-f", "krill", "-D", tempDir.path, baseZip, spacyZip, marmotZip, opennlpZip, treeTaggerZip)
-            val exitCode = debug(args)
-            assertTrue(exitCode == 0, "Krill conversion should succeed")
+            ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path).start().waitFor()
+            val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
+            assertTrue(jsonFiles.isNotEmpty())
 
-            val generatedTar = File(tempDir, "wud24_sample.krill.tar")
-            assertTrue(generatedTar.exists())
+            jsonFiles.forEach { jsonFile ->
+                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                    .start()
+                    .inputStream
+                    .bufferedReader()
+                    .readText()
 
-            val extractDir = File.createTempFile("extract_foundries", "").let {
-                it.delete()
-                it.mkdirs()
-                it
-            }
-
-            try {
-                ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path).start().waitFor()
-                val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
-                assertTrue(jsonFiles.isNotEmpty())
-
-                jsonFiles.forEach { jsonFile ->
-                    val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                        .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                        .start()
-                        .inputStream
-                        .bufferedReader()
-                        .readText()
-
-                    // Check foundries field includes all expected foundries
-                    val foundries = jsonContent.substringAfter("\"foundries\":").substringBefore(",").trim()
-                    assertTrue(foundries.contains("spacy"), "Foundries should include spacy")
-                    assertTrue(foundries.contains("marmot") || foundries.contains("malt"), "Foundries should include marmot or malt")
-                    assertTrue(foundries.contains("opennlp"), "Foundries should include opennlp")
-                    assertTrue(foundries.contains("treetagger"), "Foundries should include treetagger (not tt)")
-                    assertTrue(foundries.contains("dereko"), "Foundries should include dereko")
-                }
-            } finally {
-                extractDir.deleteRecursively()
+                // Check foundries field includes all expected foundries
+                val foundries = jsonContent.substringAfter("\"foundries\":").substringBefore(",").trim()
+                assertTrue(foundries.contains("spacy"), "Foundries should include spacy")
+                assertTrue(foundries.contains("marmot") || foundries.contains("malt"), "Foundries should include marmot or malt")
+                assertTrue(foundries.contains("opennlp"), "Foundries should include opennlp")
+                assertTrue(foundries.contains("treetagger"), "Foundries should include treetagger (not tt)")
+                assertTrue(foundries.contains("dereko"), "Foundries should include dereko")
             }
         } finally {
-            tempDir.deleteRecursively()
+            extractDir.deleteRecursively()
         }
     }
 
@@ -677,61 +669,37 @@ class KorapXmlToolTest {
         val baseZip = loadResource("wud24_sample.zip").path
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
 
-        val defaultDir = File.createTempFile("krill_default", "").let {
-            it.delete()
-            it.mkdirs()
-            it
+        val defaultTar = ensureKrillTar("wud24_default_corenlp") { outputDir ->
+            arrayOf("-f", "krill", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
         }
+        assertTrue(defaultTar.exists(), "Default krill tar should exist")
 
-        try {
-            val defaultArgs = arrayOf("-f", "krill", "-D", defaultDir.path, baseZip, spacyZip, wud24Corenlp)
-            val defaultExit = debug(defaultArgs)
-            assertTrue(defaultExit == 0, "Krill conversion should succeed without --non-word-tokens")
+        val defaultJsons = readKrillJson(defaultTar).values
+        assertTrue(defaultJsons.isNotEmpty(), "Default Krill tar should contain JSON files")
+        assertTrue(
+            defaultJsons.all { !it.contains("\"s:,\"") },
+            "Default Krill output should skip comma tokens"
+        )
+        assertTrue(
+            defaultJsons.all { !it.contains("\"s:!\"") },
+            "Default Krill output should skip exclamation mark tokens"
+        )
 
-            val defaultTar = File(defaultDir, "wud24_sample.krill.tar")
-            assertTrue(defaultTar.exists(), "Default krill tar should exist")
-
-            val defaultJsons = readKrillJson(defaultTar).values
-            assertTrue(defaultJsons.isNotEmpty(), "Default Krill tar should contain JSON files")
-            assertTrue(
-                defaultJsons.all { !it.contains("\"s:,\"") },
-                "Default Krill output should skip comma tokens"
-            )
-            assertTrue(
-                defaultJsons.all { !it.contains("\"s:!\"") },
-                "Default Krill output should skip exclamation mark tokens"
-            )
-        } finally {
-            defaultDir.deleteRecursively()
+        val flagTar = ensureKrillTar("wud24_default_corenlp_nwt") { outputDir ->
+            arrayOf("-f", "krill", "--non-word-tokens", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
         }
+        assertTrue(flagTar.exists(), "Krill tar should exist when --non-word-tokens is set")
 
-        val flagDir = File.createTempFile("krill_nwt", "").let {
-            it.delete()
-            it.mkdirs()
-            it
-        }
-
-        try {
-            val flagArgs = arrayOf("-f", "krill", "--non-word-tokens", "-D", flagDir.path, baseZip, spacyZip, wud24Corenlp)
-            val flagExit = debug(flagArgs)
-            assertTrue(flagExit == 0, "Krill conversion should succeed with --non-word-tokens")
-
-            val flagTar = File(flagDir, "wud24_sample.krill.tar")
-            assertTrue(flagTar.exists(), "Krill tar should exist when --non-word-tokens is set")
-
-            val flagJsons = readKrillJson(flagTar).values
-            assertTrue(flagJsons.isNotEmpty(), "Krill tar should contain JSON files when --non-word-tokens is set")
-            assertTrue(
-                flagJsons.any { it.contains("\"s:,\"") },
-                "Krill output should include commas when --non-word-tokens is set"
-            )
-            assertTrue(
-                flagJsons.any { it.contains("\"s:!\"") },
-                "Krill output should include exclamation marks when --non-word-tokens is set"
-            )
-        } finally {
-            flagDir.deleteRecursively()
-        }
+        val flagJsons = readKrillJson(flagTar).values
+        assertTrue(flagJsons.isNotEmpty(), "Krill tar should contain JSON files when --non-word-tokens is set")
+        assertTrue(
+            flagJsons.any { it.contains("\"s:,\"") },
+            "Krill output should include commas when --non-word-tokens is set"
+        )
+        assertTrue(
+            flagJsons.any { it.contains("\"s:!\"") },
+            "Krill output should include exclamation marks when --non-word-tokens is set"
+        )
     }
 
     @Test
@@ -745,48 +713,36 @@ class KorapXmlToolTest {
         val referenceTar = File(loadResource("wud24_sample.wonwtopt.krill.tar").toURI())
         assertTrue(referenceTar.exists(), "Reference Krill tar is missing: ${referenceTar.path}")
 
-        val kotlinDir = File.createTempFile("krill_reference_cmp", "").let {
-            it.delete()
-            it.mkdirs()
-            it
-        }
-
-        try {
-            val args = arrayOf(
+        val kotlinTar = ensureKrillTar("wud24_reference_default") { outputDir ->
+            arrayOf(
                 "-f", "krill",
-                "-D", kotlinDir.path,
+                "-D", outputDir.path,
                 baseZip,
                 spacyZip,
                 marmotMaltZip,
                 treeTaggerZip,
                 corenlpZip
             )
-            val exitCode = debug(args)
-            assertTrue(exitCode == 0, "Krill conversion should succeed for reference comparison")
+        }
+        assertTrue(kotlinTar.exists(), "Kotlin-produced Krill tar should exist at ${kotlinTar.path}")
 
-            val kotlinTar = File(kotlinDir, "wud24_sample.krill.tar")
-            assertTrue(kotlinTar.exists(), "Kotlin-produced Krill tar should exist at ${kotlinTar.path}")
+        val kotlinJsons = readKrillJson(kotlinTar)
+        val referenceJsons = readKrillJson(referenceTar)
 
-            val kotlinJsons = readKrillJson(kotlinTar)
-            val referenceJsons = readKrillJson(referenceTar)
+        assertEquals(referenceJsons.keys, kotlinJsons.keys, "Kotlin and reference JSON sets differ")
 
-            assertEquals(referenceJsons.keys, kotlinJsons.keys, "Kotlin and reference JSON sets differ")
-
-            val tokensToCheck = listOf("\"s:,\"", "\"s:.\"")
-            referenceJsons.forEach { (doc, referenceJson) ->
-                val kotlinJson = kotlinJsons.getValue(doc)
-                tokensToCheck.forEach { token ->
-                    val refHas = referenceJson.contains(token)
-                    val kotlinHas = kotlinJson.contains(token)
-                    assertEquals(
-                        refHas,
-                        kotlinHas,
-                        "Mismatch for $token in document $doc compared to reference"
-                    )
-                }
+        val tokensToCheck = listOf("\"s:,\"", "\"s:.\"")
+        referenceJsons.forEach { (doc, referenceJson) ->
+            val kotlinJson = kotlinJsons.getValue(doc)
+            tokensToCheck.forEach { token ->
+                val refHas = referenceJson.contains(token)
+                val kotlinHas = kotlinJson.contains(token)
+                assertEquals(
+                    refHas,
+                    kotlinHas,
+                    "Mismatch for $token in document $doc compared to reference"
+                )
             }
-        } finally {
-            kotlinDir.deleteRecursively()
         }
     }
 
@@ -800,35 +756,26 @@ class KorapXmlToolTest {
         val referenceTar = File(loadResource("wud24_sample.nwt.krill.tar").toURI())
         assertTrue(referenceTar.exists(), "Non-word-token reference tar missing: ${referenceTar.path}")
 
-        val kotlinDir = File.createTempFile("krill_reference_nwt", "").let {
-            it.delete()
-            it.mkdirs()
-            it
-        }
-
-        try {
-            val args = arrayOf(
+        val kotlinTar = ensureKrillTar("wud24_reference_nwt") { outputDir ->
+            arrayOf(
                 "-f", "krill",
                 "--non-word-tokens",
-                "-D", kotlinDir.path,
+                "-D", outputDir.path,
                 baseZip,
                 spacyZip,
                 marmotMaltZip,
                 treeTaggerZip,
                 corenlpZipNwt
             )
-            val exitCode = debug(args)
-            assertTrue(exitCode == 0, "Krill conversion with --non-word-tokens should succeed for reference comparison")
+        }
+        assertTrue(kotlinTar.exists(), "Kotlin-produced Krill tar (nwt) should exist at ${kotlinTar.path}")
 
-            val kotlinTar = File(kotlinDir, "wud24_sample.krill.tar")
-            assertTrue(kotlinTar.exists(), "Kotlin-produced Krill tar (nwt) should exist at ${kotlinTar.path}")
+        val kotlinJsons = readKrillJson(kotlinTar)
+        val referenceJsons = readKrillJson(referenceTar)
 
-            val kotlinJsons = readKrillJson(kotlinTar)
-            val referenceJsons = readKrillJson(referenceTar)
+        assertEquals(referenceJsons.keys, kotlinJsons.keys, "Kotlin and reference JSON sets differ (nwt)")
 
-            assertEquals(referenceJsons.keys, kotlinJsons.keys, "Kotlin and reference JSON sets differ (nwt)")
-
-            val tokensToCheck = listOf(
+        val tokensToCheck = listOf(
                 "\"s:,\"",
                 "\"s:.\"",
                 "\"s:!\"",
@@ -851,9 +798,6 @@ class KorapXmlToolTest {
                     )
                 }
             }
-        } finally {
-            kotlinDir.deleteRecursively()
-        }
     }
 
     private fun readKrillJson(tarFile: File): Map<String, String> {
