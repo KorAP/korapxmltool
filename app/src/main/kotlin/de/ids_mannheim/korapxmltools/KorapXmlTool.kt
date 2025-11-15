@@ -714,11 +714,18 @@ class KorapXmlTool : Callable<Int> {
             externalFoundry = detectFoundryFromAnnotateCmd(annotateWith)
             // Initialize ZIP output stream BEFORE creating worker pool, if needed
             if (outputFormat == OutputFormat.KORAPXML) {
-                // Determine output filename
+                // Determine output filename - respect outputDir like krill format does
                 val inputZipPath = args[0] // First ZIP file
                 val targetFoundry = externalFoundry ?: "annotated"
 
-                val outputMorphoZipFileName = inputZipPath.replace(Regex("\\.zip$"), ".".plus(targetFoundry).plus(".zip"))
+                // If outputDir is default ".", use input file's directory for backward compatibility
+                val effectiveOutputDir = if (outputDir == ".") {
+                    File(inputZipPath).parent ?: "."
+                } else {
+                    outputDir
+                }
+                val baseZipName = File(inputZipPath).name.replace(Regex("\\.zip$"), "")
+                val outputMorphoZipFileName = File(effectiveOutputDir, "$baseZipName.$targetFoundry.zip").absolutePath
                 targetZipFileName = outputMorphoZipFileName
                 LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
                 // Prepare per-output log file
@@ -765,7 +772,14 @@ class KorapXmlTool : Callable<Int> {
 
             if (outputFormat == OutputFormat.KORAPXML) {
                 // For ZIP output with external annotation, we need a custom handler
-                val currentZipPath = args[0].replace(Regex("\\.zip$"), "." + (externalFoundry ?: "annotated") + ".zip")
+                // If outputDir is default ".", use input file's directory for backward compatibility
+                val effectiveOutputDir = if (outputDir == ".") {
+                    File(args[0]).parent ?: "."
+                } else {
+                    outputDir
+                }
+                val baseZipName = File(args[0]).name.replace(Regex("\\.zip$"), "")
+                val currentZipPath = File(effectiveOutputDir, "$baseZipName." + (externalFoundry ?: "annotated") + ".zip").absolutePath
                 val currentLog = currentZipPath.replace(Regex("\\.zip$"), ".log")
                 annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, { annotatedConllu, task ->
                      parseAndWriteAnnotatedConllu(annotatedConllu, task)
@@ -1090,9 +1104,36 @@ class KorapXmlTool : Callable<Int> {
             }
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
-            val outputMorphoZipFileName = zipFilePath.replace(Regex("\\.zip$"), "." + targetFoundry + ".zip")
+
+            // Respect outputDir option like krill format does
+            // If outputDir is default ".", use input file's directory for backward compatibility
+            val effectiveOutputDir = if (outputDir == ".") {
+                File(zipFilePath).parent ?: "."
+            } else {
+                outputDir
+            }
+            val baseZipName = File(zipFilePath).name.replace(Regex("\\.zip$"), "")
+            val outputMorphoZipFileName = File(effectiveOutputDir, "$baseZipName.$targetFoundry.zip").absolutePath
             targetZipFileName = outputMorphoZipFileName
             LOGGER.info("Output ZIP file: $outputMorphoZipFileName")
+
+            // Set up logging to file (like krill format does)
+            val logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
+            val fileHandler = java.util.logging.FileHandler(logFilePath, true)
+            fileHandler.formatter = ColoredFormatter()
+
+            // Remove existing console handlers so logs only go to file
+            for (logHandler in LOGGER.handlers.toList()) {
+                LOGGER.removeHandler(logHandler)
+            }
+            LOGGER.addHandler(fileHandler)
+            LOGGER.info("Logging redirected to: $logFilePath")
+
+            // Mirror System.err to the same log file
+            val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
+            val oldErr = System.err
+            System.setErr(errPs)
+
             if (File(outputMorphoZipFileName).exists() && !overwrite) {
                 LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
                 exitProcess(1)
@@ -1102,6 +1143,17 @@ class KorapXmlTool : Callable<Int> {
                 setUseZip64(Zip64Mode.Always)
             }
             LOGGER.info("Initialized morphoZipOutputStream for $outputMorphoZipFileName")
+
+            // Restore System.err and remove file handler on shutdown
+            Runtime.getRuntime().addShutdownHook(Thread {
+                try {
+                    LOGGER.info("Shutting down; closing ZIP log handler")
+                    LOGGER.removeHandler(fileHandler)
+                    fileHandler.close()
+                } catch (_: Exception) {}
+                try { System.setErr(oldErr) } catch (_: Exception) {}
+                try { errPs.close() } catch (_: Exception) {}
+            })
         } else {
             LOGGER.info("Skipping ZIP initialization: dbFactory=${dbFactory != null}, outputFormat=$outputFormat")
         }
