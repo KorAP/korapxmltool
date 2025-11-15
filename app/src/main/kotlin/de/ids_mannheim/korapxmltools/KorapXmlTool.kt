@@ -433,6 +433,7 @@ class KorapXmlTool : Callable<Int> {
     val sentences: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
     val tokens: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
     val morpho: ConcurrentHashMap<String, MutableMap<String, MorphoSpan>> = ConcurrentHashMap()
+    val constituencyTrees: ConcurrentHashMap<String, List<ConstituencyParserBridge.ConstituencyTree>> = ConcurrentHashMap()
     val fnames: ConcurrentHashMap<String, String> = ConcurrentHashMap()
     val metadata: ConcurrentHashMap<String, Array<String>> = ConcurrentHashMap()
     val extraFeatures: ConcurrentHashMap<String, MutableMap<String, String>> = ConcurrentHashMap()
@@ -444,6 +445,7 @@ class KorapXmlTool : Callable<Int> {
     private var progressBar: ProgressBar? = null
     var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge> = ConcurrentHashMap()
     var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge> = ConcurrentHashMap()
+    var constituencyParserBridges: ConcurrentHashMap<Long, ConstituencyParserBridge> = ConcurrentHashMap()
 
     // Zip progress tracking for logging (zipNumber/zipTotal)
     private val zipOrdinals: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
@@ -484,10 +486,10 @@ class KorapXmlTool : Callable<Int> {
             trySetFeature("http://xml.org/sax/features/external-general-entities", false)
             trySetFeature("http://xml.org/sax/features/external-parameter-entities", false)
             try {
-                setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
+                setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "")
             } catch (_: Exception) {}
             try {
-                setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
+                setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "")
             } catch (_: Exception) {}
         }
     }
@@ -1072,7 +1074,7 @@ class KorapXmlTool : Callable<Int> {
             var targetFoundry = "base"
             val labelParts = mutableListOf<String>()
             if (taggerName != null) {
-                val tagger = AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
+                val tagger = AnnotationToolBridgeFactory.getTagger(taggerName!!, taggerModel!!, LOGGER)
                 if (tagger != null) {
                     labelParts.add(tagger.foundry)
                 }
@@ -1338,19 +1340,31 @@ class KorapXmlTool : Callable<Int> {
         var waitForMorpho = passedWaitForMorpho
         LOGGER.finer("Processing ${zipEntry.name} in thread ${Thread.currentThread().threadId()}")
         if (taggerName != null && !taggerToolBridges.containsKey(Thread.currentThread().threadId())) {
-            val tagger = AnnotationToolBridgeFactory.getAnnotationToolBridge(taggerName!!, taggerModel!!, LOGGER) as TaggerToolBridge?
+            val tagger = AnnotationToolBridgeFactory.getTagger(taggerName!!, taggerModel!!, LOGGER)
             if (tagger != null) {
                 taggerToolBridges[Thread.currentThread().threadId()] = tagger
                 foundry = tagger.foundry
             }
 
         }
-        if (parserName != null && !parserToolBridges.containsKey(Thread.currentThread().threadId())) {
-            val parser = AnnotationToolBridgeFactory.getAnnotationToolBridge(parserName!!, parserModel!!, LOGGER) as ParserToolBridge?
-            if (parser != null) {
-                parserToolBridges[Thread.currentThread().threadId()] = parser
-                foundry = "$foundry dependency:${parser.foundry}"
-                LOGGER.fine("Initialized parser ${parserName} with foundry $foundry in thread ${Thread.currentThread().threadId()}")
+        if (parserName != null && !parserToolBridges.containsKey(Thread.currentThread().threadId()) && !constituencyParserBridges.containsKey(Thread.currentThread().threadId())) {
+            // If both tagger and parser are CoreNLP, pass tagger model to parser for POS tagging
+            val taggerModelForParser = if (parserName == "corenlp" && taggerName == "corenlp") taggerModel else null
+            val parser = AnnotationToolBridgeFactory.getParser(parserName!!, parserModel!!, LOGGER, taggerModelForParser)
+            when (parser) {
+                is ParserToolBridge -> {
+                    parserToolBridges[Thread.currentThread().threadId()] = parser
+                    foundry = "$foundry dependency:${parser.foundry}"
+                    LOGGER.fine("Initialized dependency parser ${parserName} with foundry $foundry in thread ${Thread.currentThread().threadId()}")
+                }
+                is ConstituencyParserBridge -> {
+                    constituencyParserBridges[Thread.currentThread().threadId()] = parser
+                    foundry = "${parser.foundry}"
+                    LOGGER.fine("Initialized constituency parser ${parserName} with foundry $foundry in thread ${Thread.currentThread().threadId()}")
+                }
+                else -> {
+                    LOGGER.warning("Parser ${parserName} returned null or unknown type")
+                }
             }
         }
 
@@ -1360,6 +1374,9 @@ class KorapXmlTool : Callable<Int> {
         }
         parserToolBridges[Thread.currentThread().threadId()]?.let { activeParser ->
             foundry = "$foundry dependency:${activeParser.foundry}"
+        }
+        constituencyParserBridges[Thread.currentThread().threadId()]?.let { activeParser ->
+            foundry = "${activeParser.foundry}"
         }
 
         try {
@@ -1675,6 +1692,17 @@ class KorapXmlTool : Callable<Int> {
                 )
                 LOGGER.finer("Parsed text: $docId in thread ${Thread.currentThread().threadId()}")
             }
+            if (constituencyParserBridges[Thread.currentThread().threadId()] != null) {
+                LOGGER.finer("Constituency parsing text: $docId in thread ${Thread.currentThread().threadId()}")
+                val trees = constituencyParserBridges[Thread.currentThread().threadId()]!!.parseConstituency(
+                    tokens[docId]!!,
+                    morpho[docId],
+                    sentences[docId],
+                    texts[docId]!!
+                )
+                constituencyTrees[docId] = trees
+                LOGGER.finer("Constituency parsed text: $docId, generated ${trees.size} trees in thread ${Thread.currentThread().threadId()}")
+            }
             if (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null) {
                 korapXmlOutput(getMorphoFoundry(), docId)
             } else {
@@ -1741,6 +1769,20 @@ class KorapXmlTool : Callable<Int> {
                  }
                  wroteOne = true
              }
+             // Write constituency.xml if a constituency parser is active
+             if (constituencyParserBridges[Thread.currentThread().threadId()] != null && constituencyTrees[docId] != null) {
+                val constDir = constituencyParserBridges[Thread.currentThread().threadId()]!!.foundry
+                val constXml = korapXmlConstituencyOutput(constDir, docId).toString()
+                val constPath = docId.replace(Regex("[_.]"), "/") + "/$constDir/constituency.xml"
+                 val constEntry = ZipArchiveEntry(constPath)
+                 constEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+                 synchronized(morphoZipOutputStream!!) {
+                     morphoZipOutputStream!!.putArchiveEntry(constEntry)
+                     morphoZipOutputStream!!.write(constXml.toByteArray())
+                     morphoZipOutputStream!!.closeArchiveEntry()
+                 }
+                 wroteOne = true
+             }
              output.clear()
              // Track written docs once per document and update progress like with --annotate-with
              val written = if (wroteOne) docsWrittenToZip.incrementAndGet() else docsWrittenToZip.get()
@@ -1761,7 +1803,7 @@ class KorapXmlTool : Callable<Int> {
          }
 
         // Release per-document data to free memory early
-        arrayOf(tokens, texts, sentences, morpho, fnames, metadata, extraFeatures).forEach { map ->
+        arrayOf(tokens, texts, sentences, morpho, constituencyTrees, fnames, metadata, extraFeatures).forEach { map ->
             if (map === morpho) {
                 morpho[docId]?.clear()
             }
@@ -1873,6 +1915,79 @@ class KorapXmlTool : Callable<Int> {
         transformer.setOutputProperty(OutputKeys.INDENT, "yes")
         transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no")
         transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "1")
+        val domSource = DOMSource(doc)
+        val streamResult = StreamResult(StringWriter())
+        transformer.transform(domSource, streamResult)
+
+        return StringBuilder(streamResult.writer.toString())
+    }
+
+    private fun korapXmlConstituencyOutput(foundry: String, docId: String): StringBuilder {
+        val doc: Document = dBuilder!!.newDocument()
+
+        // Root element
+        val layer = doc.createElement("layer")
+        layer.setAttribute("xmlns", "http://ids-mannheim.de/ns/KorAP")
+        layer.setAttribute("version", "KorAP-0.4")
+        layer.setAttribute("docid", docId)
+        doc.appendChild(layer)
+
+        val spanList = doc.createElement("spanList")
+        layer.appendChild(spanList)
+
+        val trees = constituencyTrees[docId]
+        if (trees == null || trees.isEmpty()) {
+            LOGGER.warning("No constituency trees found for $docId")
+            return StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        }
+
+        // Process each tree
+        trees.forEach { tree ->
+            tree.nodes.forEach { node ->
+                // Create span element
+                val spanNode = doc.createElement("span")
+                spanNode.setAttribute("id", node.id)
+                spanNode.setAttribute("from", node.from.toString())
+                spanNode.setAttribute("to", node.to.toString())
+
+                // Create fs element for the constituency label
+                val fs = doc.createElement("fs")
+                fs.setAttribute("xmlns", "http://www.tei-c.org/ns/1.0")
+                fs.setAttribute("type", "node")
+
+                val f = doc.createElement("f")
+                f.setAttribute("name", "const")
+                f.textContent = node.label
+                fs.appendChild(f)
+
+                spanNode.appendChild(fs)
+
+                // Add rel elements for children
+                node.children.forEach { child ->
+                    val rel = doc.createElement("rel")
+                    rel.setAttribute("label", "dominates")
+
+                    when (child) {
+                        is ConstituencyParserBridge.ConstituencyChild.NodeRef -> {
+                            rel.setAttribute("target", child.targetId)
+                        }
+                        is ConstituencyParserBridge.ConstituencyChild.MorphoRef -> {
+                            rel.setAttribute("uri", "morpho.xml#${child.morphoId}")
+                        }
+                    }
+
+                    spanNode.appendChild(rel)
+                }
+
+                spanList.appendChild(spanNode)
+            }
+        }
+
+        val transformerFactory = TransformerFactory.newInstance()
+        val transformer = transformerFactory.newTransformer()
+        transformer.setOutputProperty(OutputKeys.INDENT, "yes")
+        transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no")
+        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "3")
         val domSource = DOMSource(doc)
         val streamResult = StreamResult(StringWriter())
         transformer.transform(domSource, streamResult)
