@@ -1,16 +1,68 @@
 #!/usr/bin/env bash
-# Shebang header for korapxmltool to auto-enable native access on Java 25+
+# Shebang header for korapxmltool: auto-enables native access (Java 25+) and chooses a default -Xmx.
 # Usage:
 #   cat korapxmltool.shebang app/build/libs/korapxmltool.jar > korapxmltool
 #   chmod +x korapxmltool
 # (Run `zip -A korapxmltool` if your unzip/java complains about prepended bytes.)
+#
+# Override memory:
+#   export KORAPXMLTOOL_XMX_MB=8192          # sets -Xmx8192m
+#   export KORAPXMLTOOL_JAVA_OPTS="... -Xmx4g"  # full custom opts
+# Otherwise we pick ~75% of detected memory (cgroup aware), clamped to [1024m, 65536m].
 
 set -euo pipefail
 
-# Add native access flag if not already present
+has_xmx=false
+for v in "${JDK_JAVA_OPTIONS:-}" "${JAVA_TOOL_OPTIONS:-}" "${KORAPXMLTOOL_JAVA_OPTS:-}"; do
+  [[ $v == *"-Xmx"* ]] && has_xmx=true && break
+done
+for arg in "$@"; do
+  [[ $arg == -Xmx* ]] && has_xmx=true && break
+done
+
+detect_mem_limit_mb() {
+  local cgroup_limit
+  if [[ -f /sys/fs/cgroup/memory.max ]]; then
+    cgroup_limit=$(< /sys/fs/cgroup/memory.max)
+    [[ $cgroup_limit == "max" ]] && cgroup_limit=""
+  elif [[ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]]; then
+    cgroup_limit=$(< /sys/fs/cgroup/memory/memory.limit_in_bytes)
+  fi
+
+  local limit_mb=""
+  if [[ -n ${cgroup_limit:-} && $cgroup_limit =~ ^[0-9]+$ && $cgroup_limit -lt 9223372036854771712 ]]; then
+    limit_mb=$(( cgroup_limit / 1024 / 1024 ))
+  fi
+
+  local memtotal_kb
+  memtotal_kb=$(awk '/MemTotal/ { print $2; exit }' /proc/meminfo 2>/dev/null || echo "")
+  local total_mb=""
+  if [[ $memtotal_kb =~ ^[0-9]+$ ]]; then
+    total_mb=$(( memtotal_kb / 1024 ))
+  fi
+
+  if [[ -n $limit_mb && -n $total_mb ]]; then
+    (( limit_mb < total_mb )) && echo "$limit_mb" || echo "$total_mb"
+  else
+    echo "${limit_mb:-${total_mb:-4096}}"
+  fi
+}
+
 EXTRA_OPTS=()
 if [[ "${JDK_JAVA_OPTIONS:-}" != *"--enable-native-access="* ]]; then
   EXTRA_OPTS+=(--enable-native-access=ALL-UNNAMED)
 fi
 
-exec java "${EXTRA_OPTS[@]}" -jar "$0" "$@"
+if ! $has_xmx; then
+  if [[ -n ${KORAPXMLTOOL_XMX_MB:-} && ${KORAPXMLTOOL_XMX_MB:-} =~ ^[0-9]+$ ]]; then
+    xmx_mb=${KORAPXMLTOOL_XMX_MB}
+  else
+    mem_mb=$(detect_mem_limit_mb)
+    xmx_mb=$(( mem_mb * 75 / 100 ))
+    (( xmx_mb < 1024 )) && xmx_mb=1024
+    (( xmx_mb > 65536 )) && xmx_mb=65536
+  fi
+  EXTRA_OPTS+=("-Xmx${xmx_mb}m")
+fi
+
+exec java "${EXTRA_OPTS[@]}" ${KORAPXMLTOOL_JAVA_OPTS:-} -jar "$0" "$@"
