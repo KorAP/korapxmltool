@@ -1,4 +1,4 @@
-image: eclipse-temurin:21
+image: eclipse-temurin:25
 
 stages:
     - build
@@ -21,7 +21,7 @@ build:
   artifacts:
     paths:
       - app/build/libs/korapxmltool-*.jar
-      - app/build/libs/korapxmltool
+      - build/bin/korapxmltool
   cache:
     key: "$CI_COMMIT_REF_NAME"
     policy: push

@@ -144,7 +144,11 @@ tasks.register('createJarSymlink') {
 tasks.register('assembleShebangExecutable') {
     dependsOn shadowJar
     inputs.file(rootProject.file("korapxmltool.shebang"))
-    outputs.file(new File(shadowJar.archiveFile.get().asFile.parent, "korapxmltool"))
+    inputs.file(shadowJar.archiveFile)
+    
+    def binDir = rootProject.file("build/bin")
+    def targetExec = new File(binDir, "korapxmltool")
+    outputs.file(targetExec)
 
     doLast {
         def shebang = rootProject.file("korapxmltool.shebang")
@@ -152,8 +156,10 @@ tasks.register('assembleShebangExecutable') {
             throw new GradleException("Missing shebang stub: ${shebang}")
         }
 
+        // Ensure bin directory exists
+        binDir.mkdirs()
+
         def targetJar = shadowJar.archiveFile.get().asFile
-        def targetExec = new File(targetJar.parent, "korapxmltool")
 
         targetExec.withOutputStream { os ->
             os << shebang.bytes
@@ -162,6 +168,11 @@ tasks.register('assembleShebangExecutable') {
         targetExec.setExecutable(true, true)
         println "Created executable launcher: ${targetExec}"
     }
+}
+
+tasks.named('assemble') {
+    dependsOn createJarSymlink
+    dependsOn assembleShebangExecutable
 }
 
 tasks.named('build') {
