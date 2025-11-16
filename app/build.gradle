@@ -136,8 +136,33 @@ tasks.register('createJarSymlink') {
     }
 }
 
+// Concatenate shebang + shaded jar into an executable launcher
+tasks.register('assembleShebangExecutable') {
+    dependsOn shadowJar
+    inputs.file(rootProject.file("korapxmltool.shebang"))
+    outputs.file(new File(shadowJar.archiveFile.get().asFile.parent, "korapxmltool"))
+
+    doLast {
+        def shebang = rootProject.file("korapxmltool.shebang")
+        if (!shebang.exists()) {
+            throw new GradleException("Missing shebang stub: ${shebang}")
+        }
+
+        def targetJar = shadowJar.archiveFile.get().asFile
+        def targetExec = new File(targetJar.parent, "korapxmltool")
+
+        targetExec.withOutputStream { os ->
+            os << shebang.bytes
+            os << targetJar.bytes
+        }
+        targetExec.setExecutable(true, true)
+        println "Created executable launcher: ${targetExec}"
+    }
+}
+
 tasks.named('build') {
     dependsOn createJarSymlink
+    dependsOn assembleShebangExecutable
 }
 
 

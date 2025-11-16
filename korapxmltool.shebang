@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Shebang header for korapxmltool to auto-enable native access on Java 25+
+# Usage:
+#   cat korapxmltool.shebang app/build/libs/korapxmltool.jar > korapxmltool
+#   chmod +x korapxmltool
+# (Run `zip -A korapxmltool` if your unzip/java complains about prepended bytes.)
+
+set -euo pipefail
+
+# Add native access flag if not already present
+EXTRA_OPTS=()
+if [[ "${JDK_JAVA_OPTIONS:-}" != *"--enable-native-access="* ]]; then
+  EXTRA_OPTS+=(--enable-native-access=ALL-UNNAMED)
+fi
+
+exec java "${EXTRA_OPTS[@]}" -jar "$0" "$@"
