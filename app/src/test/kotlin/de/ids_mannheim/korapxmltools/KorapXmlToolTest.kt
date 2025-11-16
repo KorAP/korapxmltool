@@ -828,6 +828,91 @@ class KorapXmlToolTest {
             }
     }
 
+    @Test
+    fun corenlpConstituencyParsing() {
+        // Check if CoreNLP models are available
+        val taggerModel = File("libs/german-fast.tagger")
+        val parserModel = File("libs/germanSR.ser.gz")
+
+        if (!taggerModel.exists() || !parserModel.exists()) {
+            System.err.println("Skipping CoreNLP test: model files not found")
+            System.err.println("  Tagger: ${taggerModel.absolutePath} - exists: ${taggerModel.exists()}")
+            System.err.println("  Parser: ${parserModel.absolutePath} - exists: ${parserModel.exists()}")
+            return
+        }
+
+        val baseZip = loadResource("wud24_sample.zip").path
+        val outputDir = createTempDir("corenlp_test")
+
+        try {
+            // Run CoreNLP with both tagger and parser
+            val args = arrayOf(
+                "-f", "zip",
+                "-o",
+                "-D", outputDir.path,
+                "-t", "corenlp:${taggerModel.path}",
+                "-P", "corenlp:${parserModel.path}",
+                baseZip
+            )
+
+            val exitCode = debug(args)
+            assertEquals(0, exitCode, "CoreNLP processing should succeed")
+
+            // Check output ZIP was created
+            val outputZip = File(outputDir, "wud24_sample.corenlp.zip")
+            assertTrue(outputZip.exists(), "Output ZIP should exist at ${outputZip.path}")
+
+            // Check that constituency.xml files were created
+            val constituencyFiles = mutableListOf<String>()
+            ProcessBuilder("unzip", "-l", outputZip.path)
+                .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                .start()
+                .inputStream
+                .bufferedReader()
+                .useLines { lines ->
+                    lines.forEach { line ->
+                        if (line.contains("constituency.xml")) {
+                            constituencyFiles.add(line.trim())
+                        }
+                    }
+                }
+
+            assertTrue(constituencyFiles.isNotEmpty(), "Should have constituency.xml files in output")
+
+            // Verify we have the expected documents
+            val expectedDocs = listOf(
+                "WUD24/I0083/95367/corenlp/constituency.xml",
+                "WUD24/Z0087/65594/corenlp/constituency.xml",
+                "WUD24/K0086/98010/corenlp/constituency.xml"
+            )
+
+            expectedDocs.forEach { docPath ->
+                val found = constituencyFiles.any { it.contains(docPath) }
+                assertTrue(found, "Should have constituency.xml for $docPath")
+            }
+
+            // Check morpho.xml files also exist (tagger output)
+            val morphoFiles = mutableListOf<String>()
+            ProcessBuilder("unzip", "-l", outputZip.path)
+                .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                .start()
+                .inputStream
+                .bufferedReader()
+                .useLines { lines ->
+                    lines.forEach { line ->
+                        if (line.contains("/corenlp/morpho.xml")) {
+                            morphoFiles.add(line.trim())
+                        }
+                    }
+                }
+
+            assertTrue(morphoFiles.size >= 3, "Should have morpho.xml files for at least 3 documents")
+
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
     private fun readKrillJson(tarFile: File): Map<String, String> {
         val extractDir = File.createTempFile("krill_extract", "").let {
             it.delete()
