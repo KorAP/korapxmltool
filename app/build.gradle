@@ -48,6 +48,10 @@ dependencies {
     implementation 'org.apache.commons:commons-compress:1.28.0'
     implementation 'me.tongfei:progressbar:0.10.1'
 
+    // Fix XML APIs conflict - force resolution to the non-relocated version
+    implementation('xml-apis:xml-apis:1.0.b2') {
+        because 'Avoid POM relocation warnings from xml-apis 2.0.2 -> 1.0.b2'
+    }
 }
 
 // Enforce JDK 21 Toolchain and Bytecode-Level 21
