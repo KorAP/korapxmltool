@@ -103,6 +103,19 @@ At INFO level the tool logs:
 - The zip processing order with file sizes (largest-first in `--lemma-only`).
 - For each zip: start message including its size and a completion line with cumulative progress, ETA and average MB/s.
 
+### Conversion to Krill (KoralQuery) JSON format
+
+Generate a tar archive containing gzipped Krill/KoralQuery JSON files across all provided foundries.
+
+```shell script
+java -jar ./app/build/libs/korapxmltool.jar -f krill -D out/krill \
+  app/src/test/resources/wud24_sample.zip \
+  app/src/test/resources/wud24_sample.spacy.zip \
+  app/src/test/resources/wud24_sample.marmot-malt.zip
+```
+
+This writes `out/krill/wud24_sample.krill.tar` plus a log file. Add more annotated KorAP-XML zips (e.g., TreeTagger, CoreNLP) to merge their layers into the same Krill export; use `--non-word-tokens` if punctuation should stay in the token stream.
+
 ## Annotation
 
 ### Tagging with integrated MarMoT POS tagger directly to a new KorAP-XML ZIP file
@@ -142,6 +155,19 @@ java  -jar app/build/libs/korapxmltool.jar -T4 -A "docker run -e SPACY_USE_DEPEN
 ```shell script
 java  -jar app/build/libs/korapxmltool.jar -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=True --rm -i korap/conllu2spacy:latest 2> /dev/null" -f zip ./app/src/test/resources/goe.zip
 ```
+
+### Tag, lemmatize and constituency parse with CoreNLP (3.X) directly to a new KorAP-XML ZIP file
+
+Download the Stanford CoreNLP v3.X POS tagger and constituency parser models (e.g., `german-fast.tagger` and `germanSR.ser.gz`) into `libs/`.
+
+```shell script
+java -jar ./app/build/libs/korapxmltool.jar -f zip -D out \
+  -t corenlp:libs/german-fast.tagger \
+  -P corenlp:libs/germanSR.ser.gz \
+  app/src/test/resources/wud24_sample.zip
+```
+
+The resulting `out/wud24_sample.corenlp.zip` contains `corenlp/morpho.xml` and `corenlp/constituency.xml` alongside the base tokens.
 
 ### Parse using the integrated Maltparser directly to a new KorAP-XML ZIP file
 
