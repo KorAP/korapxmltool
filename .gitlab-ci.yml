@@ -21,6 +21,7 @@ build:
   artifacts:
     paths:
       - app/build/libs/korapxmltool-*.jar
+      - app/build/libs/korapxmltool
   cache:
     key: "$CI_COMMIT_REF_NAME"
     policy: push
