@@ -317,12 +317,14 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.removeHandler(handler)
         }
         LOGGER.addHandler(handler)
-        LOGGER.level = try {
+        val level = try {
             Level.parse(logLevel.uppercase(Locale.getDefault()))
         } catch (e: IllegalArgumentException) {
             LOGGER.warning("Invalid log level: $logLevel. Defaulting to WARNING.")
             Level.WARNING
         }
+        LOGGER.level = level
+        handler.level = level  // Handler also needs to be set to the same level
 
         if (lemmaOnly) {
             useLemma = true
@@ -383,6 +385,9 @@ class KorapXmlTool : Callable<Int> {
     // Track the next text ID (watermark) each foundry needs to process for priority scheduling
     // The foundry with the lexicographically smallest next text ID gets priority
     private val foundryWatermarks: ConcurrentHashMap<String, String> = ConcurrentHashMap()
+    private var scanOrderLogged = false
+    private var expectedTextOrder: List<String> = emptyList()
+    private var nextTextOrderIndex: Int = 0
 
     // Priority-based task for foundry-aware scheduling
     private inner class PrioritizedTask(
@@ -398,7 +403,7 @@ class KorapXmlTool : Callable<Int> {
             // and handles sparse foundries naturally (they won't block on non-existent texts)
 
             // First, compare text IDs lexicographically
-            val textIdDiff = textId.compareTo(other.textId)
+            val textIdDiff = compareTextIds(textId, other.textId)
             if (textIdDiff != 0) return textIdDiff
 
             // If same text ID, prefer base foundry (it should be processed first)
@@ -421,6 +426,45 @@ class KorapXmlTool : Callable<Int> {
     // Single priority-based executor for all entry processing
     private var entryExecutor: java.util.concurrent.ExecutorService? = null
 
+    private val MONTH_ORDER = mapOf(
+        "JAN" to 1, "FEB" to 2, "MAR" to 3, "MRZ" to 3, "APR" to 4,
+        "MAY" to 5, "MAI" to 5, "JUN" to 6, "JUL" to 7, "AUG" to 8,
+        "SEP" to 9, "OCT" to 10, "OKT" to 10, "NOV" to 11, "DEC" to 12, "DEZ" to 12
+    )
+
+    private data class TextIdSortKey(
+        val prefix: String,
+        val monthRank: Int?,
+        val mid: String,
+        val number: Long,
+        val fallback: String
+    ) : Comparable<TextIdSortKey> {
+        override fun compareTo(other: TextIdSortKey): Int {
+            // First compare by prefix
+            val prefixCmp = prefix.compareTo(other.prefix)
+            if (prefixCmp != 0) return prefixCmp
+
+            // Then compare by month rank (if both have months, use rank; otherwise fall back to mid)
+            val thisRank = monthRank ?: Int.MAX_VALUE
+            val otherRank = other.monthRank ?: Int.MAX_VALUE
+            val rankCmp = thisRank.compareTo(otherRank)
+            if (rankCmp != 0) return rankCmp
+
+            // If both have no month rank (both MAX_VALUE), compare mid alphabetically
+            if (monthRank == null && other.monthRank == null) {
+                val midCmp = mid.compareTo(other.mid)
+                if (midCmp != 0) return midCmp
+            }
+
+            // Then compare by number
+            val numberCmp = number.compareTo(other.number)
+            if (numberCmp != 0) return numberCmp
+
+            // Finally fallback to full ID
+            return fallback.compareTo(other.fallback)
+        }
+    }
+
     // Extract text ID from ZIP entry path (e.g., "ZGE24/JAN/00001/base/data.xml" -> "ZGE24_JAN.00001")
     private fun getTextIdFromPath(path: String): String {
         val parts = path.split('/')
@@ -429,6 +473,15 @@ class KorapXmlTool : Callable<Int> {
         } else {
             parts[0]  // Fallback to first component
         }
+    }
+
+    private fun monthAwareSortKey(textId: String): TextIdSortKey {
+        val parts = Regex("[-_.]").split(textId)
+        val prefix = parts.getOrNull(0) ?: textId
+        val mid = parts.getOrNull(1) ?: ""
+        val tailNumber = parts.getOrNull(2)?.toLongOrNull() ?: Long.MAX_VALUE
+        val monthRank = if (mid.length == 3) MONTH_ORDER[mid.uppercase(Locale.ROOT)] else null
+        return TextIdSortKey(prefix, monthRank, mid, tailNumber, textId)
     }
 
     val texts: ConcurrentHashMap<String, NonBmpString> = ConcurrentHashMap()
@@ -909,7 +962,7 @@ class KorapXmlTool : Callable<Int> {
                 // Continue using the same progress bar for remaining texts (no separate bar)
                 // Output remaining texts (these weren't output incrementally, possibly incomplete)
                 // Copy keys to avoid ConcurrentModificationException if scanner is still running
-                val remainingKeys = krillData.keys.sorted()
+                val remainingKeys = krillData.keys.sortedWith(this::compareTextIds)
                 remainingKeys.forEach { textId ->
                     val textData = krillData.remove(textId) ?: return@forEach  // Skip if already removed by scanner
                     val textFoundries = textData.morphoByFoundry.keys.toSet() + setOf("base")
@@ -1062,6 +1115,9 @@ class KorapXmlTool : Callable<Int> {
             it.from
         }.toTypedArray()
     }
+
+    private fun compareTextIds(a: String, b: String): Int =
+        monthAwareSortKey(a).compareTo(monthAwareSortKey(b))
 
     private fun openZipFile(path: String): ApacheZipFile =
         ApacheZipFile.builder()
@@ -1311,10 +1367,10 @@ class KorapXmlTool : Callable<Int> {
 
         // Sort entries by text ID to ensure texts complete as early as possible
         // This is crucial for incremental output - all ZIPs will process texts in the same order
-        entries.sortBy { entry ->
+        entries.sortWith(compareBy { entry ->
             // Extract text ID from path like "ZGE24/JAN/00001/base/data.xml" -> "ZGE24_JAN.00001"
-            getTextIdFromPath(entry.name)
-        }
+            monthAwareSortKey(getTextIdFromPath(entry.name))
+        })
         LOGGER.fine("Sorted entries by text ID for incremental processing")
 
         // Determine document count for progress: prefer data.xml, fallback to tokens.xml
@@ -1354,7 +1410,7 @@ class KorapXmlTool : Callable<Int> {
 
         // Group entries by text ID to ensure all files for a text are processed together
         val entriesByTextId = entries.groupBy { getTextIdFromPath(it.name) }
-        val textIds = entriesByTextId.keys.sorted()  // Process text IDs in lexicographic order
+        val textIds = entriesByTextId.keys.sortedWith(this::compareTextIds)  // Process text IDs in month-aware order
 
         // Initialize watermark for this foundry if not exists (set to first text ID)
         if (!foundryWatermarks.containsKey(foundry) && textIds.isNotEmpty()) {
@@ -3533,12 +3589,12 @@ class KorapXmlTool : Callable<Int> {
     private fun scanAndOutputCompleteTexts(forceScan: Boolean = false) {
         if ((shutdownIncrementalWriter && !forceScan) || !tarStreamOpen) return
 
-        // Get all texts that we know about (from zipInventory), sorted to match processing order
-        // This ensures we check texts in the same order they're being processed
-        val allTexts = zipInventory.values.flatten().toSet().sorted()
+        if (expectedTextOrder.isEmpty()) return
 
+        val readyTexts = mutableListOf<String>()
         var outputCount = 0
-        for (textId in allTexts) {
+        while (nextTextOrderIndex < expectedTextOrder.size) {
+            val textId = expectedTextOrder[nextTextOrderIndex]
             // Check if shutdown was requested, thread was interrupted, or stream was closed
             if (shutdownIncrementalWriter || Thread.currentThread().isInterrupted || !tarStreamOpen) break
 
@@ -3553,40 +3609,47 @@ class KorapXmlTool : Callable<Int> {
                 processedTextsPerZip[path]?.contains(textId) == true
             }
 
-            if (allProcessed && krillData.containsKey(textId)) {
-                // Atomically claim this text for output (add returns false if already present)
-                if (outputTexts.add(textId)) {
-                    // We successfully claimed it - output now
-                    val textData = krillData.remove(textId)
-                    if (textData != null) {
-                        // Acquire lock to prevent concurrent access with stream closing
-                        tarStreamLock.lock()
+            if (!allProcessed || !krillData.containsKey(textId)) {
+                // Maintain global ordering across foundries: stop at first not-ready text
+                break
+            }
+
+            readyTexts.add(textId)
+            nextTextOrderIndex++
+        }
+
+        readyTexts.sortWith { a, b -> compareTextIds(a, b) }
+
+        // Output ready texts in month-aware order (already in order because allTexts is sorted month-aware)
+        for (textId in readyTexts) {
+            val textData = krillData[textId] ?: continue
+            val relevantZips = zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
+            if (outputTexts.add(textId)) {
+                tarStreamLock.lock()
+                try {
+                    if (tarStreamOpen) {
                         try {
-                            // Double-check stream is still open while holding the lock
-                            if (tarStreamOpen) {
-                                try {
-                                    outputKrillText(textId, textData)
-                                    incrementalProgressBar?.step()
-                                    outputCount++
-                                    LOGGER.fine("Output text $textId (processed by ${relevantZips.size} ZIPs, ${krillData.size} still pending)")
-                                } catch (e: IOException) {
-                                    // Stream may have been closed - stop trying to output
-                                    LOGGER.warning("Cannot output text $textId: stream closed")
-                                    tarStreamOpen = false
-                                    break
-                                }
-                            }
-                        } finally {
-                            tarStreamLock.unlock()
+                            outputKrillText(textId, textData)
+                            incrementalProgressBar?.step()
+                            outputCount++
+                            LOGGER.fine("Output text $textId (processed by ${relevantZips.size} ZIPs, ${krillData.size} still pending)")
+                        } catch (e: IOException) {
+                            LOGGER.warning("Cannot output text $textId: stream closed")
+                            tarStreamOpen = false
+                            break
                         }
                     }
-
-                    // Clean up tracking data for this text
-                    relevantZips.forEach { path ->
-                        zipInventory[path]?.remove(textId)
-                        processedTextsPerZip[path]?.remove(textId)
-                    }
+                } finally {
+                    tarStreamLock.unlock()
                 }
+            }
+
+            krillData.remove(textId)
+
+            // Clean up tracking data for this text
+            relevantZips.forEach { path ->
+                zipInventory[path]?.remove(textId)
+                processedTextsPerZip[path]?.remove(textId)
             }
         }
 
@@ -3730,7 +3793,11 @@ class KorapXmlTool : Callable<Int> {
         LOGGER.info("ZIP inventory built: ${zipPaths.size} ZIPs scanned")
         // Calculate total unique texts
         val allTexts = zipInventory.values.flatten().toSet()
+        expectedTextOrder = allTexts.sortedWith(this::compareTextIds)
+        nextTextOrderIndex = 0
+        scanOrderLogged = false
         LOGGER.info("  Total unique texts across all ZIPs: ${allTexts.size}")
+        LOGGER.info("  Text processing order (first 20): ${expectedTextOrder.take(20)}")
     }
 
     // Output a single text to Krill TAR (thread-safe)

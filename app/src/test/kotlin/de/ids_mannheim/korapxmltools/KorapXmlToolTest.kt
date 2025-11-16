@@ -490,26 +490,74 @@ class KorapXmlToolTest {
         assertTrue(logFile.exists(), "Log file should exist at ${logFile.path}")
         assertTrue(logFile.length() > 0, "Log file should not be empty")
 
-        // Check that texts are processed in alphabetical order for each foundry
-        val logContent = logFile.readText()
-        val foundries = listOf("spacy", "marmot", "opennlp", "treetagger")
+        // Check that texts are output in month-aware order in the TAR file
+        // Note: We check TAR order instead of log order because parallel processing means
+        // log completion order can differ from submission order, but TAR output follows sorted order
+        val monthOrder = mapOf(
+            "JAN" to 1, "FEB" to 2, "MAR" to 3, "MRZ" to 3, "APR" to 4,
+            "MAY" to 5, "MAI" to 5, "JUN" to 6, "JUL" to 7, "AUG" to 8,
+            "SEP" to 9, "OCT" to 10, "OKT" to 10, "NOV" to 11, "DEC" to 12, "DEZ" to 12
+        )
+        data class MonthKey(
+            val prefix: String,
+            val monthRank: Int,
+            val mid: String,
+            val num: Long,
+            val fallback: String
+        ) : Comparable<MonthKey> {
+            override fun compareTo(other: MonthKey): Int {
+                // First compare by prefix
+                val prefixCmp = prefix.compareTo(other.prefix)
+                if (prefixCmp != 0) return prefixCmp
 
-        foundries.forEach { foundry ->
-            // Extract text IDs for this foundry from log using regex
-            val pattern = Regex("Processing.*for ([^ :]+).*foundry=$foundry")
-            val textIds = pattern.findAll(logContent)
-                .map { it.groupValues[1] }
-                .toList()
+                // Then compare by month rank
+                val rankCmp = monthRank.compareTo(other.monthRank)
+                if (rankCmp != 0) return rankCmp
 
-            if (textIds.isNotEmpty()) {
-                // Check if text IDs are in alphabetical order
-                val sortedTextIds = textIds.sorted()
-                assertEquals(
-                    sortedTextIds,
-                    textIds,
-                    "Text IDs for foundry '$foundry' should be processed in alphabetical order. Expected: $sortedTextIds, but got: $textIds"
-                )
+                // If both have no month rank (both MAX_VALUE), compare mid alphabetically
+                if (monthRank == Int.MAX_VALUE && other.monthRank == Int.MAX_VALUE) {
+                    val midCmp = mid.compareTo(other.mid)
+                    if (midCmp != 0) return midCmp
+                }
+
+                // Then compare by number
+                val numCmp = num.compareTo(other.num)
+                if (numCmp != 0) return numCmp
+
+                // Finally fallback to full ID
+                return fallback.compareTo(other.fallback)
             }
+        }
+
+        fun monthAwareKey(textId: String): MonthKey {
+            val tokens = textId.split('_', '.', '-')
+            val prefix = tokens.getOrNull(0) ?: textId
+            val mid = tokens.getOrNull(1) ?: ""
+            val num = tokens.getOrNull(2)?.toLongOrNull() ?: Long.MAX_VALUE
+            val monthRank = if (mid.length == 3) monthOrder[mid] else null
+            return MonthKey(prefix, monthRank ?: Int.MAX_VALUE, mid, num, textId)
+        }
+
+        // Extract text IDs from TAR file (these are written in sorted order)
+        val tarListProcess = ProcessBuilder("tar", "-tf", generatedTar.path)
+            .redirectErrorStream(true)
+            .start()
+        val tarFiles = tarListProcess.inputStream.bufferedReader().readLines()
+        assertTrue(tarListProcess.waitFor() == 0, "tar -tf should succeed")
+
+        // Extract text IDs from JSON filenames in TAR
+        val textIdsInTar = tarFiles
+            .filter { it.endsWith(".json.gz") }
+            .map { it.substringAfterLast('/').removeSuffix(".json.gz").replace('-', '_').replace('.', '_') }
+
+        if (textIdsInTar.isNotEmpty()) {
+            // Check if text IDs in TAR follow month-aware ordering
+            val sortedTextIds = textIdsInTar.sortedWith(compareBy { monthAwareKey(it) })
+            assertEquals(
+                sortedTextIds,
+                textIdsInTar,
+                "Text IDs in TAR should be in month-aware order. Expected: $sortedTextIds, but got: $textIdsInTar"
+            )
         }
 
         // Extract tar to verify it contains JSON files
@@ -930,6 +978,51 @@ class KorapXmlToolTest {
             constituencyLines.first().contains("("),
             "Constituency comment should contain bracketed structure"
         )
+    }
+
+    private fun KorapXmlTool.compareTextIds(a: String, b: String): Int {
+        val m = KorapXmlTool::class.java.getDeclaredMethod("compareTextIds", String::class.java, String::class.java)
+        m.isAccessible = true
+        return m.invoke(this, a, b) as Int
+    }
+
+    @Test
+    fun monthAwareComparatorOrdersCalendarMonths() {
+        val tool = KorapXmlTool()
+        assertTrue(tool.compareTextIds("ZGE24_JAN.00001", "ZGE24_MAR.00001") < 0, "JAN should sort before MAR")
+        assertTrue(tool.compareTextIds("ZGE24_MRZ.00001", "ZGE24_APR.00001") < 0, "MRZ should sort before APR")
+        assertTrue(tool.compareTextIds("ZGE24_OKT.00001", "ZGE24_SEP.00001") > 0, "OKT should sort after SEP")
+        assertTrue(tool.compareTextIds("ZGE24_DEZ.00001", "ZGE24_NOV.00001") > 0, "DEZ should sort after NOV")
+        assertTrue(tool.compareTextIds("ZGE24_MAI.00001", "ZGE24_JUL.00001") < 0, "MAI should sort before JUL")
+    }
+
+    @Test
+    fun monthAwareComparatorFallsBackToAlphabeticalWhenNoMonth() {
+        val tool = KorapXmlTool()
+        val ids = listOf("WUD24_I0083.95367", "WUD24_Z0087.65594", "WUD24_K0086.98010")
+        val sorted = ids.sortedWith { a, b -> tool.compareTextIds(a, b) }
+        assertEquals(listOf("WUD24_I0083.95367", "WUD24_K0086.98010", "WUD24_Z0087.65594"), sorted, "Non-month IDs should sort alphabetically")
+    }
+
+    @Test
+    fun monthAwareComparatorSortsMixedMonthsInCalendarOrder() {
+        val tool = KorapXmlTool()
+        val ids = listOf(
+            "ZGE24_OKT.00002",
+            "ZGE24_JAN.00003",
+            "ZGE24_DEZ.00001",
+            "ZGE24_SEP.00005",
+            "ZGE24_MAR.00001"
+        )
+        val expected = listOf(
+            "ZGE24_JAN.00003",
+            "ZGE24_MAR.00001",
+            "ZGE24_SEP.00005",
+            "ZGE24_OKT.00002",
+            "ZGE24_DEZ.00001"
+        )
+        val sorted = ids.sortedWith { a, b -> tool.compareTextIds(a, b) }
+        assertEquals(expected, sorted, "Mixed month IDs should follow calendar order")
     }
 
     private fun readKrillJson(tarFile: File): Map<String, String> {
