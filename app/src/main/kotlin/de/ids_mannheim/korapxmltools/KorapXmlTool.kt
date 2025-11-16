@@ -30,6 +30,8 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.stream.IntStream
 import java.util.zip.GZIPOutputStream
+import java.util.zip.ZipFile
+import java.nio.charset.StandardCharsets
 import kotlin.text.Charsets
 import me.tongfei.progressbar.ProgressBar
 import me.tongfei.progressbar.ProgressBarBuilder
@@ -1061,6 +1063,13 @@ class KorapXmlTool : Callable<Int> {
         }.toTypedArray()
     }
 
+    private fun openZipFile(path: String): ApacheZipFile =
+        ApacheZipFile.builder()
+            .setFile(File(path))
+            .setCharset(StandardCharsets.UTF_8)
+            .setUseUnicodeExtraFields(true)
+            .get()
+
     private fun getFoundryFromZipFileName(zipFileName: String): String {
         if (!zipFileName.matches(Regex(".*\\.([^/.]+)\\.zip$"))) {
             return "base"
@@ -1171,7 +1180,7 @@ class KorapXmlTool : Callable<Int> {
                 } else {
                     foundry  // Keep original foundry for non-krill formats
                 }
-                ApacheZipFile(File(zip)).use { zipFile ->
+                openZipFile(zip).use { zipFile ->
                     processZipEntriesWithPool(zipFile, zip, zipFoundry, true)
                 }
             }
@@ -1179,7 +1188,7 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.fine("Opening ZipFile for processing: $zipFilePath")
             try {
                 // If no corresponding base ZIP exists, this IS the base ZIP
-                ApacheZipFile(File(zipFilePath)).use { zipFile ->
+                openZipFile(zipFilePath).use { zipFile ->
                     LOGGER.fine("Calling processZipEntriesWithPool, foundry=$foundry")
                     processZipEntriesWithPool(zipFile, zipFilePath, foundry, false)
                     LOGGER.fine("Returned from processZipEntriesWithPool")
@@ -1218,7 +1227,7 @@ class KorapXmlTool : Callable<Int> {
                 } else {
                     foundry  // Keep original foundry for non-krill formats
                 }
-                ApacheZipFile(File(zip)).use { zipFile ->
+                openZipFile(zip).use { zipFile ->
                     // Iterate entries sorted by text ID to ensure consistent processing order
                     zipFile.entries.toList()
                         .filter { extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") }
@@ -1229,7 +1238,7 @@ class KorapXmlTool : Callable<Int> {
                 }
             }
         } else {
-            ApacheZipFile(File(zipFilePath)).use { zipFile ->
+            openZipFile(zipFilePath).use { zipFile ->
                 zipFile.entries.toList()
                     .filter { extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") }
                     .sortedBy { getTextIdFromPath(it.name) }
@@ -3658,7 +3667,7 @@ class KorapXmlTool : Callable<Int> {
                         val dbFactory = DocumentBuilderFactory.newInstance()
                         val dBuilder = dbFactory.newDocumentBuilder()
 
-                        ApacheZipFile(File(zipPath)).use { zipFile ->
+                        openZipFile(zipPath).use { zipFile ->
                             val entries = zipFile.entries
                             while (entries.hasMoreElements()) {
                                 val entry = entries.nextElement()
