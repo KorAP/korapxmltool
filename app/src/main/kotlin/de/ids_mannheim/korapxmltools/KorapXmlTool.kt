@@ -1592,7 +1592,7 @@ class KorapXmlTool : Callable<Int> {
                     }
 
                     "constituency.xml" -> {
-                        if (outputFormat == OutputFormat.KRILL) {
+                        if (outputFormat == OutputFormat.KRILL || outputFormat == OutputFormat.CONLLU) {
                             val constituencySpans: NodeList = doc.getElementsByTagName("span")
                             collectConstituency(docId, foundry, constituencySpans)
                         }
@@ -2143,15 +2143,23 @@ class KorapXmlTool : Callable<Int> {
         var token_index = 0
         var real_token_index = 0
         var sentence_index = 0
-        val output: StringBuilder
         val sentencesArr = sentences[docId]
         val tokensArr = tokens[docId]
-        output =
+        val textVal = texts[docId]
+        val constituencyComments = buildConstituencyComments(docId, tokensArr, sentencesArr, textVal)
+        val output =
              StringBuilder("# foundry = $foundry\n# filename = ${fnames[docId]}\n# text_id = $docId\n").append(
                  tokenOffsetsInSentence(
                      sentences, docId, sentence_index, real_token_index, tokens
                  )
              )
+        fun appendConstituencyComment(sentenceIdx: Int) {
+            val comment = constituencyComments[sentenceIdx]
+            if (!comment.isNullOrBlank()) {
+                output.append("# constituency = ").append(comment).append("\n")
+            }
+        }
+        appendConstituencyComment(sentence_index)
          if (extractMetadataRegex.isNotEmpty()) {
              output.append(metadata[docId]?.joinToString("\t", prefix = "# metadata=", postfix = "\n") ?: "")
          }
@@ -2175,19 +2183,19 @@ class KorapXmlTool : Callable<Int> {
             } else raw
         }
 
-         val textVal = texts[docId]
          tokensArr.forEach { span ->
              token_index++
              if (sentencesArr != null && (sentence_index >= sentencesArr.size || span.from >= sentencesArr[sentence_index].to)) {
                  output.append("\n")
                  sentence_index++
-                 token_index = 1
-                 output.append(
-                     tokenOffsetsInSentence(
-                         sentences, docId, sentence_index, real_token_index, tokens
-                     )
-                 )
-             }
+                token_index = 1
+                output.append(
+                    tokenOffsetsInSentence(
+                        sentences, docId, sentence_index, real_token_index, tokens
+                    )
+                )
+                appendConstituencyComment(sentence_index)
+            }
              if (extractAttributesRegex.isNotEmpty() && extraFeatures[docId] != null) {
                  for (i in previousSpanStart until span.from + 1) {
                      if (extraFeatures[docId]?.containsKey("$i") == true) {
@@ -2270,6 +2278,101 @@ class KorapXmlTool : Callable<Int> {
          }
          return output
      }
+
+    private fun buildConstituencyComments(
+        docId: String,
+        tokensArr: Array<Span>?,
+        sentencesArr: Array<Span>?,
+        textVal: NonBmpString?
+    ): Map<Int, String> {
+        if (tokensArr.isNullOrEmpty() || textVal == null) return emptyMap()
+        val trees = constituencyTrees[docId] ?: return emptyMap()
+        if (trees.isEmpty()) return emptyMap()
+
+        data class TokenInfo(val from: Int, val to: Int, val surface: String)
+
+        val tokenInfos = tokensArr.map { span ->
+            val safeFrom = span.from.coerceIn(0, textVal.length)
+            val safeTo = span.to.coerceIn(safeFrom, textVal.length)
+            val surface = if (safeFrom < safeTo) {
+                textVal.substring(safeFrom, safeTo)
+            } else {
+                "_"
+            }
+            TokenInfo(safeFrom, safeTo, surface.ifBlank { "_" })
+        }
+
+        fun tokensInRange(from: Int, to: Int): List<TokenInfo> =
+            tokenInfos.filter { it.from >= from && it.to <= to }
+
+        fun escapeParens(value: String): String =
+            value.replace("(", "-LRB-").replace(")", "-RRB-")
+
+        val comments = mutableMapOf<Int, String>()
+
+        trees.forEach { tree ->
+            if (tree.nodes.isEmpty()) return@forEach
+
+            val nodeById = tree.nodes.associateBy { it.id }
+            val referencedNodeIds = tree.nodes.flatMap { node ->
+                node.children.mapNotNull { child ->
+                    when (child) {
+                        is ConstituencyParserBridge.ConstituencyChild.NodeRef -> child.targetId
+                        is ConstituencyParserBridge.ConstituencyChild.MorphoRef -> child.morphoId.takeIf { nodeById.containsKey(it) }
+                    }
+                }
+            }.toSet()
+            val rootNode = tree.nodes.firstOrNull { it.id !in referencedNodeIds } ?: tree.nodes.first()
+            val visited = mutableSetOf<String>()
+            val sentenceIdx = sentencesArr
+                ?.indexOfFirst { rootNode.from >= it.from && rootNode.to <= it.to }
+                ?.takeIf { it >= 0 }
+                ?: 0
+            val sentenceTokens = sentencesArr
+                ?.getOrNull(sentenceIdx)
+                ?.let { sentSpan -> tokensInRange(sentSpan.from, sentSpan.to) }
+                ?: tokenInfos
+            var sentenceTokenCursor = 0
+
+            fun render(node: ConstituencyParserBridge.ConstituencyNode): String? {
+                if (!visited.add(node.id)) return null
+
+                val childStrings = node.children.mapNotNull { child ->
+                    when (child) {
+                        is ConstituencyParserBridge.ConstituencyChild.NodeRef -> {
+                            val childNode = nodeById[child.targetId] ?: return@mapNotNull null
+                            render(childNode)
+                        }
+                        is ConstituencyParserBridge.ConstituencyChild.MorphoRef -> {
+                            val nextToken = sentenceTokens.getOrNull(sentenceTokenCursor++)
+                                ?: return@mapNotNull null
+                            val tokenText = escapeParens(nextToken.surface)
+                            val label = escapeParens(nodeById[child.morphoId]?.label ?: "TOK")
+                            if (label == "TOK") tokenText else "($label $tokenText)"
+                        }
+                    }
+                }.filter { it.isNotBlank() }
+
+                val label = escapeParens(node.label.ifBlank { "ROOT" })
+                if (childStrings.isEmpty()) {
+                    val fallbackTokens = tokensInRange(node.from, node.to)
+                    return if (fallbackTokens.isNotEmpty()) {
+                        "($label ${fallbackTokens.joinToString(" ") { escapeParens(it.surface) }})"
+                    } else {
+                        "($label)"
+                    }
+                }
+
+                return "($label ${childStrings.joinToString(" ")})"
+            }
+
+            val rendered = render(rootNode) ?: return@forEach
+
+            comments.merge(sentenceIdx, rendered) { old, new -> "$old | $new" }
+        }
+
+        return comments
+    }
 
     private fun lmTrainingOutput(docId: String): StringBuilder {
         var token_index = 0
@@ -2807,7 +2910,7 @@ class KorapXmlTool : Callable<Int> {
         val from: Int,
         val to: Int,
         val label: String,
-        val children: MutableList<String> = mutableListOf()
+        val children: MutableList<ConstituencyParserBridge.ConstituencyChild> = mutableListOf()
     )
 
     private fun collectSentences(docId: String, foundry: String, spans: NodeList) {
@@ -2874,13 +2977,14 @@ class KorapXmlTool : Callable<Int> {
                 if (rel.getAttribute("label") != "dominates") continue
                 val target = rel.getAttribute("target")
                 if (!target.isNullOrBlank()) {
-                    node.children.add(target)
+                    node.children.add(ConstituencyParserBridge.ConstituencyChild.NodeRef(target))
                     nonRootIds.add(target)
                 } else {
                     val uri = rel.getAttribute("uri")
                     if (!uri.isNullOrBlank()) {
                         val normalized = uri.removePrefix("morpho.xml#")
                         if (normalized.isNotBlank()) {
+                            node.children.add(ConstituencyParserBridge.ConstituencyChild.MorphoRef(normalized))
                             nonRootIds.add(normalized)
                         }
                     }
@@ -2912,14 +3016,80 @@ class KorapXmlTool : Callable<Int> {
                         attributes = emptyMap()
                     )
                 )
-                node.children.forEach { childId ->
-                    traverse(childId, depth + 1)
+                node.children.forEach { child ->
+                    if (child is ConstituencyParserBridge.ConstituencyChild.NodeRef) {
+                        traverse(child.targetId, depth + 1)
+                    }
                 }
             }
 
             val rootIds = nodesById.keys.filter { it !in nonRootIds }
             rootIds.forEach { traverse(it, 0) }
             textData.constituencyCollectedByFoundry.add(foundry)
+        }
+
+        // Also cache constituency trees for downstream outputs (e.g., CoNLL-U comments)
+        if (nodesById.isNotEmpty()) {
+            val nodeRefTargets = nodesById.values
+                .flatMap { node -> node.children.mapNotNull { child -> (child as? ConstituencyParserBridge.ConstituencyChild.NodeRef)?.targetId } }
+                .toMutableSet()
+            nodesById.values.forEach { node ->
+                node.children.forEach { child ->
+                    if (child is ConstituencyParserBridge.ConstituencyChild.MorphoRef && nodesById.containsKey(child.morphoId)) {
+                        nodeRefTargets.add(child.morphoId)
+                    }
+                }
+            }
+            val rootIds = nodesById.keys.filter { it !in nodeRefTargets }
+
+            val trees = mutableListOf<ConstituencyParserBridge.ConstituencyTree>()
+
+            fun copySubtree(nodeId: String, visited: MutableSet<String>): ConstituencyParserBridge.ConstituencyNode? {
+                if (!visited.add(nodeId)) return null
+                val source = nodesById[nodeId] ?: return null
+                val copiedChildren = mutableListOf<ConstituencyParserBridge.ConstituencyChild>()
+                source.children.forEach { child ->
+                    when (child) {
+                        is ConstituencyParserBridge.ConstituencyChild.NodeRef -> copiedChildren.add(child)
+                        is ConstituencyParserBridge.ConstituencyChild.MorphoRef -> copiedChildren.add(child)
+                    }
+                }
+                return ConstituencyParserBridge.ConstituencyNode(
+                    id = source.id,
+                    label = source.label,
+                    from = source.from,
+                    to = source.to,
+                    children = copiedChildren
+                )
+            }
+
+            rootIds.forEachIndexed { idx, rootId ->
+                val visited = mutableSetOf<String>()
+                val collectedNodes = mutableListOf<ConstituencyParserBridge.ConstituencyNode>()
+
+                fun collect(nodeId: String) {
+                    val node = copySubtree(nodeId, visited) ?: return
+                    collectedNodes.add(node)
+                    node.children.forEach { child ->
+                        if (child is ConstituencyParserBridge.ConstituencyChild.NodeRef) {
+                            collect(child.targetId)
+                        }
+                    }
+                }
+
+                collect(rootId)
+
+                if (collectedNodes.isNotEmpty()) {
+                    val sentenceId = rootId.substringBefore("_n").takeIf { it.isNotBlank() } ?: "s${idx + 1}"
+                    trees.add(ConstituencyParserBridge.ConstituencyTree(sentenceId = sentenceId, nodes = collectedNodes))
+                }
+            }
+
+            if (trees.isNotEmpty()) {
+                constituencyTrees.compute(docId) { _, existing ->
+                    existing?.takeIf { it.isNotEmpty() } ?: trees
+                }
+            }
         }
     }
 

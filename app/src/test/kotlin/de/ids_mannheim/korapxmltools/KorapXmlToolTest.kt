@@ -913,6 +913,25 @@ class KorapXmlToolTest {
         }
     }
 
+    @Test
+    fun conlluIncludesConstituencyCommentsWhenAvailable() {
+        outContent.reset()
+        errContent.reset()
+
+        val args = arrayOf(wud24Corenlp)
+        val exitCode = debug(args)
+        assertEquals(0, exitCode, "CoNLL-U conversion should succeed when constituency annotations are present")
+
+        val output = outContent.toString("UTF-8")
+        val constituencyLines = output.lineSequence().filter { it.startsWith("# constituency =") }.toList()
+
+        assertTrue(constituencyLines.isNotEmpty(), "CoNLL-U output should include constituency comment lines")
+        assertTrue(
+            constituencyLines.first().contains("("),
+            "Constituency comment should contain bracketed structure"
+        )
+    }
+
     private fun readKrillJson(tarFile: File): Map<String, String> {
         val extractDir = File.createTempFile("krill_extract", "").let {
             it.delete()
