@@ -26,7 +26,11 @@ data class OutputContext(
     val constituencyTrees: List<ConstituencyParserBridge.ConstituencyTree>? = null,
     val includeOffsetsInMisc: Boolean = false,
     val compatibilityMode: Boolean = false,
-    val tokenSeparator: String = "\n"
+    val tokenSeparator: String = "\n",
+    // KorAP-XML specific fields
+    val documentBuilder: javax.xml.parsers.DocumentBuilder? = null,
+    val parserName: String? = null,
+    val constituencyParserName: String? = null
 )
 
 /**

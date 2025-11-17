@@ -1,9 +1,9 @@
 package de.ids_mannheim.korapxmltools.formatters
 
 /**
- * Formatter for Word2Vec / language model training output format.
- * Outputs tokens separated by spaces, sentences separated by newlines.
- * Can use lemmas instead of surface forms when available.
+ * Formatter for Word2Vec / language model training output.
+ * Outputs tokens in lemmatized form (or word form if no lemma), space-separated,
+ * with sentences separated by newlines.
  */
 object Word2VecFormatter : OutputFormatter {
     override val formatName: String = "word2vec"

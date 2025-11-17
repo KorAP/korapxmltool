@@ -2,6 +2,7 @@ package de.ids_mannheim.korapxmltools
 
 import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.parserFoundries
 import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.taggerFoundries
+import de.ids_mannheim.korapxmltools.formatters.KorapXmlFormatter
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.archivers.zip.Zip64Mode
@@ -1944,7 +1945,7 @@ class KorapXmlTool : Callable<Int> {
                 LOGGER.finer("Constituency parsed text: $docId, generated ${trees.size} trees in thread ${Thread.currentThread().threadId()}")
             }
             if (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null) {
-                korapXmlOutput(getMorphoFoundry(), docId)
+                formatKorapXmlOutput(getMorphoFoundry(), docId)
             } else {
                 formatConlluOutput(foundry, docId)
             }
@@ -1985,7 +1986,26 @@ class KorapXmlTool : Callable<Int> {
              var wroteOne = false
              // Always write morpho.xml if we have morpho annotations (tagger or from input)
              if (morpho[docId] != null && morpho[docId]!!.isNotEmpty()) {
-                val morphoXml = korapXmlMorphoOutput(morphoDir, docId).toString()
+                val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+                    docId = docId,
+                    foundry = morphoDir,
+                    tokens = tokens[docId],
+                    sentences = sentences[docId],
+                    text = texts[docId],
+                    morpho = morpho[docId],
+                    metadata = metadata[docId],
+                    extraFeatures = extraFeatures[docId],
+                    fileName = fnames[docId],
+                    useLemma = useLemma,
+                    extractMetadataRegex = extractMetadataRegex,
+                    extractAttributesRegex = extractAttributesRegex,
+                    columns = columns,
+                    constituencyTrees = constituencyTrees[docId],
+                    includeOffsetsInMisc = false,
+                    compatibilityMode = COMPATIBILITY_MODE,
+                    tokenSeparator = tokenSeparator
+                )
+                val morphoXml = KorapXmlFormatter.formatMorpho(context, dBuilder!!).toString()
                 val morphoPath = docId.replace(Regex("[_.]"), "/") + "/$morphoDir/morpho.xml"
                  val morphoEntry = ZipArchiveEntry(morphoPath)
                  morphoEntry.unixMode = ZIP_ENTRY_UNIX_MODE
@@ -1998,7 +2018,26 @@ class KorapXmlTool : Callable<Int> {
              }
              // Write dependency.xml if a parser is active and dependency info present
              if (parserToolBridges[Thread.currentThread().threadId()] != null) {
-                val depXml = korapXmlDependencyOutput(depDir, docId).toString()
+                val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+                    docId = docId,
+                    foundry = depDir,
+                    tokens = tokens[docId],
+                    sentences = sentences[docId],
+                    text = texts[docId],
+                    morpho = morpho[docId],
+                    metadata = metadata[docId],
+                    extraFeatures = extraFeatures[docId],
+                    fileName = fnames[docId],
+                    useLemma = useLemma,
+                    extractMetadataRegex = extractMetadataRegex,
+                    extractAttributesRegex = extractAttributesRegex,
+                    columns = columns,
+                    constituencyTrees = constituencyTrees[docId],
+                    includeOffsetsInMisc = false,
+                    compatibilityMode = COMPATIBILITY_MODE,
+                    tokenSeparator = tokenSeparator
+                )
+                val depXml = KorapXmlFormatter.formatDependency(context, dBuilder!!).toString()
                 val depPath = docId.replace(Regex("[_.]"), "/") + "/$depDir/dependency.xml"
                  val depEntry = ZipArchiveEntry(depPath)
                  depEntry.unixMode = ZIP_ENTRY_UNIX_MODE
@@ -2012,7 +2051,26 @@ class KorapXmlTool : Callable<Int> {
              // Write constituency.xml if a constituency parser is active
              if (constituencyParserBridges[Thread.currentThread().threadId()] != null && constituencyTrees[docId] != null) {
                 val constDir = constituencyParserBridges[Thread.currentThread().threadId()]!!.foundry
-                val constXml = korapXmlConstituencyOutput(constDir, docId).toString()
+                val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+                    docId = docId,
+                    foundry = constDir,
+                    tokens = tokens[docId],
+                    sentences = sentences[docId],
+                    text = texts[docId],
+                    morpho = morpho[docId],
+                    metadata = metadata[docId],
+                    extraFeatures = extraFeatures[docId],
+                    fileName = fnames[docId],
+                    useLemma = useLemma,
+                    extractMetadataRegex = extractMetadataRegex,
+                    extractAttributesRegex = extractAttributesRegex,
+                    columns = columns,
+                    constituencyTrees = constituencyTrees[docId],
+                    includeOffsetsInMisc = false,
+                    compatibilityMode = COMPATIBILITY_MODE,
+                    tokenSeparator = tokenSeparator
+                )
+                val constXml = KorapXmlFormatter.formatConstituency(context, dBuilder!!).toString()
                 val constPath = docId.replace(Regex("[_.]"), "/") + "/$constDir/constituency.xml"
                  val constEntry = ZipArchiveEntry(constPath)
                  constEntry.unixMode = ZIP_ENTRY_UNIX_MODE
@@ -2084,244 +2142,6 @@ class KorapXmlTool : Callable<Int> {
         } catch (e: Exception) {
             LOGGER.warning("Failed to log memory stats: ${e.message}")
         }
-    }
-
-    private fun korapXmlDependencyOutput(foundry: String, docId: String): StringBuilder {
-        val doc: Document = dBuilder!!.newDocument()
-
-        // Root element
-        val layer = doc.createElement("layer")
-        layer.setAttribute("xmlns", "http://ids-mannheim.de/ns/KorAP")
-        layer.setAttribute("version", "KorAP-0.4")
-        layer.setAttribute("docid", docId)
-        doc.appendChild(layer)
-
-        val spanList = doc.createElement("spanList")
-        layer.appendChild(spanList)
-
-        var i = 0
-        var s = 0
-        var n = 0
-        val sortedKeys = morpho[docId]?.keys?.sortedBy { it.split("-")[0].toInt() }
-
-        sortedKeys?.forEach { spanString ->
-            val mfs = morpho[docId]?.get(spanString)
-            val offsets = spanString.split("-")
-            if(offsets.size != 2) {
-                LOGGER.warning("Invalid span: $spanString in $docId")
-                return@forEach
-            }
-            if (offsets[0].toInt() > sentences[docId]!!.elementAt(s).to) {
-                s++
-                n = i
-            }
-            i++
-            if (mfs!!.deprel == "_") {
-                return@forEach
-            }
-
-            val spanNode = doc.createElement("span")
-            spanNode.setAttribute("id", "s${s + 1}_n${i - n}")
-            spanNode.setAttribute("from", offsets[0])
-            spanNode.setAttribute("to", offsets[1])
-
-            // rel element
-            val rel = doc.createElement("rel")
-            rel.setAttribute("label", mfs.deprel)
-
-            // inner span element
-            val innerSpan = doc.createElement("span")
-            val headInt = if(mfs.head == "_") 0 else parseInt(mfs.head) - 1
-            if (headInt < 0) {
-                innerSpan.setAttribute("from", sentences[docId]!!.elementAt(s).from.toString())
-                innerSpan.setAttribute("to",  sentences[docId]!!.elementAt(s).to.toString())
-            } else {
-                if (headInt + n >= morpho[docId]!!.size) {
-                    LOGGER.warning("Head index out of bounds: ${headInt+n} >= ${morpho[docId]!!.size} in $docId")
-                    return@forEach
-                } else {
-                    val destSpanString = sortedKeys.elementAt(headInt + n)
-                    val destOffsets = destSpanString.split("-")
-                    innerSpan.setAttribute("from", destOffsets[0])
-                    innerSpan.setAttribute("to", destOffsets[1])
-                }
-            }
-            rel.appendChild(innerSpan)
-            spanNode.appendChild(rel)
-            spanList.appendChild(spanNode)
-        }
-        val transformerFactory = TransformerFactory.newInstance()
-        val transformer = transformerFactory.newTransformer()
-        transformer.setOutputProperty(OutputKeys.INDENT, "yes")
-        transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no")
-        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "1")
-        val domSource = DOMSource(doc)
-        val streamResult = StreamResult(StringWriter())
-        transformer.transform(domSource, streamResult)
-
-        return StringBuilder(streamResult.writer.toString())
-    }
-
-    private fun korapXmlConstituencyOutput(foundry: String, docId: String): StringBuilder {
-        val doc: Document = dBuilder!!.newDocument()
-
-        // Root element
-        val layer = doc.createElement("layer")
-        layer.setAttribute("xmlns", "http://ids-mannheim.de/ns/KorAP")
-        layer.setAttribute("version", "KorAP-0.4")
-        layer.setAttribute("docid", docId)
-        doc.appendChild(layer)
-
-        val spanList = doc.createElement("spanList")
-        layer.appendChild(spanList)
-
-        val trees = constituencyTrees[docId]
-        if (trees == null || trees.isEmpty()) {
-            LOGGER.warning("No constituency trees found for $docId")
-            return StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        }
-
-        // Process each tree
-        trees.forEach { tree ->
-            tree.nodes.forEach { node ->
-                // Create span element
-                val spanNode = doc.createElement("span")
-                spanNode.setAttribute("id", node.id)
-                spanNode.setAttribute("from", node.from.toString())
-                spanNode.setAttribute("to", node.to.toString())
-
-                // Create fs element for the constituency label
-                val fs = doc.createElement("fs")
-                fs.setAttribute("xmlns", "http://www.tei-c.org/ns/1.0")
-                fs.setAttribute("type", "node")
-
-                val f = doc.createElement("f")
-                f.setAttribute("name", "const")
-                f.textContent = node.label
-                fs.appendChild(f)
-
-                spanNode.appendChild(fs)
-
-                // Add rel elements for children
-                node.children.forEach { child ->
-                    val rel = doc.createElement("rel")
-                    rel.setAttribute("label", "dominates")
-
-                    when (child) {
-                        is ConstituencyParserBridge.ConstituencyChild.NodeRef -> {
-                            rel.setAttribute("target", child.targetId)
-                        }
-                        is ConstituencyParserBridge.ConstituencyChild.MorphoRef -> {
-                            rel.setAttribute("uri", "morpho.xml#${child.morphoId}")
-                        }
-                    }
-
-                    spanNode.appendChild(rel)
-                }
-
-                spanList.appendChild(spanNode)
-            }
-        }
-
-        val transformerFactory = TransformerFactory.newInstance()
-        val transformer = transformerFactory.newTransformer()
-        transformer.setOutputProperty(OutputKeys.INDENT, "yes")
-        transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no")
-        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "3")
-        val domSource = DOMSource(doc)
-        val streamResult = StreamResult(StringWriter())
-        transformer.transform(domSource, streamResult)
-
-        return StringBuilder(streamResult.writer.toString())
-    }
-
-    private fun korapXmlOutput(foundry: String, docId: String): StringBuilder {
-        return if (parserName != null) {
-            korapXmlDependencyOutput(foundry, docId)
-        } else {
-            korapXmlMorphoOutput(foundry, docId)
-        }
-    }
-
-    private fun korapXmlMorphoOutput(foundry: String, docId: String): StringBuilder {
-        val doc: Document = dBuilder!!.newDocument()
-
-        // Root element
-        val layer = doc.createElement("layer")
-        layer.setAttribute("xmlns", "http://ids-mannheim.de/ns/KorAP")
-        layer.setAttribute("version", "KorAP-0.4")
-        layer.setAttribute("docid", docId)
-        doc.appendChild(layer)
-
-        val spanList = doc.createElement("spanList")
-        layer.appendChild(spanList)
-
-        var i = 0
-        morpho[docId]?.forEach { (spanString, mfs) ->
-            i++
-            val offsets = spanString.split("-")
-            val spanNode = doc.createElement("span")
-            spanNode.setAttribute("id", "t_$i")
-            spanNode.setAttribute("from", offsets[0])
-            spanNode.setAttribute("to", offsets[1])
-
-            // fs element
-            val fs = doc.createElement("fs")
-            fs.setAttribute("type", "lex")
-            fs.setAttribute("xmlns", "http://www.tei-c.org/ns/1.0")
-            spanNode.appendChild(fs)
-            val f = doc.createElement("f")
-            f.setAttribute("name", "lex")
-            fs.appendChild(f)
-
-            // Inner fs element
-            val innerFs = doc.createElement("fs")
-            f.appendChild(innerFs)
-
-            if (mfs.lemma != "_") {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "lemma")
-                innerF.textContent = mfs.lemma
-                innerFs.appendChild(innerF)
-            }
-            if (mfs.upos != "_") {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "upos")
-                innerF.textContent = mfs.upos
-                innerFs.appendChild(innerF)
-            }
-            if (mfs.xpos != "_") {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "pos")
-                innerF.textContent = mfs.xpos
-                innerFs.appendChild(innerF)
-            }
-            if (mfs.feats != "_") {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "msd")
-                innerF.textContent = mfs.feats
-                innerFs.appendChild(innerF)
-            }
-            if (mfs.misc != "_" && mfs.misc!!.matches(Regex("^[0-9.]+$"))) {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "certainty")
-                innerF.textContent = mfs.misc
-                innerFs.appendChild(innerF)
-            }
-
-            spanList.appendChild(spanNode)
-        }
-        val transformerFactory = TransformerFactory.newInstance()
-        val transformer = transformerFactory.newTransformer()
-        transformer.setOutputProperty(OutputKeys.INDENT, "yes")
-        transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no")
-        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "1")
-        val domSource = DOMSource(doc)
-        val streamResult = StreamResult(StringWriter())
-        transformer.transform(domSource, streamResult)
-
-        return StringBuilder(streamResult.writer.toString())
-
     }
 
     private fun conlluOutput(foundry: String, docId: String): StringBuilder {
@@ -2619,6 +2439,33 @@ class KorapXmlTool : Callable<Int> {
             columns = columns
         )
         return de.ids_mannheim.korapxmltools.formatters.NowFormatter.format(context)
+    }
+
+    private fun formatKorapXmlOutput(foundry: String, docId: String): StringBuilder {
+        val hasConstituencyParser = constituencyParserBridges[Thread.currentThread().threadId()] != null
+        val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+            docId = docId,
+            foundry = foundry,
+            tokens = tokens[docId],
+            sentences = sentences[docId],
+            text = texts[docId],
+            morpho = morpho[docId],
+            metadata = metadata[docId],
+            extraFeatures = extraFeatures[docId],
+            fileName = fnames[docId],
+            useLemma = useLemma,
+            extractMetadataRegex = extractMetadataRegex,
+            extractAttributesRegex = extractAttributesRegex,
+            columns = columns,
+            constituencyTrees = constituencyTrees[docId],
+            includeOffsetsInMisc = false,
+            compatibilityMode = COMPATIBILITY_MODE,
+            tokenSeparator = tokenSeparator,
+            documentBuilder = dBuilder,
+            parserName = parserName,
+            constituencyParserName = if (hasConstituencyParser) "constituency" else null
+        )
+        return de.ids_mannheim.korapxmltools.formatters.KorapXmlFormatter.format(context)
     }
 
     private fun printConlluToken(
@@ -2935,7 +2782,26 @@ class KorapXmlTool : Callable<Int> {
         }
 
         try {
-            val morphoXmlOutput = korapXmlMorphoOutput(foundry, tempDocId)
+            val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+                docId = tempDocId,
+                foundry = foundry,
+                tokens = tokens[tempDocId],
+                sentences = sentences[tempDocId],
+                text = texts[tempDocId],
+                morpho = morpho[tempDocId],
+                metadata = metadata[tempDocId],
+                extraFeatures = extraFeatures[tempDocId],
+                fileName = fnames[tempDocId],
+                useLemma = useLemma,
+                extractMetadataRegex = extractMetadataRegex,
+                extractAttributesRegex = extractAttributesRegex,
+                columns = columns,
+                constituencyTrees = constituencyTrees[tempDocId],
+                includeOffsetsInMisc = false,
+                compatibilityMode = COMPATIBILITY_MODE,
+                tokenSeparator = tokenSeparator
+            )
+            val morphoXmlOutput = KorapXmlFormatter.formatMorpho(context, dBuilder!!)
             val fixedMorphoXml = morphoXmlOutput.toString().replace(
                 "docid=\"$tempDocId\"",
                 "docid=\"$docId\""
@@ -2959,7 +2825,26 @@ class KorapXmlTool : Callable<Int> {
 
         if (morpho[tempDocId]?.values?.any { it.head != null && it.head != "_" && it.deprel != null && it.deprel != "_" } == true) {
             try {
-                val dependencyXmlOutput = korapXmlDependencyOutput(foundry, tempDocId)
+                val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+                    docId = tempDocId,
+                    foundry = foundry,
+                    tokens = tokens[tempDocId],
+                    sentences = sentences[tempDocId],
+                    text = texts[tempDocId],
+                    morpho = morpho[tempDocId],
+                    metadata = metadata[tempDocId],
+                    extraFeatures = extraFeatures[tempDocId],
+                    fileName = fnames[tempDocId],
+                    useLemma = useLemma,
+                    extractMetadataRegex = extractMetadataRegex,
+                    extractAttributesRegex = extractAttributesRegex,
+                    columns = columns,
+                    constituencyTrees = constituencyTrees[tempDocId],
+                    includeOffsetsInMisc = false,
+                    compatibilityMode = COMPATIBILITY_MODE,
+                    tokenSeparator = tokenSeparator
+                )
+                val dependencyXmlOutput = KorapXmlFormatter.formatDependency(context, dBuilder!!)
                 val fixedDependencyXml = dependencyXmlOutput.toString().replace(
                     "docid=\"$tempDocId\"",
                     "docid=\"$docId\""
