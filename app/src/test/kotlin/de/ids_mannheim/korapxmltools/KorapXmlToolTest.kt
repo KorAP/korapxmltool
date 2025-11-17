@@ -313,10 +313,11 @@ class KorapXmlToolTest {
     @Test
     fun korapXmlOutputWorks() {
         val sourceFile = loadResource("wdf19.zip").path
-        val tmpSourceFileName = java.io.File.createTempFile("tmp", ".zip").absolutePath
+        val tmpSourceFile = File.createTempFile("tmp", ".zip")
+        val tmpSourceFileName = tmpSourceFile.absolutePath
         File(sourceFile).copyTo(File(tmpSourceFileName), true)
-
-        val args = arrayOf("-o", "-f", "zip", tmpSourceFileName)
+        val outputDir = File(tmpSourceFileName).parentFile.absolutePath
+        val args = arrayOf("-D", outputDir, "-o", "-f", "zip", tmpSourceFileName)
         debug(args)
 
         val resultFile = tmpSourceFileName.toString().replace(".zip", ".base.zip")
@@ -326,11 +327,13 @@ class KorapXmlToolTest {
     @Test
     fun overwriteWorks() {
         val sourceFile = loadResource("wdf19.zip").path
-        val tmpSourceFileName = java.io.File.createTempFile("tmp", ".zip").absolutePath
+        val tmpSourceFile = File.createTempFile("tmp", ".zip")
+        val tmpSourceFileName = tmpSourceFile.absolutePath
         File(sourceFile).copyTo(File(tmpSourceFileName), true)
         val resultFile = tmpSourceFileName.toString().replace(".zip", ".base.zip")
         File(resultFile).createNewFile()
-        val args = arrayOf("-o", "-f", "zip", tmpSourceFileName)
+        val outputDir = File(tmpSourceFileName).parentFile.absolutePath
+        val args = arrayOf("-D", outputDir, "-o", "-f", "zip", tmpSourceFileName)
         debug(args)
         assert(File(resultFile).exists())
         assert(File(resultFile).length() > 0)
