@@ -165,7 +165,7 @@ tasks.register('assembleShebangExecutable') {
             os << shebang.bytes
             os << targetJar.bytes
         }
-        targetExec.setExecutable(true, true)
+        targetExec.setExecutable(true, false)
         println "Created executable launcher: ${targetExec}"
     }
 }
