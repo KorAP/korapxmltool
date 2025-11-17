@@ -3734,11 +3734,36 @@ class KorapXmlTool : Callable<Int> {
             val json = KrillJsonGenerator.generate(textData, corpusMetadata, docMetadata, includeNonWordTokens)
             val jsonFileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
 
-            // Compress JSON with GZIP
+            // Compress JSON with GZIP (fast compression level 1 for better performance)
             val byteOut = ByteArrayOutputStream()
-            val gzipOut = GZIPOutputStream(byteOut)
-            gzipOut.write(json.toByteArray(Charsets.UTF_8))
-            gzipOut.close()
+            val deflater = java.util.zip.Deflater(1, true)  // Level 1 (fast), nowrap=true for gzip
+            val deflaterOut = java.util.zip.DeflaterOutputStream(byteOut, deflater)
+            
+            // Write gzip header manually (required for nowrap mode)
+            byteOut.write(byteArrayOf(0x1f, 0x8b.toByte()))  // Magic number
+            byteOut.write(0x08)  // Compression method (deflate)
+            byteOut.write(0x00)  // Flags
+            byteOut.write(ByteArray(6))  // Timestamp + extra flags + OS (all zeros)
+            
+            // Compress data
+            val jsonBytes = json.toByteArray(Charsets.UTF_8)
+            deflaterOut.write(jsonBytes)
+            deflaterOut.finish()
+            
+            // Write gzip trailer (CRC32 + uncompressed size)
+            val crc = java.util.zip.CRC32()
+            crc.update(jsonBytes)
+            val crcValue = crc.value.toInt()
+            byteOut.write(crcValue and 0xFF)
+            byteOut.write((crcValue shr 8) and 0xFF)
+            byteOut.write((crcValue shr 16) and 0xFF)
+            byteOut.write((crcValue shr 24) and 0xFF)
+            val size = jsonBytes.size
+            byteOut.write(size and 0xFF)
+            byteOut.write((size shr 8) and 0xFF)
+            byteOut.write((size shr 16) and 0xFF)
+            byteOut.write((size shr 24) and 0xFF)
+            
             val compressedData = byteOut.toByteArray()
 
             // Write to TAR (synchronized for thread safety)
