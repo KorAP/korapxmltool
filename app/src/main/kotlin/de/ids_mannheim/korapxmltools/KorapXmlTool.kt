@@ -1906,9 +1906,9 @@ class KorapXmlTool : Callable<Int> {
 
         val output =
         if (outputFormat == OutputFormat.WORD2VEC) {
-            lmTrainingOutput(docId)
+            formatWord2VecOutput(docId)
         } else if (outputFormat == OutputFormat.NOW) {
-            nowOutput(docId)
+            formatNowOutput(docId)
         } else {
             if (taggerToolBridges[Thread.currentThread().threadId()] != null) {
                 morpho[docId] = taggerToolBridges[Thread.currentThread().threadId()]!!.tagText(
@@ -2559,100 +2559,41 @@ class KorapXmlTool : Callable<Int> {
         return comments
     }
 
-    private fun lmTrainingOutput(docId: String): StringBuilder {
-        var token_index = 0
-        var real_token_index = 0
-        var sentence_index = 0
-        val output = StringBuilder()
-        if (extractMetadataRegex.isNotEmpty()) {
-            output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
-        }
-        if (texts[docId] == null) {
-            tokens[docId]?.forEach { span ->
-                val key = "${span.from}-${span.to}"
-                val lemmaVal = morpho[docId]?.get(key)?.lemma
-                output.append((lemmaVal?.takeIf { it != "_" } ?: "_"), " ")
-            }
-            if (output.isNotEmpty()) output.deleteCharAt(output.length - 1)
-            return output
-        }
-        tokens[docId]?.forEach { span ->
-            token_index++
-            if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
-                if (output.isNotEmpty()) output.setCharAt(output.length - 1, '\n') else output.append("\n")
-                if (extractMetadataRegex.isNotEmpty() && real_token_index < tokens[docId]!!.size - 1) {
-                    output.append(metadata[docId]?.joinToString("\t", postfix = "\t") ?: "")
-                }
-                sentence_index++
-            }
-            val safeFrom = span.from.coerceIn(0, texts[docId]!!.length)
-            val safeTo = span.to.coerceIn(safeFrom, texts[docId]!!.length)
-            if (useLemma && morpho[docId] != null) {
-                val key = "${span.from}-${span.to}"
-                val lemmaVal = morpho[docId]!![key]?.lemma
-                if (lemmaVal != null && lemmaVal != "_") {
-                    output.append(lemmaVal).append(' ')
-                } else {
-                    texts[docId]!!.appendRangeTo(output, safeFrom, safeTo)
-                    output.append(' ')
-                }
-            } else {
-                texts[docId]!!.appendRangeTo(output, safeFrom, safeTo)
-                output.append(' ')
-            }
-            real_token_index++
-        }
-        if (output.isNotEmpty()) output.deleteCharAt(output.length - 1)
-        return output
+    // Formatter-based output methods using modular formatters
+    private fun formatWord2VecOutput(docId: String): StringBuilder {
+        val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+            docId = docId,
+            foundry = "base",
+            tokens = tokens[docId],
+            sentences = sentences[docId],
+            text = texts[docId],
+            morpho = morpho[docId],
+            metadata = metadata[docId],
+            extraFeatures = extraFeatures[docId],
+            fileName = fnames[docId],
+            useLemma = useLemma,
+            extractMetadataRegex = extractMetadataRegex,
+            columns = columns
+        )
+        return de.ids_mannheim.korapxmltools.formatters.Word2VecFormatter.format(context)
     }
 
-    private fun nowOutput(docId: String): StringBuilder {
-        var token_index = 0
-        var real_token_index = 0
-        var sentence_index = 0
-        val output = StringBuilder()
-
-        output.append("@@$docId ")
-
-        if (texts[docId] == null) {
-            tokens[docId]?.forEach { span ->
-                if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
-                    if (output.isNotEmpty() && !output.endsWith("@@$docId ")) output.append(" <p> ")
-                    sentence_index++
-                }
-                val key = "${span.from}-${span.to}"
-                val lemmaVal = morpho[docId]?.get(key)?.lemma
-                output.append((lemmaVal?.takeIf { it != "_" } ?: "_"), " ")
-            }
-            if (output.isNotEmpty() && output.endsWith(" ")) output.deleteCharAt(output.length - 1)
-            return output
-        }
-
-        tokens[docId]?.forEach { span ->
-            token_index++
-            if (sentences[docId] != null && (sentence_index >= sentences[docId]!!.size || span.from >= sentences[docId]!![sentence_index].to)) {
-                if (output.isNotEmpty() && !output.endsWith("@@$docId ")) output.append(" <p> ")
-                sentence_index++
-            }
-            val safeFrom = span.from.coerceIn(0, texts[docId]!!.length)
-            val safeTo = span.to.coerceIn(safeFrom, texts[docId]!!.length)
-            if (useLemma && morpho[docId] != null) {
-                val key = "${span.from}-${span.to}"
-                val lemmaVal = morpho[docId]!![key]?.lemma
-                if (lemmaVal != null && lemmaVal != "_") {
-                    output.append(lemmaVal).append(' ')
-                } else {
-                    texts[docId]!!.appendRangeTo(output, safeFrom, safeTo)
-                    output.append(' ')
-                }
-            } else {
-                texts[docId]!!.appendRangeTo(output, safeFrom, safeTo)
-                output.append(' ')
-            }
-            real_token_index++
-        }
-        if (output.isNotEmpty() && output.endsWith(" ")) output.deleteCharAt(output.length - 1)
-        return output
+    private fun formatNowOutput(docId: String): StringBuilder {
+        val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+            docId = docId,
+            foundry = "base",
+            tokens = tokens[docId],
+            sentences = sentences[docId],
+            text = texts[docId],
+            morpho = morpho[docId],
+            metadata = metadata[docId],
+            extraFeatures = extraFeatures[docId],
+            fileName = fnames[docId],
+            useLemma = useLemma,
+            extractMetadataRegex = extractMetadataRegex,
+            columns = columns
+        )
+        return de.ids_mannheim.korapxmltools.formatters.NowFormatter.format(context)
     }
 
     private fun printConlluToken(
