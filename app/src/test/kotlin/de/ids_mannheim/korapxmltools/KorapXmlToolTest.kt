@@ -1051,7 +1051,7 @@ class KorapXmlToolTest {
                     .inputStream
                     .bufferedReader()
                     .use { it.readText() }
-                jsonFile.name to jsonContent
+                jsonFile.name.removeSuffix(".gz") to jsonContent
             }
         } finally {
             extractDir.deleteRecursively()

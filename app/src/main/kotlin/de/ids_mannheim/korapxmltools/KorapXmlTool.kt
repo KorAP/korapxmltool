@@ -19,6 +19,9 @@ import picocli.CommandLine
 import picocli.CommandLine.*
 import java.io.*
 import java.lang.Integer.parseInt
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.charset.StandardCharsets
 import java.util.*
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
@@ -33,7 +36,6 @@ import java.util.regex.Pattern
 import java.util.stream.IntStream
 import java.util.zip.GZIPOutputStream
 import java.util.zip.ZipFile
-import java.nio.charset.StandardCharsets
 import kotlin.text.Charsets
 import me.tongfei.progressbar.ProgressBar
 import me.tongfei.progressbar.ProgressBarBuilder
@@ -198,6 +200,12 @@ class KorapXmlTool : Callable<Int> {
         description = ["Include punctuation and other non-word tokens when generating Krill output (matches korapxml2krill --non-word-tokens flag)."]
     )
     var includeNonWordTokens: Boolean = false
+
+    @Option(
+        names = ["--lz4"],
+        description = ["Use LZ4 compression for Krill JSON output instead of gzip (faster but larger files)."]
+    )
+    var useLz4: Boolean = false
 
     @Option(names = ["--offsets"], description = ["Not yet implemented: offsets"])
     var offsets: Boolean = false
@@ -1033,6 +1041,7 @@ class KorapXmlTool : Callable<Int> {
                     if (!textFoundries.containsAll(expectedForThisText)) {
                         LOGGER.warning("Outputting incomplete text $textId with foundries ${textFoundries.sorted()} (expected: ${expectedForThisText.sorted()})")
                     }
+                    
                     outputKrillText(textId, textData)
                     // Continue stepping the same progress bar
                     incrementalProgressBar?.step()
@@ -3472,6 +3481,8 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
+
+
     // Start timer-based scanner for incremental output
     private fun startIncrementalWriterThread() {
         if (outputFormat != OutputFormat.KRILL || krillTarOutputStream == null) return
@@ -3732,39 +3743,37 @@ class KorapXmlTool : Callable<Int> {
             }
 
             val json = KrillJsonGenerator.generate(textData, corpusMetadata, docMetadata, includeNonWordTokens)
-            val jsonFileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
-
-            // Compress JSON with GZIP (fast compression level 1 for better performance)
-            val byteOut = ByteArrayOutputStream()
-            val deflater = java.util.zip.Deflater(1, true)  // Level 1 (fast), nowrap=true for gzip
-            val deflaterOut = java.util.zip.DeflaterOutputStream(byteOut, deflater)
             
-            // Write gzip header manually (required for nowrap mode)
-            byteOut.write(byteArrayOf(0x1f, 0x8b.toByte()))  // Magic number
-            byteOut.write(0x08)  // Compression method (deflate)
-            byteOut.write(0x00)  // Flags
-            byteOut.write(ByteArray(6))  // Timestamp + extra flags + OS (all zeros)
-            
-            // Compress data
-            val jsonBytes = json.toByteArray(Charsets.UTF_8)
-            deflaterOut.write(jsonBytes)
-            deflaterOut.finish()
-            
-            // Write gzip trailer (CRC32 + uncompressed size)
-            val crc = java.util.zip.CRC32()
-            crc.update(jsonBytes)
-            val crcValue = crc.value.toInt()
-            byteOut.write(crcValue and 0xFF)
-            byteOut.write((crcValue shr 8) and 0xFF)
-            byteOut.write((crcValue shr 16) and 0xFF)
-            byteOut.write((crcValue shr 24) and 0xFF)
-            val size = jsonBytes.size
-            byteOut.write(size and 0xFF)
-            byteOut.write((size shr 8) and 0xFF)
-            byteOut.write((size shr 16) and 0xFF)
-            byteOut.write((size shr 24) and 0xFF)
-            
-            val compressedData = byteOut.toByteArray()
+            // Choose compression format based on --lz4 flag
+            val (jsonFileName, compressedData) = if (useLz4) {
+                val fileName = textId.replace("_", "-").replace(".", "-") + ".json.lz4"
+                val jsonBytes = json.toByteArray(Charsets.UTF_8)
+                val byteOut = ByteArrayOutputStream()
+                net.jpountz.lz4.LZ4FrameOutputStream(byteOut).use { lz4Out ->
+                    lz4Out.write(jsonBytes)
+                }
+                Pair(fileName, byteOut.toByteArray())
+            } else {
+                // Use fast GZIP (level 1) for better performance
+                val fileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
+                val jsonBytes = json.toByteArray(Charsets.UTF_8)
+                val byteOut = ByteArrayOutputStream()
+                val deflater = java.util.zip.Deflater(1, true) // level 1, nowrap=true for raw deflate
+                java.util.zip.DeflaterOutputStream(byteOut, deflater).use { deflateOut ->
+                    // Write GZIP header
+                    byteOut.write(byteArrayOf(0x1f, 0x8b.toByte(), 8, 0, 0, 0, 0, 0, 0, 0))
+                    val crc = java.util.zip.CRC32()
+                    crc.update(jsonBytes)
+                    deflateOut.write(jsonBytes)
+                    deflateOut.finish()
+                    // Write GZIP trailer (CRC32 and uncompressed size)
+                    val trailer = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+                    trailer.putInt(crc.value.toInt())
+                    trailer.putInt(jsonBytes.size)
+                    byteOut.write(trailer.array())
+                }
+                Pair(fileName, byteOut.toByteArray())
+            }
 
             // Write to TAR (synchronized for thread safety)
             synchronized(krillTarOutputStream!!) {
