@@ -74,7 +74,8 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "    ./build/bin/korapxmltool -f now /vol/corpora/DeReKo/current/KorAP/zip/*24.zip | pv > dach24.txt",
             "",
             "  Tag with external POS tagger:",
-            "    ./build/bin/korapxmltool -f zip -t marmot:models/de.marmot app/src/test/resources/goe.zip",
+            "    ./build/bin/korapxmltool -f zip -t marmot:de.marmot app/src/test/resources/goe.zip",
+            "    # (uses KORAPXMLTOOL_MODELS_PATH if model not found in current directory)",
             "",
             "  Use external spaCy annotation (without dependencies):",
             "    ./build/bin/korapxmltool -T4 -A \"docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest\" -f zip ./app/src/test/resources/goe.zip",
@@ -83,8 +84,8 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "    ./build/bin/korapxmltool -f krill -D out/krill app/src/test/resources/wud24_sample.zip app/src/test/resources/wud24_sample.spacy.zip app/src/test/resources/wud24_sample.marmot-malt.zip",
             "",
             "  Large corpus processing with custom memory and performance settings:",
-            "    KORAPXMLTOOL_XMX=500g KORAPXMLTOOL_JAVA_OPTS=\"-XX:+UseG1GC\" \\",
-            "        ./build/bin/korapxmltool --threads 100 -f zip -t marmot:models/de.marmot -P maltparser:models/de.malt wpd25*.zip"
+            "    KORAPXMLTOOL_XMX=500g KORAPXMLTOOL_MODELS_PATH=/data/models KORAPXMLTOOL_JAVA_OPTS=\"-XX:+UseG1GC\" \\",
+            "        ./build/bin/korapxmltool --threads 100 -f zip -t marmot:de.marmot -P maltparser:de.malt wpd25*.zip"
     ]
 )
 
@@ -288,6 +289,38 @@ class KorapXmlTool : Callable<Int> {
 
     private var taggerName: String? = null
     private var taggerModel: String? = null
+    
+    // Store model path resolutions for logging after logger initialization
+    private val modelPathResolutions: MutableList<Pair<String, String>> = mutableListOf()
+    
+    // Helper function to resolve model path with default search directory
+    private fun resolveModelPath(modelPath: String): String? {
+        // If absolute path or relative path exists as-is, return it
+        if (File(modelPath).exists()) {
+            return modelPath
+        }
+        
+        // Check if KORAPXMLTOOL_MODELS_PATH environment variable is set
+        val defaultModelsPath = System.getenv("KORAPXMLTOOL_MODELS_PATH")
+        if (!defaultModelsPath.isNullOrBlank()) {
+            val resolvedPath = File(defaultModelsPath, modelPath).absolutePath
+            if (File(resolvedPath).exists()) {
+                return resolvedPath
+            }
+            
+            // If modelPath contains directory separators, try with just the filename
+            val fileName = File(modelPath).name
+            if (fileName != modelPath) {
+                val fileNamePath = File(defaultModelsPath, fileName).absolutePath
+                if (File(fileNamePath).exists()) {
+                    return fileNamePath
+                }
+            }
+        }
+        
+        // Model not found in any location
+        return null
+    }
     @Option(
         names = ["--tag-with", "-t"],
         paramLabel = "TAGGER:MODEL",
@@ -302,11 +335,25 @@ class KorapXmlTool : Callable<Int> {
                     "value does not match the expected pattern ${taggerFoundries}:<path/to/model>", tagWith))
         } else {
             taggerName = matcher.group(1)
-            taggerModel = matcher.group(2)
-            if (!File(taggerModel!!).exists()) {
+            val originalModelPath = matcher.group(2)
+            val resolvedModelPath = resolveModelPath(originalModelPath)
+            
+            if (resolvedModelPath != null) {
+                taggerModel = resolvedModelPath
+                if (resolvedModelPath != originalModelPath) {
+                    // Store for logging after logger initialization
+                    modelPathResolutions.add(originalModelPath to resolvedModelPath)
+                }
+            } else {
+                val defaultModelsPath = System.getenv("KORAPXMLTOOL_MODELS_PATH")
+                val searchInfo = if (defaultModelsPath != null) {
+                    " (searched in current directory and KORAPXMLTOOL_MODELS_PATH='$defaultModelsPath')"
+                } else {
+                    " (searched in current directory; set KORAPXMLTOOL_MODELS_PATH environment variable to specify default model search path)"
+                }
                 throw ParameterException(spec.commandLine(),
-                    String.format(Locale.ROOT, "Invalid value for option '--tag-with':"+
-                        "model file '%s' does not exist", taggerModel, taggerModel))
+                    String.format(Locale.ROOT, "Invalid value for option '--tag-with': "+
+                        "model file '%s' does not exist%s", originalModelPath, searchInfo))
             }
         }
     }
@@ -327,11 +374,25 @@ class KorapXmlTool : Callable<Int> {
                         "value does not match the expected pattern (${parserFoundries}):<path/to/model>", parseWith))
         } else {
             parserName = matcher.group(1)
-            parserModel = matcher.group(2)
-            if (!File(parserModel!!).exists()) {
+            val originalModelPath = matcher.group(2)
+            val resolvedModelPath = resolveModelPath(originalModelPath)
+            
+            if (resolvedModelPath != null) {
+                parserModel = resolvedModelPath
+                if (resolvedModelPath != originalModelPath) {
+                    // Store for logging after logger initialization
+                    modelPathResolutions.add(originalModelPath to resolvedModelPath)
+                }
+            } else {
+                val defaultModelsPath = System.getenv("KORAPXMLTOOL_MODELS_PATH")
+                val searchInfo = if (defaultModelsPath != null) {
+                    " (searched in current directory and KORAPXMLTOOL_MODELS_PATH='$defaultModelsPath')"
+                } else {
+                    " (searched in current directory; set KORAPXMLTOOL_MODELS_PATH environment variable to specify default model search path)"
+                }
                 throw ParameterException(spec.commandLine(),
-                    String.format(Locale.ROOT, "Invalid value for option '--parse-with':"+
-                            "model file '%s' does not exist", parserModel, parserModel))
+                    String.format(Locale.ROOT, "Invalid value for option '--parse-with': "+
+                            "model file '%s' does not exist%s", originalModelPath, searchInfo))
             }
         }
     }
@@ -354,6 +415,11 @@ class KorapXmlTool : Callable<Int> {
         }
         LOGGER.level = level
         handler.level = level  // Handler also needs to be set to the same level
+
+        // Log model path resolutions that occurred during parameter parsing
+        modelPathResolutions.forEach { (original, resolved) ->
+            LOGGER.info("Resolved model path '$original' to '$resolved'")
+        }
 
         if (lemmaOnly) {
             useLemma = true

@@ -90,7 +90,7 @@ If a lemma for a token is missing (`_`) the surface form is used as fallback.
 Example for large NOW export with progress and exclusions:
 
 ```
-KORAPXMLTOOL_XMX=64g KORAPXMLTOOL_JAVA_OPTS="-XX:+UseG1GC -Djdk.util.zip.disableMemoryMapping=true -Djdk.util.zip.reuseInflater=true" \
+KORAPXMLTOOL_XMX=64g KORAPXMLTOOL_MODELS_PATH=/data/models KORAPXMLTOOL_JAVA_OPTS="-XX:+UseG1GC -Djdk.util.zip.disableMemoryMapping=true -Djdk.util.zip.reuseInflater=true" \
      ./build/bin/korapxmltool -l info --threads 100 --zip-parallelism 8 \
      --lemma-only --sequential -f now \
      --exclude-zip-glob 'w?d24.tree_tagger.zip' \
@@ -120,8 +120,15 @@ This writes `out/krill/wud24_sample.krill.tar` plus a log file. Add more annotat
 
 You need to download the pre-trained MarMoT models from the [MarMoT models repository](http://cistern.cis.lmu.de/marmot/models/CURRENT/).
 
+You can specify the full path to the model, or set the `KORAPXMLTOOL_MODELS_PATH` environment variable to specify a default search directory:
+
 ```shell script
+# With full path
 ./build/bin/korapxmltool -f zip -t marmot:models/de.marmot app/src/test/resources/goe.zip
+
+# With KORAPXMLTOOL_MODELS_PATH (searches in /data/models/ if model not found locally)
+export KORAPXMLTOOL_MODELS_PATH=/data/models
+./build/bin/korapxmltool -f zip -t marmot:de.marmot app/src/test/resources/goe.zip
 ```
 
 ### Tagging with integrated OpenNLP POS tagger directly to a new KorAP-XML ZIP file
