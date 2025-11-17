@@ -83,4 +83,10 @@ if ! $has_xmx; then
   EXTRA_OPTS+=("-Xmx${xmx_mb}m")
 fi
 
+# Set default KORAPXMLTOOL_MODELS_PATH relative to executable if not already set
+if [[ -z ${KORAPXMLTOOL_MODELS_PATH:-} ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  export KORAPXMLTOOL_MODELS_PATH="${SCRIPT_DIR}/../lib/models"
+fi
+
 exec java "${EXTRA_OPTS[@]}" ${KORAPXMLTOOL_JAVA_OPTS:-} -jar "$0" "$@"
