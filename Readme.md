@@ -1,16 +1,12 @@
 # korapxmltool
 
-Tool package to convert and annotate KorAP-XML ZIP files.
+Converts between KorAP-XML ZIP format and formats like CoNLL-U, Krill, word2vec, NOW and annotates KorAP XML ZIPs with various taggers and parsers.
 
-Up to 200 times faster and more accurate drop-in replacement for the korapxml2conllu part of [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U).
+Drop-in replacement for korapxml2conllu [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U) and korapxml2krill [KorAP-XML-Krill](https://github.com/KorAP/KorAP-XML-Krill)
 
-For some conversion tasks, however, you currently need the conllu2korapxml part of [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U).
 
-## Download
 
-You can download the latest jar build from the build artifacts [here](https://gitlab.ids-mannheim.de/KorAP/korapxml2conllu/-/jobs/artifacts/master/raw/app/build/libs/korapxmltool.jar?job=build).
-
-## Build it yourself
+## Build
 
 ```shell script
 ./gradlew build
@@ -149,13 +145,13 @@ Language models are downloaded automatically.
 This requires the [spaCy Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/sota-pos-lemmatizers) and is only available for German.
 
 ```shell script
-./build/bin/korapxmltool -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest 2> /dev/null" -f zip ./app/src/test/resources/goe.zip
+./build/bin/korapxmltool -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest" -f zip ./app/src/test/resources/goe.zip
 ```
 
 ### Tag, lemmatize and dependency parse with spaCy directly to a new KorAP-XML ZIP file
 
 ```shell script
-./build/bin/korapxmltool -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=True --rm -i korap/conllu2spacy:latest 2> /dev/null" -f zip ./app/src/test/resources/goe.zip
+./build/bin/korapxmltool -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=True --rm -i korap/conllu2spacy:latest" -f zip ./app/src/test/resources/goe.zip
 ```
 
 ### Tag, lemmatize and constituency parse with CoreNLP (3.X) directly to a new KorAP-XML ZIP file

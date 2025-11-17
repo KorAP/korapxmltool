@@ -51,12 +51,41 @@ import kotlin.system.exitProcess
 val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
 
 @Command(
-    name = "KorapXmlTool",
+    name = "korapxmltool",
     mixinStandardHelpOptions = true,
-    version = ["KorapXmlTool 2.99"],
-    description = ["Converts KorAP-XML <https://github.com/KorAP/KorAP-XML-Krill#about-korap-xml> base or " +
-            "morpho zips to (annotated) CoNLL(-U) format with all information necessary for " +
-            "reconstruction in comment lines."]
+    version = ["KorAPXmlTool 2.99"],
+    usageHelpAutoWidth = false,
+    usageHelpWidth = 200,
+    description = ["Converts between KorAP-XML ZIP format and formats like CoNLL-U, Krill, word2vec, NOW\n"+
+            "and annotates KorAP XML ZIPs with various taggers and parsers.\n" +
+            "Drop-in replacement for korapxml2conllu (https://github.com/KorAP/KorAP-XML-CoNLL-U) and\n" +
+            "korapxml2krill (https://github.com/KorAP/KorAP-XML-Krill)\n"],
+    footer = ["%nExamples:",
+            "  Basic conversion to CoNLL-U format:",
+            "    ./build/bin/korapxmltool app/src/test/resources/wdf19.zip | head -10",
+            "",
+            "  Word2Vec style output:",
+            "    ./build/bin/korapxmltool --word2vec t/data/wdf19.zip",
+            "",
+            "  Extract metadata and convert:",
+            "    ./build/bin/korapxmltool -m '<textSigle>([^<]+)' -m '<creatDate>([^<]+)' --word2vec t/data/wdf19.zip",
+            "",
+            "  NOW corpus export:",
+            "    ./build/bin/korapxmltool -f now /vol/corpora/DeReKo/current/KorAP/zip/*24.zip | pv > dach24.txt",
+            "",
+            "  Tag with external POS tagger:",
+            "    ./build/bin/korapxmltool -f zip -t marmot:models/de.marmot app/src/test/resources/goe.zip",
+            "",
+            "  Use external spaCy annotation (without dependencies):",
+            "    ./build/bin/korapxmltool -T4 -A \"docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest\" -f zip ./app/src/test/resources/goe.zip",
+            "",
+            "  Generate Krill format with multiple foundries:",
+            "    ./build/bin/korapxmltool -f krill -D out/krill app/src/test/resources/wud24_sample.zip app/src/test/resources/wud24_sample.spacy.zip app/src/test/resources/wud24_sample.marmot-malt.zip",
+            "",
+            "  Large corpus processing with custom memory and performance settings:",
+            "    KORAPXMLTOOL_XMX_MB=512000 KORAPXMLTOOL_JAVA_OPTS=\"-XX:+UseG1GC\" \\",
+            "        ./build/bin/korapxmltool --threads 100 -f zip -t marmot:models/de.marmot -P maltparser:models/de.malt wpd25*.zip"
+    ]
 )
 
 class KorapXmlTool : Callable<Int> {
@@ -80,7 +109,7 @@ class KorapXmlTool : Callable<Int> {
             "korapxml, xml, zip: KorAP-XML format zip",
             "word2vec, w2v: Print text in LM training format: tokens separated by space, sentences separated by newlines",
             "now, NOW: NOW corpus export format: w2v-like format with <p> tags for sentence ends and @@<text-sigle> prefix",
-            "krill: Krill JSON format (tar file with gzipped JSON files, one per text)",
+            "krill: Krill JSON format (tar file with gzipped JSON files, one per text)"
         ],
         converter = [OutputFormatConverter::class]
     )
