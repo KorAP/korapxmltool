@@ -864,19 +864,22 @@ class KorapXmlTool : Callable<Int> {
             externalFoundry = detectFoundryFromAnnotateCmd(annotateWith)
             // Initialize ZIP output stream BEFORE creating worker pool, if needed
             if (outputFormat == OutputFormat.KORAPXML) {
-                // Determine output filename - respect outputDir like krill format does
+                // Determine output filename - respect outputDir consistently
                 val inputZipPath = args[0] // First ZIP file
                 val targetFoundry = externalFoundry ?: "annotated"
 
-                // If outputDir is default ".", use input file's directory for backward compatibility
-                val effectiveOutputDir = if (outputDir == ".") {
-                    File(inputZipPath).parent ?: "."
-                } else {
-                    outputDir
-                }
                 val baseZipName = File(inputZipPath).name.replace(Regex("\\.zip$"), "")
-                val outputMorphoZipFileName = File(effectiveOutputDir, "$baseZipName.$targetFoundry.zip").absolutePath
+                val outputMorphoZipFileName = File(outputDir, "$baseZipName.$targetFoundry.zip").absolutePath
                 targetZipFileName = outputMorphoZipFileName
+
+                // Check for existing output file BEFORE redirecting logging, so user sees the message
+                if (File(outputMorphoZipFileName).exists() && !overwrite) {
+                    val errorMsg = "Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite."
+                    System.err.println("ERROR: $errorMsg")
+                    LOGGER.severe(errorMsg)
+                    exitProcess(1)
+                }
+
                 LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
                 // Prepare per-output log file
                 val logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
@@ -888,11 +891,6 @@ class KorapXmlTool : Callable<Int> {
                 val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
                 val oldErr = System.err
                 System.setErr(errPs)
-
-                if (File(outputMorphoZipFileName).exists() && !overwrite) {
-                    LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
-                    exitProcess(1)
-                }
 
                 // Delete old file if it exists
                 if (File(outputMorphoZipFileName).exists()) {
@@ -922,14 +920,9 @@ class KorapXmlTool : Callable<Int> {
 
             if (outputFormat == OutputFormat.KORAPXML) {
                 // For ZIP output with external annotation, we need a custom handler
-                // If outputDir is default ".", use input file's directory for backward compatibility
-                val effectiveOutputDir = if (outputDir == ".") {
-                    File(args[0]).parent ?: "."
-                } else {
-                    outputDir
-                }
+                // Use outputDir consistently, not input file's directory
                 val baseZipName = File(args[0]).name.replace(Regex("\\.zip$"), "")
-                val currentZipPath = File(effectiveOutputDir, "$baseZipName." + (externalFoundry ?: "annotated") + ".zip").absolutePath
+                val currentZipPath = File(outputDir, "$baseZipName." + (externalFoundry ?: "annotated") + ".zip").absolutePath
                 val currentLog = currentZipPath.replace(Regex("\\.zip$"), ".log")
                 annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, { annotatedConllu, task ->
                      parseAndWriteAnnotatedConllu(annotatedConllu, task)
@@ -1268,17 +1261,19 @@ class KorapXmlTool : Callable<Int> {
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
 
-            // Respect outputDir option like krill format does
-            // If outputDir is default ".", use input file's directory for backward compatibility
-            val effectiveOutputDir = if (outputDir == ".") {
-                File(zipFilePath).parent ?: "."
-            } else {
-                outputDir
-            }
+            // Respect outputDir option consistently
             val baseZipName = File(zipFilePath).name.replace(Regex("\\.zip$"), "")
-            val outputMorphoZipFileName = File(effectiveOutputDir, "$baseZipName.$targetFoundry.zip").absolutePath
+            val outputMorphoZipFileName = File(outputDir, "$baseZipName.$targetFoundry.zip").absolutePath
             targetZipFileName = outputMorphoZipFileName
             LOGGER.info("Output ZIP file: $outputMorphoZipFileName")
+
+            // Check for existing output file BEFORE redirecting logging, so user sees the message
+            if (File(outputMorphoZipFileName).exists() && !overwrite) {
+                val errorMsg = "Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite."
+                System.err.println("ERROR: $errorMsg")
+                LOGGER.severe(errorMsg)
+                exitProcess(1)
+            }
 
             // Set up logging to file (like krill format does)
             val logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
@@ -1297,10 +1292,12 @@ class KorapXmlTool : Callable<Int> {
             val oldErr = System.err
             System.setErr(errPs)
 
-            if (File(outputMorphoZipFileName).exists() && !overwrite) {
-                LOGGER.severe("Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite.")
-                exitProcess(1)
+            // Delete old file if it exists
+            if (File(outputMorphoZipFileName).exists()) {
+                LOGGER.info("Deleting existing file: $outputMorphoZipFileName")
+                File(outputMorphoZipFileName).delete()
             }
+
             val fileOutputStream = FileOutputStream(outputMorphoZipFileName)
             morphoZipOutputStream = ZipArchiveOutputStream(fileOutputStream).apply {
                 setUseZip64(Zip64Mode.Always)
