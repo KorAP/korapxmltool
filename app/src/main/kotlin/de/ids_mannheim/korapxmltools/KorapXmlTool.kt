@@ -83,9 +83,9 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "  Generate Krill tar from wud24_sample with multiple annotation foundries:",
             "    ./build/bin/korapxmltool -f krill -D . app/src/test/resources/wud24_sample*.zip",
             "",
-            "  Large corpus processing with custom memory and performance settings:",
+            "  Large corpus annotation with custom memory and performance and default model settings:",
             "    KORAPXMLTOOL_XMX=500g KORAPXMLTOOL_MODELS_PATH=/data/models KORAPXMLTOOL_JAVA_OPTS=\"-XX:+UseG1GC\" \\",
-            "        ./build/bin/korapxmltool --threads 100 -f zip -t marmot:de.marmot -P malt:german.mco wpd25*.zip"
+            "        ./build/bin/korapxmltool --threads 100 -f zip -t marmot -P malt wpd25*.zip"
     ]
 )
 
@@ -293,6 +293,18 @@ class KorapXmlTool : Callable<Int> {
     // Store model path resolutions for logging after logger initialization
     private val modelPathResolutions: MutableList<Pair<String, String>> = mutableListOf()
     
+    // Default models for taggers and parsers
+    private val defaultTaggerModels = mapOf(
+        "marmot" to "de.marmot",
+        "opennlp" to "de-pos-maxent.bin",
+        "corenlp" to "german-fast.tagger"
+    )
+
+    private val defaultParserModels = mapOf(
+        "malt" to "german.mco",
+        "corenlp" to "germanSR.ser.gz"
+    )
+
     // Helper function to resolve model path with default search directory
     private fun resolveModelPath(modelPath: String): String? {
         // If absolute path or relative path exists as-is, return it
@@ -323,19 +335,27 @@ class KorapXmlTool : Callable<Int> {
     }
     @Option(
         names = ["--tag-with", "-t"],
-        paramLabel = "TAGGER:MODEL",
-        description = ["Specify a tagger and a model: ${taggerFoundries}:<path/to/model>."]
+        paramLabel = "TAGGER[:MODEL]",
+        description = ["Specify a tagger and optionally a model: ${taggerFoundries}[:<path/to/model>].",
+                      "If model is omitted, defaults are: marmot→de.marmot, opennlp→de-pos-maxent.bin, corenlp→german-fast.tagger"]
     )
     fun setTagWith(tagWith: String) {
-        val pattern: Pattern = Pattern.compile("(${taggerFoundries}):(.+)")
+        // Pattern now makes the model part optional
+        val pattern: Pattern = Pattern.compile("(${taggerFoundries})(?::(.+))?")
         val matcher: Matcher = pattern.matcher(tagWith)
         if (!matcher.matches()) {
             throw ParameterException(spec.commandLine(),
                 String.format(Locale.ROOT, "Invalid value `%s' for option '--tag-with': "+
-                    "value does not match the expected pattern ${taggerFoundries}:<path/to/model>", tagWith))
+                    "value does not match the expected pattern ${taggerFoundries}[:<path/to/model>]", tagWith))
         } else {
             taggerName = matcher.group(1)
-            val originalModelPath = matcher.group(2)
+            val originalModelPath = matcher.group(2) ?: defaultTaggerModels[taggerName]
+
+            if (originalModelPath == null) {
+                throw ParameterException(spec.commandLine(),
+                    String.format(Locale.ROOT, "No default model available for tagger '%s'", taggerName))
+            }
+
             val resolvedModelPath = resolveModelPath(originalModelPath)
             
             if (resolvedModelPath != null) {
@@ -362,19 +382,27 @@ class KorapXmlTool : Callable<Int> {
     private var parserModel: String? = null
     @Option(
         names = ["--parse-with", "-P"],
-        paramLabel = "parser:MODEL",
-        description = ["Specify a parser and a model: ${parserFoundries}:<path/to/model>."]
+        paramLabel = "PARSER[:MODEL]",
+        description = ["Specify a parser and optionally a model: ${parserFoundries}[:<path/to/model>].",
+                      "If model is omitted, defaults are: malt→german.mco, corenlp→germanSR.ser.gz"]
     )
     fun setParseWith(parseWith: String) {
-        val pattern: Pattern = Pattern.compile("(${parserFoundries}):(.+)")
+        // Pattern now makes the model part optional
+        val pattern: Pattern = Pattern.compile("(${parserFoundries})(?::(.+))?")
         val matcher: Matcher = pattern.matcher(parseWith)
         if (!matcher.matches()) {
             throw ParameterException(spec.commandLine(),
                 String.format(Locale.ROOT, "Invalid value `%s' for option '--parse-with': "+
-                        "value does not match the expected pattern (${parserFoundries}):<path/to/model>", parseWith))
+                        "value does not match the expected pattern ${parserFoundries}[:<path/to/model>]", parseWith))
         } else {
             parserName = matcher.group(1)
-            val originalModelPath = matcher.group(2)
+            val originalModelPath = matcher.group(2) ?: defaultParserModels[parserName]
+
+            if (originalModelPath == null) {
+                throw ParameterException(spec.commandLine(),
+                    String.format(Locale.ROOT, "No default model available for parser '%s'", parserName))
+            }
+
             val resolvedModelPath = resolveModelPath(originalModelPath)
             
             if (resolvedModelPath != null) {
