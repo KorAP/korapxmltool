@@ -1,5 +1,6 @@
 package de.ids_mannheim.korapxmltools.formatters
 
+import de.ids_mannheim.korapxmltools.ConstituencyParserBridge
 import de.ids_mannheim.korapxmltools.KorapXmlTool
 import de.ids_mannheim.korapxmltools.NonBmpString
 
@@ -19,7 +20,13 @@ data class OutputContext(
     val fileName: String?,
     val useLemma: Boolean,
     val extractMetadataRegex: List<String>,
-    val columns: Int = 10
+    val extractAttributesRegex: String,
+    val columns: Int = 10,
+    // CoNLL-U specific fields
+    val constituencyTrees: List<ConstituencyParserBridge.ConstituencyTree>? = null,
+    val includeOffsetsInMisc: Boolean = false,
+    val compatibilityMode: Boolean = false,
+    val tokenSeparator: String = "\n"
 )
 
 /**

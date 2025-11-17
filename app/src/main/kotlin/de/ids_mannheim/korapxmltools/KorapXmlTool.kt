@@ -1946,7 +1946,7 @@ class KorapXmlTool : Callable<Int> {
             if (outputFormat == OutputFormat.KORAPXML && annotationWorkerPool == null) {
                 korapXmlOutput(getMorphoFoundry(), docId)
             } else {
-                conlluOutput(foundry, docId)
+                formatConlluOutput(foundry, docId)
             }
         }
 
@@ -2560,6 +2560,29 @@ class KorapXmlTool : Callable<Int> {
     }
 
     // Formatter-based output methods using modular formatters
+    private fun formatConlluOutput(foundry: String, docId: String): StringBuilder {
+        val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+            docId = docId,
+            foundry = foundry,
+            tokens = tokens[docId],
+            sentences = sentences[docId],
+            text = texts[docId],
+            morpho = morpho[docId],
+            metadata = metadata[docId],
+            extraFeatures = extraFeatures[docId],
+            fileName = fnames[docId],
+            useLemma = useLemma,
+            extractMetadataRegex = extractMetadataRegex,
+            extractAttributesRegex = extractAttributesRegex,
+            columns = columns,
+            constituencyTrees = constituencyTrees[docId],
+            includeOffsetsInMisc = annotationWorkerPool != null && outputFormat == OutputFormat.KORAPXML,
+            compatibilityMode = COMPATIBILITY_MODE,
+            tokenSeparator = tokenSeparator
+        )
+        return de.ids_mannheim.korapxmltools.formatters.ConlluFormatter.format(context)
+    }
+
     private fun formatWord2VecOutput(docId: String): StringBuilder {
         val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
             docId = docId,
@@ -2573,6 +2596,7 @@ class KorapXmlTool : Callable<Int> {
             fileName = fnames[docId],
             useLemma = useLemma,
             extractMetadataRegex = extractMetadataRegex,
+            extractAttributesRegex = extractAttributesRegex,
             columns = columns
         )
         return de.ids_mannheim.korapxmltools.formatters.Word2VecFormatter.format(context)
@@ -2591,6 +2615,7 @@ class KorapXmlTool : Callable<Int> {
             fileName = fnames[docId],
             useLemma = useLemma,
             extractMetadataRegex = extractMetadataRegex,
+            extractAttributesRegex = extractAttributesRegex,
             columns = columns
         )
         return de.ids_mannheim.korapxmltools.formatters.NowFormatter.format(context)
