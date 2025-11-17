@@ -120,7 +120,7 @@ This writes `out/krill/wud24_sample.krill.tar` plus a log file. Add more annotat
 
 You need to download the pre-trained MarMoT models from the [MarMoT models repository](http://cistern.cis.lmu.de/marmot/models/CURRENT/).
 
-You can specify the full path to the model, or set the `KORAPXMLTOOL_MODELS_PATH` environment variable to specify a default search directory:
+You can specify the full path to the model, or set the `KORAPXMLTOOL_MODELS_PATH` environment variable to specify a default search directory. If not set, `KORAPXMLTOOL_MODELS_PATH` defaults to `../lib/models` relative to the executable location.
 
 ```shell script
 # With full path
@@ -128,6 +128,9 @@ You can specify the full path to the model, or set the `KORAPXMLTOOL_MODELS_PATH
 
 # With KORAPXMLTOOL_MODELS_PATH (searches in /data/models/ if model not found locally)
 export KORAPXMLTOOL_MODELS_PATH=/data/models
+./build/bin/korapxmltool -f zip -t marmot:de.marmot app/src/test/resources/goe.zip
+
+# Without setting KORAPXMLTOOL_MODELS_PATH (uses default ../lib/models from executable)
 ./build/bin/korapxmltool -f zip -t marmot:de.marmot app/src/test/resources/goe.zip
 ```
 

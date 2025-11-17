@@ -53,7 +53,7 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
 @Command(
     name = "korapxmltool",
     mixinStandardHelpOptions = true,
-    version = ["KorAPXmlTool 2.99"],
+    version = ["korapxmltool v2.99"],
     usageHelpAutoWidth = false,
     usageHelpWidth = 200,
     description = ["Converts between KorAP-XML ZIP format and formats like CoNLL-U, Krill, word2vec, NOW\n"+
@@ -62,10 +62,10 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "korapxml2krill (https://github.com/KorAP/KorAP-XML-Krill)\n"],
     footer = ["%nExamples:",
             "  Basic conversion to CoNLL-U format:",
-            "    ./build/bin/korapxmltool app/src/test/resources/wdf19.zip | head -10",
+            "    ./build/bin/korapxmltool app/src/test/resources/wdf19.tree_tagger.zip | head -10",
             "",
             "  Word2Vec style output:",
-            "    ./build/bin/korapxmltool --word2vec t/data/wdf19.zip",
+            "    ./build/bin/korapxmltool -f w2v app/src/test/resources/wud24_sample.zip",
             "",
             "  Extract metadata and convert:",
             "    ./build/bin/korapxmltool -m '<textSigle>([^<]+)' -m '<creatDate>([^<]+)' --word2vec t/data/wdf19.zip",
@@ -73,15 +73,15 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "  NOW corpus export:",
             "    ./build/bin/korapxmltool -f now /vol/corpora/DeReKo/current/KorAP/zip/*24.zip | pv > dach24.txt",
             "",
-            "  Tag with external POS tagger:",
-            "    ./build/bin/korapxmltool -f zip -t marmot:de.marmot app/src/test/resources/goe.zip",
-            "    # (uses KORAPXMLTOOL_MODELS_PATH if model not found in current directory)",
+            "  Tag with integrated MarMot POS tagger, and parse with internal Malt parser:",
+            "    ./build/bin/korapxmltool -f zip -t marmot:de.marmot -P malt:german.mco app/src/test/resources/goe.zip",
+            "    # (uses KORAPXMLTOOL_MODELS_PATH if model not found in current directory; defaults to ../lib/models)",
             "",
             "  Use external spaCy annotation (without dependencies):",
             "    ./build/bin/korapxmltool -T4 -A \"docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest\" -f zip ./app/src/test/resources/goe.zip",
             "",
-            "  Generate Krill format with multiple foundries:",
-            "    ./build/bin/korapxmltool -f krill -D out/krill app/src/test/resources/wud24_sample.zip app/src/test/resources/wud24_sample.spacy.zip app/src/test/resources/wud24_sample.marmot-malt.zip",
+            "  Generate Krill tar from wud24_sample with multiple annotation foundries:",
+            "    ./build/bin/korapxmltool -f krill -D . app/src/test/resources/wud24_sample*.zip",
             "",
             "  Large corpus processing with custom memory and performance settings:",
             "    KORAPXMLTOOL_XMX=500g KORAPXMLTOOL_MODELS_PATH=/data/models KORAPXMLTOOL_JAVA_OPTS=\"-XX:+UseG1GC\" \\",
@@ -349,7 +349,7 @@ class KorapXmlTool : Callable<Int> {
                 val searchInfo = if (defaultModelsPath != null) {
                     " (searched in current directory and KORAPXMLTOOL_MODELS_PATH='$defaultModelsPath')"
                 } else {
-                    " (searched in current directory; set KORAPXMLTOOL_MODELS_PATH environment variable to specify default model search path)"
+                    " (searched in current directory; KORAPXMLTOOL_MODELS_PATH defaults to ../lib/models relative to executable)"
                 }
                 throw ParameterException(spec.commandLine(),
                     String.format(Locale.ROOT, "Invalid value for option '--tag-with': "+
@@ -388,7 +388,7 @@ class KorapXmlTool : Callable<Int> {
                 val searchInfo = if (defaultModelsPath != null) {
                     " (searched in current directory and KORAPXMLTOOL_MODELS_PATH='$defaultModelsPath')"
                 } else {
-                    " (searched in current directory; set KORAPXMLTOOL_MODELS_PATH environment variable to specify default model search path)"
+                    " (searched in current directory; KORAPXMLTOOL_MODELS_PATH defaults to ../lib/models relative to executable)"
                 }
                 throw ParameterException(spec.commandLine(),
                     String.format(Locale.ROOT, "Invalid value for option '--parse-with': "+
