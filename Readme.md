@@ -180,12 +180,12 @@ You need to download the pre-trained MaltParser models from the [MaltParser mode
 Note that parsers take POS tagged input.
 
 ```shell script
-./build/bin/korapxmltool -f zip -T2 -P malt:libs/german.mco goe.tree_tagger.zip
+./build/bin/korapxmltool -f zip -T2 -P malt:german.mco goe.tree_tagger.zip
 ```
 
 ### Tag with MarMoT and parse with Maltparser in one run directly to a new KorAP-XML ZIP file
 ```shell script
-./build/bin/korapxmltool -f zip -t marmot:models/de.marmot -P malt:libs/german.mco goe.zip
+./build/bin/korapxmltool -f zip -t marmot:models/de.marmot -P malt:german.mco goe.zip
 ```
 
 ## Development and License

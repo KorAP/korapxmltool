@@ -85,7 +85,7 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "",
             "  Large corpus processing with custom memory and performance settings:",
             "    KORAPXMLTOOL_XMX=500g KORAPXMLTOOL_MODELS_PATH=/data/models KORAPXMLTOOL_JAVA_OPTS=\"-XX:+UseG1GC\" \\",
-            "        ./build/bin/korapxmltool --threads 100 -f zip -t marmot:de.marmot -P maltparser:de.malt wpd25*.zip"
+            "        ./build/bin/korapxmltool --threads 100 -f zip -t marmot:de.marmot -P malt:german.mco wpd25*.zip"
     ]
 )
 
