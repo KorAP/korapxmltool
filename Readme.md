@@ -90,7 +90,7 @@ If a lemma for a token is missing (`_`) the surface form is used as fallback.
 Example for large NOW export with progress and exclusions:
 
 ```
-KORAPXMLTOOL_XMX_MB=65536 KORAPXMLTOOL_JAVA_OPTS="-XX:+UseG1GC -Djdk.util.zip.disableMemoryMapping=true -Djdk.util.zip.reuseInflater=true" \
+KORAPXMLTOOL_XMX=64g KORAPXMLTOOL_JAVA_OPTS="-XX:+UseG1GC -Djdk.util.zip.disableMemoryMapping=true -Djdk.util.zip.reuseInflater=true" \
      ./build/bin/korapxmltool -l info --threads 100 --zip-parallelism 8 \
      --lemma-only --sequential -f now \
      --exclude-zip-glob 'w?d24.tree_tagger.zip' \

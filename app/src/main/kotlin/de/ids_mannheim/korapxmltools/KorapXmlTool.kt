@@ -83,7 +83,7 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "    ./build/bin/korapxmltool -f krill -D out/krill app/src/test/resources/wud24_sample.zip app/src/test/resources/wud24_sample.spacy.zip app/src/test/resources/wud24_sample.marmot-malt.zip",
             "",
             "  Large corpus processing with custom memory and performance settings:",
-            "    KORAPXMLTOOL_XMX_MB=512000 KORAPXMLTOOL_JAVA_OPTS=\"-XX:+UseG1GC\" \\",
+            "    KORAPXMLTOOL_XMX=500g KORAPXMLTOOL_JAVA_OPTS=\"-XX:+UseG1GC\" \\",
             "        ./build/bin/korapxmltool --threads 100 -f zip -t marmot:models/de.marmot -P maltparser:models/de.malt wpd25*.zip"
     ]
 )

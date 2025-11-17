@@ -6,7 +6,8 @@
 # (Run `zip -A korapxmltool` if your unzip/java complains about prepended bytes.)
 #
 # Override memory:
-#   export KORAPXMLTOOL_XMX_MB=8192          # sets -Xmx8192m
+#   export KORAPXMLTOOL_XMX=20g              # sets -Xmx20g
+#   export KORAPXMLTOOL_XMX=8192m            # sets -Xmx8192m
 #   export KORAPXMLTOOL_JAVA_OPTS="... -Xmx4g"  # full custom opts
 # Otherwise we pick ~75% of detected memory (cgroup aware), clamped to [1024m, 65536m].
 
@@ -54,9 +55,26 @@ if [[ "${JDK_JAVA_OPTIONS:-}" != *"--enable-native-access="* ]]; then
 fi
 
 if ! $has_xmx; then
-  if [[ -n ${KORAPXMLTOOL_XMX_MB:-} && ${KORAPXMLTOOL_XMX_MB:-} =~ ^[0-9]+$ ]]; then
-    xmx_mb=${KORAPXMLTOOL_XMX_MB}
-  else
+  if [[ -n ${KORAPXMLTOOL_XMX:-} ]]; then
+    # Handle KORAPXMLTOOL_XMX with units (g/G for GB, m/M for MB, or just number for MB)
+    if [[ ${KORAPXMLTOOL_XMX} =~ ^[0-9]+[gG]$ ]]; then
+      # Convert GB to MB
+      xmx_gb=${KORAPXMLTOOL_XMX%[gG]}
+      xmx_mb=$((xmx_gb * 1024))
+    elif [[ ${KORAPXMLTOOL_XMX} =~ ^[0-9]+[mM]$ ]]; then
+      # Extract MB value
+      xmx_mb=${KORAPXMLTOOL_XMX%[mM]}
+    elif [[ ${KORAPXMLTOOL_XMX} =~ ^[0-9]+$ ]]; then
+      # Treat plain number as MB for backward compatibility
+      xmx_mb=${KORAPXMLTOOL_XMX}
+    else
+      echo "Warning: Invalid KORAPXMLTOOL_XMX format '${KORAPXMLTOOL_XMX}'. Use formats like '20g', '8192m', or '8192'." >&2
+      xmx_mb=""
+    fi
+  fi
+  
+  # If no valid XMX was provided or parsing failed, use auto-detection
+  if [[ -z ${xmx_mb:-} ]]; then
     mem_mb=$(detect_mem_limit_mb)
     xmx_mb=$(( mem_mb * 75 / 100 ))
     (( xmx_mb < 1024 )) && xmx_mb=1024
