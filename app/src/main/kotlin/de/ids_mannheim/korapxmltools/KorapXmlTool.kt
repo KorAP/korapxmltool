@@ -649,6 +649,11 @@ class KorapXmlTool : Callable<Int> {
     var krillTarOutputStream: TarArchiveOutputStream? = null
     var krillOutputFileName: String? = null
 
+    // Thread-local DocumentBuilder pool for parallel processing
+    private val threadLocalBuilder: ThreadLocal<DocumentBuilder> = ThreadLocal.withInitial {
+        fastDomFactory.newDocumentBuilder()
+    }
+
     private val safeDomFactory: DocumentBuilderFactory by lazy {
         DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = false
@@ -1570,9 +1575,11 @@ class KorapXmlTool : Callable<Int> {
         try {
             if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency)\\.xml$"))) {
                 LOGGER.finer("Processing entry: ${zipEntry.name}, foundry=$foundry")
-                // Ensure the entry stream and reader are closed to avoid native memory buildup
-                val dbFactory: DocumentBuilderFactory = DocumentBuilderFactory.newInstance()
-                val dBuilder: DocumentBuilder = dbFactory.newDocumentBuilder()
+                // Use thread-local DocumentBuilder (reused, much faster than creating new ones)
+                val dBuilder: DocumentBuilder = threadLocalBuilder.get()
+                // Reset the builder state to avoid memory leaks
+                dBuilder.reset()
+                
                 // In lemma-only mode, skip parsing data.xml entirely to reduce memory pressure
                 if (lemmaOnly && zipEntry.name.endsWith("data.xml")) {
                     return
@@ -3647,8 +3654,8 @@ class KorapXmlTool : Callable<Int> {
                     val isAnnotationFoundry = zipName.matches(Regex(".*\\.[^/.]+\\.zip$"))
 
                     try {
-                        val dbFactory = DocumentBuilderFactory.newInstance()
-                        val dBuilder = dbFactory.newDocumentBuilder()
+                        // Use thread-local DocumentBuilder
+                        val dBuilder = threadLocalBuilder.get()
 
                         openZipFile(zipPath).use { zipFile ->
                             val entries = zipFile.entries
@@ -3664,6 +3671,7 @@ class KorapXmlTool : Callable<Int> {
 
                                 if (entry.name.matches(pattern)) {
                                     try {
+                                        dBuilder.reset()
                                         // Parse XML to extract docId attribute
                                         val doc = zipFile.getInputStream(entry).use { inputStream ->
                                             XMLCommentFilterReader(inputStream, "UTF-8").use { reader ->
