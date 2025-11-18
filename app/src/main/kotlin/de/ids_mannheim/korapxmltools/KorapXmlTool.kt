@@ -3610,24 +3610,28 @@ class KorapXmlTool : Callable<Int> {
     // Compress text data in parallel, then write to TAR sequentially
     private fun compressKrillText(textId: String, textData: KrillJsonGenerator.KrillTextData) {
         try {
-            val corpusSigle = textId.substringBefore('_')
-            val docSigle = textId.substringBeforeLast('.')
+            val json = synchronized(textData) {
+                // Synchronize access to textData to prevent ConcurrentModificationException
+                // during JSON generation while other threads might still be modifying it
+                val corpusSigle = textId.substringBefore('_')
+                val docSigle = textId.substringBeforeLast('.')
 
-            // Apply corpus-level metadata
-            corpusMetadata[corpusSigle]?.forEach { (key, value) ->
-                if (!textData.headerMetadata.containsKey(key)) {
-                    textData.headerMetadata[key] = value
+                // Apply corpus-level metadata
+                corpusMetadata[corpusSigle]?.forEach { (key, value) ->
+                    if (!textData.headerMetadata.containsKey(key)) {
+                        textData.headerMetadata[key] = value
+                    }
                 }
-            }
 
-            // Apply doc-level metadata
-            docMetadata[docSigle]?.forEach { (key, value) ->
-                if (!textData.headerMetadata.containsKey(key)) {
-                    textData.headerMetadata[key] = value
+                // Apply doc-level metadata
+                docMetadata[docSigle]?.forEach { (key, value) ->
+                    if (!textData.headerMetadata.containsKey(key)) {
+                        textData.headerMetadata[key] = value
+                    }
                 }
-            }
 
-            val json = KrillJsonGenerator.generate(textData, corpusMetadata, docMetadata, includeNonWordTokens)
+                KrillJsonGenerator.generate(textData, corpusMetadata, docMetadata, includeNonWordTokens)
+            }
             
             // Choose compression format based on --lz4 flag
             val (jsonFileName, compressedData) = if (useLz4) {
