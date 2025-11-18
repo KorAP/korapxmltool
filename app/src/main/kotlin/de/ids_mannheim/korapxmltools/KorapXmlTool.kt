@@ -3823,16 +3823,6 @@ class KorapXmlTool : Callable<Int> {
         LOGGER.info("Building per-ZIP inventory to track text completeness...")
         zipInventory.clear()
 
-        // Show progress bar for ZIP scanning phase
-        val scanProgressBar = if (!quiet && zipPaths.size > 1) {
-            ProgressBarBuilder()
-                .setTaskName("Scanning ZIPs")
-                .setInitialMax(zipPaths.size.toLong())
-                .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
-                .setUpdateIntervalMillis(500)
-                .build()
-        } else null
-
         // Scan ZIPs in parallel for faster startup
         val scanParallelism = (zipParallelism ?: maxThreads).coerceAtLeast(1)
         val executor = java.util.concurrent.Executors.newFixedThreadPool(scanParallelism)
@@ -3848,38 +3838,35 @@ class KorapXmlTool : Callable<Int> {
                     val isAnnotationFoundry = zipName.matches(Regex(".*\\.[^/.]+\\.zip$"))
 
                     try {
-                        // Use thread-local DocumentBuilder
-                        val dBuilder = threadLocalBuilder.get()
-
                         openZipFile(zipPath).use { zipFile ->
                             val entries = zipFile.entries
+                            
+                            // For base ZIPs: only count data.xml (the actual text content)
+                            // For annotation foundries: count their annotation files
+                            val pattern = if (isAnnotationFoundry) {
+                                Regex(".*/(?:morpho|dependency|constituency)\\.xml$")
+                            } else {
+                                Regex(".*/data\\.xml$")
+                            }
+                            
+                            // Extract docId from path instead of parsing XML
+                            // Base ZIP path: CORPUS/DOC/TEXT/data.xml
+                            // Annotation ZIP path: CORPUS/DOC/TEXT/foundry/dependency.xml
+                            val pathPattern = if (isAnnotationFoundry) {
+                                Regex("([^/]+)/([^/]+)/([^/]+)/[^/]+/(?:morpho|dependency|constituency)\\.xml$")
+                            } else {
+                                Regex("([^/]+)/([^/]+)/([^/]+)/data\\.xml$")
+                            }
+                            
                             while (entries.hasMoreElements()) {
                                 val entry = entries.nextElement()
-                                // For base ZIPs: look for data.xml or tokens.xml
-                                // For annotation foundries: also look for morpho.xml or dependency.xml
-                                val pattern = if (isAnnotationFoundry) {
-                                    Regex(".*(data|tokens|morpho|dependency)\\.xml$")
-                                } else {
-                                    Regex(".*(data|tokens)\\.xml$")
-                                }
-
+                                
                                 if (entry.name.matches(pattern)) {
-                                    try {
-                                        dBuilder.reset()
-                                        // Parse XML to extract docId attribute
-                                        val doc = zipFile.getInputStream(entry).use { inputStream ->
-                                            XMLCommentFilterReader(inputStream, "UTF-8").use { reader ->
-                                                dBuilder.parse(InputSource(reader))
-                                            }
-                                        }
-                                        doc.documentElement.normalize()
-                                        val docId = doc.documentElement.getAttribute("docid")
-                                        if (docId.isNotEmpty()) {
-                                            textsInThisZip.add(docId)
-                                        }
-                                    } catch (e: Exception) {
-                                        // Skip entries that can't be parsed
-                                        LOGGER.fine("Skipped entry ${entry.name}: ${e.message}")
+                                    val matchResult = pathPattern.find(entry.name)
+                                    if (matchResult != null) {
+                                        val (corpus, doc, text) = matchResult.destructured
+                                        val docId = "${corpus}_${doc}.${text}"
+                                        textsInThisZip.add(docId)
                                     }
                                 }
                             }
@@ -3895,7 +3882,6 @@ class KorapXmlTool : Callable<Int> {
                         LOGGER.warning("Failed to scan $zipPath: ${e.message}")
                     }
 
-                    scanProgressBar?.step()
                     Pair(zipPath, textsInThisZip)
                 }
             }
@@ -3909,8 +3895,6 @@ class KorapXmlTool : Callable<Int> {
             executor.shutdown()
             executor.awaitTermination(1, java.util.concurrent.TimeUnit.HOURS)
         }
-
-        scanProgressBar?.close()
 
         LOGGER.info("ZIP inventory built: ${zipPaths.size} ZIPs scanned")
         // Calculate total unique texts
