@@ -51,6 +51,9 @@ import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.stream.StreamResult
 import kotlin.math.min
 import kotlin.system.exitProcess
+import javax.xml.stream.XMLInputFactory
+import javax.xml.stream.XMLStreamConstants
+import javax.xml.stream.XMLStreamReader
 
 val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
 
@@ -686,6 +689,17 @@ class KorapXmlTool : Callable<Int> {
         try {
             setFeature(feature, enabled)
         } catch (_: Exception) {}
+    }
+
+    // Thread-local XMLInputFactory for StAX parsing
+    private val xmlInputFactory: ThreadLocal<XMLInputFactory> = ThreadLocal.withInitial {
+        XMLInputFactory.newInstance().apply {
+            setProperty(XMLInputFactory.IS_NAMESPACE_AWARE, false)
+            setProperty(XMLInputFactory.IS_VALIDATING, false)
+            setProperty(XMLInputFactory.SUPPORT_DTD, false)
+            setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false)
+            setProperty(XMLInputFactory.IS_COALESCING, false)
+        }
     }
 
     // Data class to hold compressed Krill JSON ready for TAR writing
@@ -1660,7 +1674,16 @@ class KorapXmlTool : Callable<Int> {
 
         try {
             if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency)\\.xml$"))) {
-                LOGGER.finer("Processing entry: ${zipEntry.name}, foundry=$foundry")
+                 val isStructure = zipEntry.name.endsWith("structure.xml")
+                 val needsDom = isStructure && (extractAttributesRegex.isNotEmpty() || outputFormat == OutputFormat.KRILL)
+                 val isConstituency = zipEntry.name.endsWith("constituency.xml")
+                 
+                 if (!needsDom && !isConstituency) {
+                     processXmlEntryStax(zipFile, zipPath, zipEntry, foundry, waitForMorpho)
+                     return
+                 }
+
+                LOGGER.finer("Processing entry (DOM): ${zipEntry.name}, foundry=$foundry")
                 // Use thread-local DocumentBuilder (reused, much faster than creating new ones)
                 val dBuilder: DocumentBuilder = threadLocalBuilder.get()
                 // Reset the builder state to avoid memory leaks
@@ -1916,6 +1939,145 @@ class KorapXmlTool : Callable<Int> {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    private fun processXmlEntryStax(zipFile: ApacheZipFile, zipPath: String, zipEntry: ZipArchiveEntry, foundry: String, waitForMorpho: Boolean) {
+        LOGGER.finer("Processing entry (StAX): ${zipEntry.name}, foundry=$foundry")
+        val factory = xmlInputFactory.get()
+        val inputStream = zipFile.getInputStream(zipEntry)
+        val filterReader = XMLCommentFilterReader(inputStream, "UTF-8")
+        val reader = try {
+            factory.createXMLStreamReader(filterReader)
+        } catch (e: Exception) {
+            LOGGER.warning("Error creating StAX reader: " + zipEntry.name + " " + e.message)
+            filterReader.close()
+            return
+        }
+
+        try {
+            var docId: String? = null
+            while (reader.hasNext()) {
+                val event = reader.next()
+                if (event == XMLStreamConstants.START_ELEMENT) {
+                    docId = reader.getAttributeValue(null, "docid")
+                    break
+                }
+            }
+
+            if (docId == null) return
+            if (siglePattern != null && !Regex(siglePattern!!).containsMatchIn(docId)) return
+
+            val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
+            
+            when (fileName) {
+                "data.xml" -> {
+                    if (!lemmaOnly) {
+                        val text = extractTextStax(reader)
+                        if (text != null) texts[docId] = NonBmpString(text)
+                    }
+                }
+                "tokens.xml" -> {
+                    if (!fnames.contains(docId)) fnames[docId] = zipEntry.name
+                    tokens[docId] = extractSpansStax(reader, docId)
+                    if (outputFormat == OutputFormat.KRILL && foundry == "base") {
+                        collectKrillBaseData(docId)
+                    }
+                }
+                "morpho.xml" -> {
+                    fnames[docId] = zipEntry.name
+                    val (morphoSpans, allSpans) = extractMorphoSpansStax(reader)
+                    
+                    if (outputFormat == OutputFormat.KRILL) {
+                        val morphoFoundry = getFoundryForLayer(foundry, "morpho")
+                        collectKrillMorphoDataDirect(docId, morphoFoundry, morphoSpans, "morpho")
+                        tokens[docId] = allSpans
+                    } else {
+                        val morphoMap = synchronized(morpho) {
+                            morpho.getOrPut(docId) { morphoSpans }
+                        }
+                        if (morphoMap !== morphoSpans) {
+                            synchronized(morphoMap) {
+                                morphoSpans.forEach { (key, mfs) ->
+                                    val existing = morphoMap[key]
+                                    if (existing != null) {
+                                        mfs.head = existing.head
+                                        mfs.deprel = existing.deprel
+                                    }
+                                    morphoMap[key] = mfs
+                                }
+                            }
+                        }
+                        tokens[docId] = allSpans
+                    }
+                }
+                "dependency.xml" -> {
+                    val depMap = extractDependencySpansStax(reader)
+                    if (outputFormat == OutputFormat.KRILL) {
+                        val depFoundry = getFoundryForLayer(foundry, "dependency")
+                        collectKrillMorphoDataDirect(docId, depFoundry, depMap, "dependency")
+                    } else {
+                        val morphoMap = synchronized(morpho) {
+                            morpho.getOrPut(docId) { mutableMapOf() }
+                        }
+                        synchronized(morphoMap) {
+                            depMap.forEach { (key, depSpan) ->
+                                val existing = morphoMap[key]
+                                if (existing != null) {
+                                    existing.head = depSpan.head
+                                    existing.deprel = depSpan.deprel
+                                } else {
+                                    morphoMap[key] = depSpan
+                                }
+                            }
+                        }
+                    }
+                }
+                "sentences.xml" -> {
+                    if (outputFormat == OutputFormat.KRILL) {
+                        val spans = extractSpansStax(reader, docId)
+                        collectSentencesFromSpans(docId, foundry, spans)
+                    }
+                }
+                "structure.xml" -> {
+                    sentences[docId] = extractSentenceSpansStax(reader)
+                }
+            }
+            
+            if (outputFormat == OutputFormat.KRILL) {
+                processedTextsPerZip.getOrPut(zipPath.toString()) { mutableSetOf() }.add(docId)
+            }
+            
+            val effectiveWaitForMorpho = if (fileName == "morpho.xml") true else waitForMorpho
+            
+             val finalMorphoRequired = when {
+                taggerName != null || parserName != null -> false
+                useLemma -> true
+                effectiveWaitForMorpho -> true
+                outputFormat == OutputFormat.KORAP_XML && annotationWorkerPool == null -> true
+                outputFormat == OutputFormat.KRILL -> false
+                else -> false
+            }
+
+            val textRequired = when (outputFormat) {
+                OutputFormat.WORD2VEC, OutputFormat.NOW -> !(useLemma || lemmaOnly)
+                OutputFormat.KRILL -> true
+                else -> true
+            }
+
+            if ((texts[docId] != null || !textRequired) && sentences[docId] != null && tokens[docId] != null
+                && (!finalMorphoRequired || morpho[docId] != null)
+                && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
+            ) {
+                processText(docId, foundry)
+            }
+
+        } catch (e: Exception) {
+            LOGGER.warning("Error processing StAX entry ${zipEntry.name}: ${e.message}")
+            e.printStackTrace()
+        } finally {
+            try { reader.close() } catch (_: Exception) {}
+            try { filterReader.close() } catch (_: Exception) {}
         }
     }
 
@@ -2583,6 +2745,114 @@ class KorapXmlTool : Callable<Int> {
         return list.toTypedArray()
     }
 
+    private fun extractSpansStax(reader: XMLStreamReader, docId: String): Array<Span> {
+        val list = ArrayList<Span>()
+        try {
+            while (reader.hasNext()) {
+                val event = reader.next()
+                if (event == XMLStreamConstants.START_ELEMENT && reader.localName == "span") {
+                    val fromAttr = reader.getAttributeValue(null, "from")
+                    val toAttr = reader.getAttributeValue(null, "to")
+                    if (fromAttr.isNullOrEmpty() || toAttr.isNullOrEmpty()) {
+                        LOGGER.warning("[$docId] Skipping span with empty from/to attribute: from='$fromAttr' to='$toAttr'")
+                    } else {
+                        try {
+                            val from = Integer.parseInt(fromAttr)
+                            val to = Integer.parseInt(toAttr)
+                            list.add(Span(from, to))
+                        } catch (e: NumberFormatException) {
+                            LOGGER.warning("[$docId] Skipping span with invalid numeric offsets: from='$fromAttr' to='$toAttr' : ${e.message}")
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            LOGGER.warning("Error parsing spans for $docId: ${e.message}")
+        }
+        return list.toTypedArray()
+    }
+
+    private fun extractTextStax(reader: XMLStreamReader): String? {
+        val textBuilder = StringBuilder()
+        while (reader.hasNext()) {
+            val event = reader.next()
+            if (event == XMLStreamConstants.CHARACTERS) {
+                textBuilder.append(reader.text)
+            } else if (event == XMLStreamConstants.END_ELEMENT && reader.localName == "raw_text") {
+                break
+            }
+        }
+        return if (textBuilder.isNotEmpty()) textBuilder.toString() else null
+    }
+
+    private fun extractMorphoSpansStax(reader: XMLStreamReader): Pair<MutableMap<String, MorphoSpan>, Array<Span>> {
+        val UNKNOWN = Regex("(UNKNOWN|<unknown>)")
+        val res: MutableMap<String, MorphoSpan> = HashMap()
+        val allSpans = ArrayList<Span>()
+        var currentSpan: MorphoSpan? = null
+        var currentFromTo: String? = null
+        var currentFName: String? = null
+        
+        while (reader.hasNext()) {
+            val event = reader.next()
+            when (event) {
+                XMLStreamConstants.START_ELEMENT -> {
+                    val localName = reader.localName
+                    if (localName == "span") {
+                        val fromAttr = reader.getAttributeValue(null, "from")
+                        val toAttr = reader.getAttributeValue(null, "to")
+                        if (!fromAttr.isNullOrEmpty() && !toAttr.isNullOrEmpty()) {
+                            try {
+                                val from = fromAttr.toInt()
+                                val to = toAttr.toInt()
+                                allSpans.add(Span(from, to))
+                                
+                                if (reader.getAttributeValue(null, "type") != "alt") {
+                                    currentSpan = MorphoSpan()
+                                    currentFromTo = "$from-$to"
+                                }
+                            } catch (_: NumberFormatException) {}
+                        }
+                    } else if (localName == "f" && currentSpan != null) {
+                        currentFName = reader.getAttributeValue(null, "name")
+                    } else if (localName == "symbol" && currentSpan != null && currentFName == "type") {
+                        val value = reader.getAttributeValue(null, "value")?.trim()
+                        if (!value.isNullOrEmpty() && currentSpan.feats == "_") {
+                            currentSpan.feats = value
+                        }
+                    }
+                }
+                XMLStreamConstants.CHARACTERS -> {
+                    if (currentSpan != null && currentFName != null && !reader.isWhiteSpace) {
+                        val value = reader.text.trim()
+                        if (value.isNotEmpty()) {
+                             when (currentFName) {
+                                "lemma" -> if(currentSpan.lemma == "_") currentSpan.lemma = value.replace(UNKNOWN, "--")
+                                "upos" -> currentSpan.upos = value
+                                "xpos", "ctag", "pos" -> if(currentSpan.xpos == "_") currentSpan.xpos = value.replace(UNKNOWN, "--")
+                                "feats", "msd" -> if(currentSpan.feats == "_") currentSpan.feats = value
+                                "certainty" -> if(currentSpan.misc == "_") currentSpan.misc = value
+                            }
+                        }
+                    }
+                }
+                XMLStreamConstants.END_ELEMENT -> {
+                    val localName = reader.localName
+                    if (localName == "span") {
+                        if (currentSpan != null && currentFromTo != null) {
+                            res[currentFromTo] = currentSpan
+                        }
+                        currentSpan = null
+                        currentFromTo = null
+                    } else if (localName == "f") {
+                        currentFName = null
+                    }
+                }
+            }
+        }
+        return Pair(res, allSpans.toTypedArray())
+    }
+
     private fun extractMorphoSpans(
         fsSpans: NodeList
     ): MutableMap<String, MorphoSpan> {
@@ -2607,6 +2877,48 @@ class KorapXmlTool : Callable<Int> {
                     }
                 res[fromTo] = fs
             }
+        return res
+    }
+
+    private fun extractDependencySpansStax(reader: XMLStreamReader): MutableMap<String, MorphoSpan> {
+        val res: MutableMap<String, MorphoSpan> = HashMap()
+        var currentFromTo: String? = null
+        var currentDeprel: String? = null
+        var currentHead: String? = null
+        var spanDepth = 0
+        
+        while (reader.hasNext()) {
+            val event = reader.next()
+            when (event) {
+                XMLStreamConstants.START_ELEMENT -> {
+                    if (reader.localName == "span") {
+                        spanDepth++
+                        if (spanDepth == 1) {
+                            currentFromTo = "${reader.getAttributeValue(null, "from")}-${reader.getAttributeValue(null, "to")}"
+                            currentDeprel = null
+                            currentHead = null
+                        } else if (spanDepth == 2 && currentDeprel != null) {
+                            val headFrom = reader.getAttributeValue(null, "from")
+                            val headTo = reader.getAttributeValue(null, "to")
+                            currentHead = "$headFrom-$headTo"
+                        }
+                    } else if (reader.localName == "rel" && spanDepth == 1) {
+                        currentDeprel = reader.getAttributeValue(null, "label")
+                    }
+                }
+                XMLStreamConstants.END_ELEMENT -> {
+                    if (reader.localName == "span") {
+                        if (spanDepth == 1 && currentFromTo != null && (currentHead != null || currentDeprel != null)) {
+                             res[currentFromTo] = MorphoSpan(
+                                head = currentHead ?: "_",
+                                deprel = currentDeprel ?: "_"
+                            )
+                        }
+                        spanDepth--
+                    }
+                }
+            }
+        }
         return res
     }
 
@@ -2653,6 +2965,47 @@ class KorapXmlTool : Callable<Int> {
                     Integer.parseInt((node as Element).getAttribute("from")), Integer.parseInt(node.getAttribute("to"))
                 )
             }.toArray { size -> arrayOfNulls(size) }
+    }
+
+    private fun extractSentenceSpansStax(reader: XMLStreamReader): Array<Span> {
+        val list = ArrayList<Span>()
+        var currentFrom: Int? = null
+        var currentTo: Int? = null
+        var isSentence = false
+        var inF = false
+        
+        while (reader.hasNext()) {
+            val event = reader.next()
+            when (event) {
+                XMLStreamConstants.START_ELEMENT -> {
+                    if (reader.localName == "span") {
+                        currentFrom = reader.getAttributeValue(null, "from")?.toIntOrNull()
+                        currentTo = reader.getAttributeValue(null, "to")?.toIntOrNull()
+                        isSentence = false
+                    } else if (reader.localName == "f") {
+                        inF = true
+                    }
+                }
+                XMLStreamConstants.CHARACTERS -> {
+                    if (inF && reader.text.trim() == "s") {
+                        isSentence = true
+                    }
+                }
+                XMLStreamConstants.END_ELEMENT -> {
+                    if (reader.localName == "span") {
+                        if (isSentence && currentFrom != null && currentTo != null) {
+                            list.add(Span(currentFrom!!, currentTo!!))
+                        }
+                        currentFrom = null
+                        currentTo = null
+                        isSentence = false
+                    } else if (reader.localName == "f") {
+                        inF = false
+                    }
+                }
+            }
+        }
+        return list.toTypedArray()
     }
 
     private fun extractMiscSpans(spans: NodeList): MutableMap<String, String> {
@@ -3007,6 +3360,28 @@ class KorapXmlTool : Callable<Int> {
                         layer = "$foundry/s:s",
                         from = from,
                         to = to,
+                        tokenFrom = -1,
+                        tokenTo = -1,
+                        depth = 0,
+                        attributes = emptyMap()
+                    )
+                )
+            }
+            textData.sentencesCollectedByFoundry.add(foundry)
+        }
+    }
+
+    private fun collectSentencesFromSpans(docId: String, foundry: String, spans: Array<Span>) {
+        if (outputTexts.contains(docId)) return
+        val textData = krillData.getOrPut(docId) { KrillJsonGenerator.KrillTextData(textId = docId) }
+        synchronized(textData) {
+            if (textData.sentencesCollectedByFoundry.contains(foundry)) return
+            for (span in spans) {
+                textData.structureSpans.add(
+                    KrillJsonGenerator.StructureSpan(
+                        layer = "$foundry/s:s",
+                        from = span.from,
+                        to = span.to,
                         tokenFrom = -1,
                         tokenTo = -1,
                         depth = 0,
