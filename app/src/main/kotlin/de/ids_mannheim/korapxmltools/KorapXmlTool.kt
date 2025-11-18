@@ -649,6 +649,18 @@ class KorapXmlTool : Callable<Int> {
     var krillTarOutputStream: TarArchiveOutputStream? = null
     var krillOutputFileName: String? = null
 
+    // Fast DocumentBuilderFactory without security features (safe for trusted input)
+    private val fastDomFactory: DocumentBuilderFactory by lazy {
+        DocumentBuilderFactory.newInstance().apply {
+            isNamespaceAware = false
+            isValidating = false
+            // Disable expensive security features for performance (corpus XML is trusted)
+            trySetFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+            trySetFeature("http://xml.org/sax/features/external-general-entities", false)
+            trySetFeature("http://xml.org/sax/features/external-parameter-entities", false)
+        }
+    }
+
     // Thread-local DocumentBuilder pool for parallel processing
     private val threadLocalBuilder: ThreadLocal<DocumentBuilder> = ThreadLocal.withInitial {
         fastDomFactory.newDocumentBuilder()
