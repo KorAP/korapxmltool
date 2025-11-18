@@ -1677,8 +1677,11 @@ class KorapXmlTool : Callable<Int> {
                  val isStructure = zipEntry.name.endsWith("structure.xml")
                  val needsDom = isStructure && (extractAttributesRegex.isNotEmpty() || outputFormat == OutputFormat.KRILL)
                  val isConstituency = zipEntry.name.endsWith("constituency.xml")
+                 val isData = zipEntry.name.endsWith("data.xml")
                  
-                 if (!needsDom && !isConstituency) {
+                 // Use DOM for data.xml (large text content) and structure/constituency (complex parsing)
+                 // Use StAX for annotation files (morpho, dependency, tokens, sentences) for better performance
+                 if (!needsDom && !isConstituency && !isData) {
                      processXmlEntryStax(zipFile, zipPath, zipEntry, foundry, waitForMorpho)
                      return
                  }
@@ -2792,6 +2795,7 @@ class KorapXmlTool : Callable<Int> {
         var currentSpan: MorphoSpan? = null
         var currentFromTo: String? = null
         var currentFName: String? = null
+        val textAccumulator = StringBuilder()
         
         while (reader.hasNext()) {
             val event = reader.next()
@@ -2814,6 +2818,7 @@ class KorapXmlTool : Callable<Int> {
                             } catch (_: NumberFormatException) {}
                         }
                     } else if (localName == "f" && currentSpan != null) {
+                        textAccumulator.clear()
                         currentFName = reader.getAttributeValue(null, "name")
                     } else if (localName == "symbol" && currentSpan != null && currentFName == "type") {
                         val value = reader.getAttributeValue(null, "value")?.trim()
@@ -2824,9 +2829,15 @@ class KorapXmlTool : Callable<Int> {
                 }
                 XMLStreamConstants.CHARACTERS -> {
                     if (currentSpan != null && currentFName != null && !reader.isWhiteSpace) {
-                        val value = reader.text.trim()
+                        textAccumulator.append(reader.text)
+                    }
+                }
+                XMLStreamConstants.END_ELEMENT -> {
+                    val localName = reader.localName
+                    if (localName == "f" && currentSpan != null && currentFName != null) {
+                        val value = textAccumulator.toString().trim()
                         if (value.isNotEmpty()) {
-                             when (currentFName) {
+                            when (currentFName) {
                                 "lemma" -> if(currentSpan.lemma == "_") currentSpan.lemma = value.replace(UNKNOWN, "--")
                                 "upos" -> currentSpan.upos = value
                                 "xpos", "ctag", "pos" -> if(currentSpan.xpos == "_") currentSpan.xpos = value.replace(UNKNOWN, "--")
@@ -2834,18 +2845,14 @@ class KorapXmlTool : Callable<Int> {
                                 "certainty" -> if(currentSpan.misc == "_") currentSpan.misc = value
                             }
                         }
-                    }
-                }
-                XMLStreamConstants.END_ELEMENT -> {
-                    val localName = reader.localName
-                    if (localName == "span") {
+                        textAccumulator.clear()
+                        currentFName = null
+                    } else if (localName == "span") {
                         if (currentSpan != null && currentFromTo != null) {
                             res[currentFromTo] = currentSpan
                         }
                         currentSpan = null
                         currentFromTo = null
-                    } else if (localName == "f") {
-                        currentFName = null
                     }
                 }
             }
