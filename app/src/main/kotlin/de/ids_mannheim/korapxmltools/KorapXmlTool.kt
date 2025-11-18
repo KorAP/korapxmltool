@@ -3639,24 +3639,19 @@ class KorapXmlTool : Callable<Int> {
                 }
                 Pair(fileName, byteOut.toByteArray())
             } else {
-                // Use fast GZIP (level 1) for better performance
+                // Use GZIP with level 1 compression for speed
                 val fileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
                 val jsonBytes = json.toByteArray(Charsets.UTF_8)
-                val byteOut = ByteArrayOutputStream()
-                val deflater = java.util.zip.Deflater(1, true) // level 1, nowrap=true for raw deflate
-                java.util.zip.DeflaterOutputStream(byteOut, deflater).use { deflateOut ->
-                    // Write GZIP header
-                    byteOut.write(byteArrayOf(0x1f, 0x8b.toByte(), 8, 0, 0, 0, 0, 0, 0, 0))
-                    val crc = java.util.zip.CRC32()
-                    crc.update(jsonBytes)
-                    deflateOut.write(jsonBytes)
-                    deflateOut.finish()
-                    // Write GZIP trailer (CRC32 and uncompressed size)
-                    val trailer = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
-                    trailer.putInt(crc.value.toInt())
-                    trailer.putInt(jsonBytes.size)
-                    byteOut.write(trailer.array())
+                val byteOut = ByteArrayOutputStream(jsonBytes.size)
+                
+                // Create GZIPOutputStream with level 1 (fast) compression
+                val gzipOut = object : java.util.zip.GZIPOutputStream(byteOut) {
+                    init {
+                        def.setLevel(1)
+                    }
                 }
+                gzipOut.use { it.write(jsonBytes) }
+                
                 Pair(fileName, byteOut.toByteArray())
             }
 
@@ -3957,24 +3952,19 @@ class KorapXmlTool : Callable<Int> {
                 }
                 Pair(fileName, byteOut.toByteArray())
             } else {
-                // Use fast GZIP (level 1) for better performance
+                // Use GZIP with level 1 compression for speed
                 val fileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
                 val jsonBytes = json.toByteArray(Charsets.UTF_8)
-                val byteOut = ByteArrayOutputStream()
-                val deflater = java.util.zip.Deflater(1, true) // level 1, nowrap=true for raw deflate
-                java.util.zip.DeflaterOutputStream(byteOut, deflater).use { deflateOut ->
-                    // Write GZIP header
-                    byteOut.write(byteArrayOf(0x1f, 0x8b.toByte(), 8, 0, 0, 0, 0, 0, 0, 0))
-                    val crc = java.util.zip.CRC32()
-                    crc.update(jsonBytes)
-                    deflateOut.write(jsonBytes)
-                    deflateOut.finish()
-                    // Write GZIP trailer (CRC32 and uncompressed size)
-                    val trailer = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
-                    trailer.putInt(crc.value.toInt())
-                    trailer.putInt(jsonBytes.size)
-                    byteOut.write(trailer.array())
+                val byteOut = ByteArrayOutputStream(jsonBytes.size)
+                
+                // Create GZIPOutputStream with level 1 (fast) compression
+                val gzipOut = object : java.util.zip.GZIPOutputStream(byteOut) {
+                    init {
+                        def.setLevel(1)
+                    }
                 }
+                gzipOut.use { it.write(jsonBytes) }
+                
                 Pair(fileName, byteOut.toByteArray())
             }
 
