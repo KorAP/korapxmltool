@@ -16,6 +16,9 @@ test {
     minHeapSize = "512m"
     maxHeapSize = "4096m"
     jvmArgs '-XX:MaxMetaspaceSize=1024m'
+    
+    // Enable parallel test execution for faster builds
+    maxParallelForks = Runtime.runtime.availableProcessors().intdiv(2) ?: 1
 }
 
 dependencies {
