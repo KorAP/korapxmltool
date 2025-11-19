@@ -151,9 +151,11 @@ tasks.register('assembleShebangExecutable') {
     def targetExec = new File(binDir, "korapxmltool")
     def krillExec = new File(binDir, "korapxml2krill")
     def conlluExec = new File(binDir, "korapxml2conllu")
+    def conllu2korapxmlExec = new File(binDir, "conllu2korapxml")
     outputs.file(targetExec)
     outputs.file(krillExec)
     outputs.file(conlluExec)
+    outputs.file(conllu2korapxmlExec)
 
     doLast {
         def shebang = rootProject.file("korapxmltool.shebang")
@@ -204,6 +206,22 @@ tasks.register('assembleShebangExecutable') {
             println "Warning: Could not create korapxml2conllu symlink (${e.message}), copying instead"
             java.nio.file.Files.copy(targetExec.toPath(), conlluExec.toPath())
             conlluExec.setExecutable(true, false)
+        }
+        
+        // Create conllu2korapxml symlink for CoNLL-U to KorAP XML ZIP conversion
+        if (conllu2korapxmlExec.exists()) {
+            conllu2korapxmlExec.delete()
+        }
+        try {
+            java.nio.file.Files.createSymbolicLink(
+                conllu2korapxmlExec.toPath(),
+                java.nio.file.Paths.get("korapxmltool")
+            )
+            println "Created symlink: conllu2korapxml -> korapxmltool"
+        } catch (Exception e) {
+            println "Warning: Could not create conllu2korapxml symlink (${e.message}), copying instead"
+            java.nio.file.Files.copy(targetExec.toPath(), conllu2korapxmlExec.toPath())
+            conllu2korapxmlExec.setExecutable(true, false)
         }
     }
 }

@@ -71,6 +71,13 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "  Basic conversion to CoNLL-U format:",
             "    ./build/bin/korapxmltool app/src/test/resources/wdf19.tree_tagger.zip | head -10",
             "",
+            "  CoNLL-U to KorAP XML ZIP conversion (auto-detects foundry from comments):",
+            "    ./build/bin/conllu2korapxml file.conllu",
+            "    cat file.conllu | ./build/bin/conllu2korapxml -o output.zip",
+            "    ./build/bin/korapxmltool -t zip -F custom file.conllu",
+            "    # Note: Foundry auto-detected from '# foundry = <name>' comment; override with -F",
+            "    # Note: Output path auto-inferred (file.conllu → file.zip) or specify with -o",
+            "",
             "  Word2Vec style output:",
             "    ./build/bin/korapxmltool -t w2v app/src/test/resources/wud24_sample.zip",
             "",
@@ -107,7 +114,7 @@ class KorapXmlTool : Callable<Int> {
     private var targetZipFileName: String? = null
     // Locale is now globally forced to ROOT at startup (see main())
 
-    @Parameters(arity = "1..*", description = ["At least one zip file name"])
+    @Parameters(arity = "0..*", description = ["Input files: KorAP-XML ZIP files or CoNLL-U files (.conllu). If omitted, reads from stdin (requires -o for output path)."])
     var zipFileNames: Array<String>? = null
 
     @Option(
@@ -261,6 +268,20 @@ class KorapXmlTool : Callable<Int> {
         description = ["Output directory for generated files (default: current directory)"]
     )
     var outputDir: String = "."
+
+    @Option(
+        names = ["-o", "--output"],
+        paramLabel = "FILE",
+        description = ["Output file path (for CoNLL-U to ZIP conversion). Required when reading from stdin."]
+    )
+    var outputFile: String? = null
+
+    @Option(
+        names = ["-F", "--foundry"],
+        paramLabel = "FOUNDRY",
+        description = ["Override foundry name for CoNLL-U input (default: auto-detect from '# foundry = <name>' comment)"]
+    )
+    var foundryOverride: String? = null
 
     @Option(
         names = ["--mem-stats-interval"],
@@ -504,6 +525,73 @@ class KorapXmlTool : Callable<Int> {
             })
         }
 
+        // CoNLL-U to KorAP XML ZIP conversion mode
+        val isConlluInput = zipFileNames == null || zipFileNames!!.isEmpty() || 
+                           zipFileNames!!.any { it.endsWith(".conllu") }
+        
+        if (isConlluInput) {
+            // Validate: CoNLL-U mode requires -t zip (default or explicit)
+            if (outputFormat != OutputFormat.KORAP_XML) {
+                throw ParameterException(spec.commandLine(), 
+                    "CoNLL-U input requires output format 'zip' (use -t zip or invoke as 'conllu2korapxml')")
+            }
+
+            when {
+                // Case 1: stdin input (no files specified)
+                zipFileNames == null || zipFileNames!!.isEmpty() -> {
+                    if (outputFile == null) {
+                        throw ParameterException(spec.commandLine(),
+                            "Reading from stdin requires -o/--output to specify output file path")
+                    }
+                    val finalOutputPath = if (outputDir != ".") {
+                        File(outputDir, File(outputFile!!).name).path
+                    } else {
+                        outputFile!!
+                    }
+                    LOGGER.info("Converting CoNLL-U from stdin to: $finalOutputPath")
+                    convertConlluToZip(System.`in`, finalOutputPath)
+                    return 0
+                }
+                
+                // Case 2: CoNLL-U file(s) specified
+                zipFileNames!!.all { it.endsWith(".conllu") } -> {
+                    zipFileNames!!.forEach { conlluFile ->
+                        val outputPath = when {
+                            outputFile != null -> {
+                                // Explicit -o specified: use outputDir if specified
+                                if (outputDir != ".") {
+                                    File(outputDir, File(outputFile!!).name).path
+                                } else {
+                                    outputFile!!
+                                }
+                            }
+                            else -> {
+                                // Auto-infer from input filename
+                                val baseName = File(conlluFile).name.replace(Regex("\\.conllu$"), ".zip")
+                                if (outputDir != ".") {
+                                    File(outputDir, baseName).path
+                                } else {
+                                    conlluFile.replace(Regex("\\.conllu$"), ".zip")
+                                }
+                            }
+                        }
+                        LOGGER.info("Converting CoNLL-U file: $conlluFile → $outputPath")
+                        FileInputStream(conlluFile).use { inputStream ->
+                            convertConlluToZip(inputStream, outputPath)
+                        }
+                    }
+                    return 0
+                }
+                
+                // Case 3: Mixed input (some .conllu, some .zip) - not supported
+                else -> {
+                    throw ParameterException(spec.commandLine(),
+                        "Cannot mix CoNLL-U (.conllu) and ZIP files in the same invocation")
+                }
+            }
+        }
+
+        // Normal ZIP processing mode
         LOGGER.info("Processing zip files: " + zipFileNames!!.joinToString(", "))
 
         korapxml2conllu(zipFileNames!!)
@@ -3265,6 +3353,298 @@ class KorapXmlTool : Callable<Int> {
         sentences.remove(tempDocId)
     }
 
+    /**
+     * Convert CoNLL-U input to KorAP XML ZIP format
+     * Supports:
+     * - Auto-detection of foundry from "# foundry = <name>" comment
+     * - Manual foundry override via -F option
+     * - Multi-document input (split on "# text_id" changes)
+     * - Combined foundries (e.g., "marmot-malt" → marmot/morpho.xml + malt/dependency.xml)
+     * - Text ID to path conversion (WUD24_I0083.95367 → WUD24/I0083/95367)
+     */
+    private fun convertConlluToZip(inputStream: InputStream, outputPath: String) {
+        LOGGER.info("Converting CoNLL-U to KorAP XML ZIP: $outputPath")
+
+        // Initialize DocumentBuilder for XML generation
+        if (dBuilder == null) {
+            dbFactory = DocumentBuilderFactory.newInstance()
+            dBuilder = dbFactory!!.newDocumentBuilder()
+        }
+
+        // Parse text_id to derive directory path: WUD24_I0083.95367 → WUD24/I0083/95367
+        fun textIdToPath(textId: String): String {
+            val parts = textId.split('_', limit = 2)
+            if (parts.size < 2) return textId.replace('.', '/')
+            val corpus = parts[0]
+            val remainder = parts[1].replace('.', '/')
+            return "$corpus/$remainder"
+        }
+
+        // Read all input and split into documents
+        data class ConlluDocument(
+            val textId: String,
+            val foundry: String,
+            val lines: List<String>
+        )
+
+        val documents = mutableListOf<ConlluDocument>()
+        val reader = BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8))
+        var currentTextId: String? = null
+        var currentFoundry: String? = null
+        var currentLines = mutableListOf<String>()
+
+        reader.forEachLine { line ->
+            when {
+                line.startsWith("# text_id = ") -> {
+                    // Save previous document if exists
+                    if (currentTextId != null && currentFoundry != null && currentLines.isNotEmpty()) {
+                        documents.add(ConlluDocument(currentTextId!!, currentFoundry!!, currentLines.toList()))
+                        currentLines = mutableListOf()
+                    }
+                    currentTextId = line.substring("# text_id = ".length).trim()
+                }
+                line.startsWith("# foundry = ") -> {
+                    val detectedFoundry = line.substring("# foundry = ".length).trim()
+                    currentFoundry = foundryOverride ?: detectedFoundry
+                }
+                else -> {
+                    currentLines.add(line)
+                }
+            }
+        }
+
+        // Add final document
+        if (currentTextId != null && currentFoundry != null && currentLines.isNotEmpty()) {
+            documents.add(ConlluDocument(currentTextId!!, currentFoundry!!, currentLines.toList()))
+        }
+
+        if (documents.isEmpty()) {
+            LOGGER.severe("No documents found in CoNLL-U input (missing '# text_id' and '# foundry' comments)")
+            throw IllegalArgumentException("Invalid CoNLL-U format: missing required comments '# text_id' and '# foundry'")
+        }
+
+        LOGGER.info("Found ${documents.size} document(s) in CoNLL-U input")
+
+        // Create output ZIP
+        val outputFile = File(outputPath)
+        if (outputFile.exists() && !overwrite) {
+            LOGGER.severe("Output file already exists: $outputPath (use -f to overwrite)")
+            throw IOException("Output file already exists: $outputPath")
+        }
+
+        val zipOutputStream = ZipArchiveOutputStream(BufferedOutputStream(FileOutputStream(outputFile)))
+        zipOutputStream.setUseZip64(Zip64Mode.AsNeeded)
+
+        try {
+            // Process each document
+            documents.forEach { doc ->
+                LOGGER.fine("Processing document: ${doc.textId}, foundry: ${doc.foundry}")
+
+                // Parse CoNLL-U content
+                val morphoSpans = mutableMapOf<String, MorphoSpan>()
+                var currentStartOffsets: List<Int>? = null
+                var currentEndOffsets: List<Int>? = null
+                var tokenIndexInSentence = 0
+                val sentenceSpans = mutableListOf<Span>()
+                var sentenceStartOffset: Int? = null
+                var sentenceEndOffset: Int? = null
+
+                for (line in doc.lines) {
+                    when {
+                        line.startsWith("# start_offsets =") -> {
+                            val offsetsStr = line.substring("# start_offsets =".length).trim()
+                            val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
+                            if (allOffsets.isEmpty()) {
+                                LOGGER.severe("Missing start_offsets for text ${doc.textId}")
+                                throw IllegalArgumentException("CoNLL-U format error: missing start_offsets for text ${doc.textId}")
+                            }
+                            sentenceStartOffset = allOffsets.firstOrNull()
+                            currentStartOffsets = if (allOffsets.size > 1) allOffsets.drop(1) else allOffsets
+                            tokenIndexInSentence = 0
+                        }
+                        line.startsWith("# end_offsets =") -> {
+                            val offsetsStr = line.substring("# end_offsets =".length).trim()
+                            val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
+                            if (allOffsets.isEmpty()) {
+                                LOGGER.severe("Missing end_offsets for text ${doc.textId}")
+                                throw IllegalArgumentException("CoNLL-U format error: missing end_offsets for text ${doc.textId}")
+                            }
+                            sentenceEndOffset = allOffsets.firstOrNull()
+                            currentEndOffsets = if (allOffsets.size > 1) allOffsets.drop(1) else emptyList()
+                        }
+                        line.isEmpty() -> {
+                            // Sentence boundary
+                            if (sentenceStartOffset != null && sentenceEndOffset != null) {
+                                sentenceSpans.add(Span(sentenceStartOffset!!, sentenceEndOffset!!))
+                            }
+                            sentenceStartOffset = null
+                            sentenceEndOffset = null
+                            currentStartOffsets = null
+                            currentEndOffsets = null
+                            tokenIndexInSentence = 0
+                        }
+                        !line.startsWith("#") -> {
+                            val fields = line.split("\t")
+                            if (fields.size < 10) continue
+
+                            val lemma = if (fields.size > 2) fields[2] else "_"
+                            val upos = if (fields.size > 3) fields[3] else "_"
+                            val xpos = if (fields.size > 4) fields[4] else "_"
+                            val feats = if (fields.size > 5) fields[5] else "_"
+                            val head = if (fields.size > 6) fields[6] else "_"
+                            val deprel = if (fields.size > 7) fields[7] else "_"
+                            val deps = if (fields.size > 8) fields[8] else "_"
+                            val misc = if (fields.size > 9) fields[9] else "_"
+
+                            if (currentStartOffsets == null || currentEndOffsets == null) {
+                                LOGGER.severe("Token found before offset comments in text ${doc.textId}")
+                                throw IllegalArgumentException("CoNLL-U format error: tokens found before offset comments in text ${doc.textId}")
+                            }
+
+                            if (tokenIndexInSentence < currentStartOffsets.size &&
+                                tokenIndexInSentence < currentEndOffsets.size) {
+
+                                val spanFrom = currentStartOffsets[tokenIndexInSentence]
+                                val spanTo = currentEndOffsets[tokenIndexInSentence]
+                                val spanKey = "$spanFrom-$spanTo"
+
+                                morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
+                                tokenIndexInSentence++
+                            }
+                        }
+                    }
+                }
+
+                // Capture final sentence if not ended with empty line
+                if (sentenceStartOffset != null && sentenceEndOffset != null) {
+                    sentenceSpans.add(Span(sentenceStartOffset!!, sentenceEndOffset!!))
+                }
+
+                if (morphoSpans.isEmpty()) {
+                    LOGGER.warning("No morpho spans found for text ${doc.textId}, skipping")
+                    return@forEach
+                }
+
+                // Determine which layers to generate based on foundry and content
+                val hasDependencies = morphoSpans.values.any { span ->
+                    span.head != null && span.head != "_" && span.deprel != null && span.deprel != "_"
+                }
+
+                // Get foundry names for each layer (handles combined foundries like "marmot-malt")
+                val morphoFoundry = getFoundryForLayer(doc.foundry, "morpho")
+                val dependencyFoundry = if (hasDependencies) getFoundryForLayer(doc.foundry, "dependency") else null
+
+                // Store data in temp maps for XML generation
+                val tempDocId = "_temp_conllu_${doc.textId}"
+                morpho[tempDocId] = morphoSpans
+                if (sentenceSpans.isNotEmpty()) {
+                    sentences[tempDocId] = sentenceSpans.toTypedArray()
+                } else if (morphoSpans.isNotEmpty()) {
+                    // Fallback: create single sentence spanning all tokens
+                    val minOffset = morphoSpans.keys.minOfOrNull { it.split("-")[0].toInt() } ?: 0
+                    val maxOffset = morphoSpans.keys.maxOfOrNull { it.split("-")[1].toInt() } ?: 0
+                    sentences[tempDocId] = arrayOf(Span(minOffset, maxOffset))
+                }
+
+                // Generate morpho.xml
+                try {
+                    val basePath = textIdToPath(doc.textId)
+                    val morphoPath = "$basePath/$morphoFoundry/morpho.xml"
+
+                    val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+                        docId = tempDocId,
+                        foundry = morphoFoundry,
+                        tokens = getTokenSpansFromMorho(morphoSpans),
+                        sentences = sentences[tempDocId],
+                        text = null,
+                        morpho = morpho[tempDocId],
+                        metadata = null,
+                        extraFeatures = null,
+                        fileName = null,
+                        useLemma = useLemma,
+                        extractMetadataRegex = extractMetadataRegex,
+                        extractAttributesRegex = extractAttributesRegex,
+                        columns = columns,
+                        constituencyTrees = null,
+                        includeOffsetsInMisc = false,
+                        compatibilityMode = COMPATIBILITY_MODE,
+                        tokenSeparator = tokenSeparator
+                    )
+
+                    val morphoXmlOutput = KorapXmlFormatter.formatMorpho(context, dBuilder!!)
+                    val fixedMorphoXml = morphoXmlOutput.toString().replace(
+                        "docid=\"$tempDocId\"",
+                        "docid=\"${doc.textId}\""
+                    )
+
+                    val morphoZipEntry = ZipArchiveEntry(morphoPath)
+                    morphoZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+                    zipOutputStream.putArchiveEntry(morphoZipEntry)
+                    zipOutputStream.write(fixedMorphoXml.toByteArray())
+                    zipOutputStream.closeArchiveEntry()
+
+                    LOGGER.fine("Wrote $morphoPath (${fixedMorphoXml.length} bytes)")
+                } catch (e: Exception) {
+                    LOGGER.severe("ERROR generating morpho.xml for ${doc.textId}: ${e.message}")
+                    throw e
+                }
+
+                // Generate dependency.xml if dependencies present
+                if (hasDependencies && dependencyFoundry != null) {
+                    try {
+                        val basePath = textIdToPath(doc.textId)
+                        val dependencyPath = "$basePath/$dependencyFoundry/dependency.xml"
+
+                        val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
+                            docId = tempDocId,
+                            foundry = dependencyFoundry,
+                            tokens = getTokenSpansFromMorho(morphoSpans),
+                            sentences = sentences[tempDocId],
+                            text = null,
+                            morpho = morpho[tempDocId],
+                            metadata = null,
+                            extraFeatures = null,
+                            fileName = null,
+                            useLemma = useLemma,
+                            extractMetadataRegex = extractMetadataRegex,
+                            extractAttributesRegex = extractAttributesRegex,
+                            columns = columns,
+                            constituencyTrees = null,
+                            includeOffsetsInMisc = false,
+                            compatibilityMode = COMPATIBILITY_MODE,
+                            tokenSeparator = tokenSeparator
+                        )
+
+                        val dependencyXmlOutput = KorapXmlFormatter.formatDependency(context, dBuilder!!)
+                        val fixedDependencyXml = dependencyXmlOutput.toString().replace(
+                            "docid=\"$tempDocId\"",
+                            "docid=\"${doc.textId}\""
+                        )
+
+                        val dependencyZipEntry = ZipArchiveEntry(dependencyPath)
+                        dependencyZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+                        zipOutputStream.putArchiveEntry(dependencyZipEntry)
+                        zipOutputStream.write(fixedDependencyXml.toByteArray())
+                        zipOutputStream.closeArchiveEntry()
+
+                        LOGGER.fine("Wrote $dependencyPath (${fixedDependencyXml.length} bytes)")
+                    } catch (e: Exception) {
+                        LOGGER.severe("ERROR generating dependency.xml for ${doc.textId}: ${e.message}")
+                        throw e
+                    }
+                }
+
+                // Cleanup temp data
+                morpho.remove(tempDocId)
+                sentences.remove(tempDocId)
+            }
+
+            LOGGER.info("Successfully wrote ${documents.size} document(s) to $outputPath")
+        } finally {
+            zipOutputStream.close()
+        }
+    }
+
     // Collect structural spans from structure.xml for krill format
     private fun collectKrillStructureSpans(docId: String, spans: NodeList) {
         // Skip if already output (thread-safe check with ConcurrentHashMap.KeySet)
@@ -4466,6 +4846,35 @@ fun main(args: Array<String>): Unit {
             }
             
             System.err.println("korapxml2conllu compatibility mode: using conllu format")
+            newArgs.toTypedArray()
+        }
+        "conllu2korapxml" -> {
+            // Set zip output format for conllu2korapxml (CoNLL-U → KorAP XML ZIP)
+            val newArgs = mutableListOf<String>()
+            
+            // Always set zip output format
+            if (!args.contains("-t") && !args.contains("--to")) {
+                newArgs.add("-t")
+                newArgs.add("zip")
+            }
+            
+            var i = 0
+            while (i < args.size) {
+                val arg = args[i]
+                if (arg == "-t" || arg == "--to") {
+                    // If format is already specified, override with zip
+                    newArgs.add(arg)
+                    if (i + 1 < args.size) {
+                        i++
+                        newArgs.add("zip")
+                    }
+                } else {
+                    newArgs.add(arg)
+                }
+                i++
+            }
+            
+            System.err.println("conllu2korapxml mode: converting CoNLL-U to KorAP XML ZIP")
             newArgs.toTypedArray()
         }
         else -> args
