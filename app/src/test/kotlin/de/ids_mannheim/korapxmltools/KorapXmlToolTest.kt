@@ -178,18 +178,16 @@ class KorapXmlToolTest {
 
     @Test
     fun deprecatedW2vOptionWorks() {
+        // Test that the old -w option no longer works (should fail for v3.0)
         val args = arrayOf("-w", loadResource("wdf19.zip").path)
-        debug(args)
-        assertContains(
-            outContent.toString(),
-            "\nje ne suis pas du tout d'accord !\n"
-        )
-        assertFalse { outContent.toString().contains("WDF19_A0000.13865") }
+        val exitCode = debug(args)
+        // Should fail since -w was removed
+        assertTrue(exitCode != 0, "Old -w option should no longer work in v3.0")
     }
 
     @Test
     fun w2vOptionWorks() {
-        val args = arrayOf("-f", "w2v", loadResource("wdf19.zip").path)
+        val args = arrayOf("-t", "w2v", loadResource("wdf19.zip").path)
         debug(args)
         assertContains(
             outContent.toString(),
@@ -200,7 +198,7 @@ class KorapXmlToolTest {
 
     @Test
     fun nowOptionWorks() {
-        val args = arrayOf("-f", "now", loadResource("wdf19.zip").path)
+        val args = arrayOf("-t", "now", loadResource("wdf19.zip").path)
         debug(args)
         val output = outContent.toString()
         // Check that output starts with @@<text-sigle>
@@ -218,7 +216,7 @@ class KorapXmlToolTest {
 
     @Test
     fun canConvertXMLwithInvalidComments() {
-        val args = arrayOf("-w", zca20scrambled)
+        val args = arrayOf("-t", "w2v", zca20scrambled)
         debug(args)
         assertContains(
             outContent.toString(),
@@ -250,7 +248,7 @@ class KorapXmlToolTest {
 
     @Test
     fun canExtractMetadata() {
-        val args = arrayOf("--word2vec", "-m" ,"<textSigle>([^<]+)", "-m", "<creatDate>([^<]+)", loadResource("wdf19.zip").path)
+        val args = arrayOf("-t", "w2v", "-m" ,"<textSigle>([^<]+)", "-m", "<creatDate>([^<]+)", loadResource("wdf19.zip").path)
         debug(args)
         assertContains(
             outContent.toString(),
@@ -260,7 +258,7 @@ class KorapXmlToolTest {
 
     @Test
     fun canHandleNonBmpText() {
-        val args = arrayOf("--word2vec", wdd17)
+        val args = arrayOf("-t", "w2v", wdd17)
         debug(args)
         assertContains(
             outContent.toString(),
@@ -317,7 +315,7 @@ class KorapXmlToolTest {
         val tmpSourceFileName = tmpSourceFile.absolutePath
         File(sourceFile).copyTo(File(tmpSourceFileName), true)
         val outputDir = File(tmpSourceFileName).parentFile.absolutePath
-        val args = arrayOf("-D", outputDir, "-o", "-f", "zip", tmpSourceFileName)
+        val args = arrayOf("-D", outputDir, "-f", "-t", "zip", tmpSourceFileName)
         debug(args)
 
         val resultFile = tmpSourceFileName.toString().replace(".zip", ".base.zip")
@@ -333,7 +331,7 @@ class KorapXmlToolTest {
         val resultFile = tmpSourceFileName.toString().replace(".zip", ".base.zip")
         File(resultFile).createNewFile()
         val outputDir = File(tmpSourceFileName).parentFile.absolutePath
-        val args = arrayOf("-D", outputDir, "-o", "-f", "zip", tmpSourceFileName)
+        val args = arrayOf("-D", outputDir, "-f", "-t", "zip", tmpSourceFileName)
         debug(args)
         assert(File(resultFile).exists())
         assert(File(resultFile).length() > 0)
@@ -341,7 +339,7 @@ class KorapXmlToolTest {
 
     @Test
     fun canWord2VecLemma() {
-        val args = arrayOf("--lemma", "-f", "w2v", loadResource("goe.tree_tagger.zip").path)
+        val args = arrayOf("--lemma", "-t", "w2v", loadResource("goe.tree_tagger.zip").path)
         debug(args)
         val out = outContent.toString()
         // Expect lemma sequence containing "mein Ankunft" (surface would include inflected form elsewhere)
@@ -350,7 +348,7 @@ class KorapXmlToolTest {
 
     @Test
     fun canNowLemma() {
-        val args = arrayOf("--lemma", "-f", "now", loadResource("goe.tree_tagger.zip").path)
+        val args = arrayOf("--lemma", "-t", "now", loadResource("goe.tree_tagger.zip").path)
         debug(args)
         val out = outContent.toString()
         assertContains(out, "@@")
@@ -360,7 +358,7 @@ class KorapXmlToolTest {
 
     @Test
     fun lemmaOnlyWord2VecWorks() {
-        val args = arrayOf("--lemma-only", "-f", "w2v", loadResource("goe.tree_tagger.zip").path)
+        val args = arrayOf("--lemma-only", "-t", "w2v", loadResource("goe.tree_tagger.zip").path)
         debug(args)
         val out = outContent.toString()
         // Should produce some lemma tokens without requiring data.xml
@@ -369,7 +367,7 @@ class KorapXmlToolTest {
 
     @Test
     fun lemmaOnlyNowWorks() {
-        val args = arrayOf("--lemma-only", "-f", "now", loadResource("goe.tree_tagger.zip").path)
+        val args = arrayOf("--lemma-only", "-t", "now", loadResource("goe.tree_tagger.zip").path)
         debug(args)
         val out = outContent.toString()
         assertContains(out, "@@")
@@ -393,7 +391,7 @@ class KorapXmlToolTest {
         val rc = debug(args)
         // Non-zero is expected; and error message should be present
         assertTrue(rc != 0)
-        assertContains(errContent.toString(), "--sequential is supported only with -f word2vec or -f now")
+        assertContains(errContent.toString(), "--sequential is supported only with -t word2vec or -t now")
     }
 
     @Test
@@ -475,7 +473,7 @@ class KorapXmlToolTest {
 
         val generatedTar = ensureKrillTar("wud24_full_foundries") { outputDir ->
             arrayOf(
-                "-f", "krill",
+                "-t", "krill",
                 "-l", "info",
                 "-D", outputDir.path,
                 baseZip,
@@ -617,7 +615,7 @@ class KorapXmlToolTest {
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
 
         val generatedTar = ensureKrillTar("wud24_base_spacy") { outputDir ->
-            arrayOf("-f", "krill", "-D", outputDir.path, baseZip, spacyZip)
+            arrayOf("-t", "krill", "-D", outputDir.path, baseZip, spacyZip)
         }
         assertTrue(generatedTar.exists())
 
@@ -659,7 +657,7 @@ class KorapXmlToolTest {
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
 
         val generatedTar = ensureKrillTar("wud24_base_spacy") { outputDir ->
-            arrayOf("-f", "krill", "-D", outputDir.path, baseZip, spacyZip)
+            arrayOf("-t", "krill", "-D", outputDir.path, baseZip, spacyZip)
         }
         assertTrue(generatedTar.exists())
 
@@ -707,7 +705,7 @@ class KorapXmlToolTest {
         val treeTaggerZip = loadResource("wud24_sample.tree_tagger.zip").path
 
         val generatedTar = ensureKrillTar("wud24_full_foundries") { outputDir ->
-            arrayOf("-f", "krill", "-D", outputDir.path, baseZip, spacyZip, marmotZip, opennlpZip, treeTaggerZip)
+            arrayOf("-t", "krill", "-D", outputDir.path, baseZip, spacyZip, marmotZip, opennlpZip, treeTaggerZip)
         }
         assertTrue(generatedTar.exists())
 
@@ -749,7 +747,7 @@ class KorapXmlToolTest {
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
 
         val defaultTar = ensureKrillTar("wud24_default_corenlp") { outputDir ->
-            arrayOf("-f", "krill", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
+            arrayOf("-t", "krill", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
         }
         assertTrue(defaultTar.exists(), "Default krill tar should exist")
 
@@ -765,7 +763,7 @@ class KorapXmlToolTest {
         )
 
         val flagTar = ensureKrillTar("wud24_default_corenlp_nwt") { outputDir ->
-            arrayOf("-f", "krill", "--non-word-tokens", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
+            arrayOf("-t", "krill", "--non-word-tokens", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
         }
         assertTrue(flagTar.exists(), "Krill tar should exist when --non-word-tokens is set")
 
@@ -794,7 +792,7 @@ class KorapXmlToolTest {
 
         val kotlinTar = ensureKrillTar("wud24_reference_default") { outputDir ->
             arrayOf(
-                "-f", "krill",
+                "-t", "krill",
                 "-D", outputDir.path,
                 baseZip,
                 spacyZip,
@@ -837,7 +835,7 @@ class KorapXmlToolTest {
 
         val kotlinTar = ensureKrillTar("wud24_reference_nwt") { outputDir ->
             arrayOf(
-                "-f", "krill",
+                "-t", "krill",
                 "--non-word-tokens",
                 "-D", outputDir.path,
                 baseZip,
@@ -898,7 +896,7 @@ class KorapXmlToolTest {
         try {
             // Run CoreNLP with both tagger and parser
             val args = arrayOf(
-                "-f", "zip",
+                "-t", "zip",
                 "-o",
                 "-D", outputDir.path,
                 "-t", "corenlp:${taggerModel.path}",

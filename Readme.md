@@ -84,15 +84,14 @@ If a lemma for a token is missing (`_`) the surface form is used as fallback.
 
 - `--lemma-only`: For `-f w2v` and `-f now`, skip loading `data.xml` and output only lemmas from `morpho.xml`. This reduces memory and speeds up throughput.
 - `--sequential`: Process entries inside each zip sequentially (zips can still run in parallel). Recommended for `w2v`/`now` to keep locality and lower memory.
-- `--zip-parallelism N`: Limit how many zips are processed concurrently (defaults to `--threads`). Helps avoid disk thrash and native inflater pressure.
 - `--exclude-zip-glob GLOB` (repeatable): Skip zip basenames that match the glob (e.g., `--exclude-zip-glob 'w?d24.tree_tagger.zip'`).
 
 Example for large NOW export with progress and exclusions:
 
 ```
 KORAPXMLTOOL_XMX=64g KORAPXMLTOOL_MODELS_PATH=/data/models KORAPXMLTOOL_JAVA_OPTS="-XX:+UseG1GC -Djdk.util.zip.disableMemoryMapping=true -Djdk.util.zip.reuseInflater=true" \
-     ./build/bin/korapxmltool -l info --threads 100 --zip-parallelism 8 \
-     --lemma-only --sequential -f now \
+     ./build/bin/korapxmltool -l info -j 100 \
+     --lemma-only --sequential -t now \
      --exclude-zip-glob 'w?d24.tree_tagger.zip' \
      /vol/corpora/DeReKo/current/KorAP/zip/*24.tree_tagger.zip | pv > dach2024.lemma.txt
 ```
@@ -124,14 +123,14 @@ You can specify the full path to the model, or set the `KORAPXMLTOOL_MODELS_PATH
 
 ```shell script
 # With full path
-./build/bin/korapxmltool -f zip -t marmot:models/de.marmot app/src/test/resources/goe.zip
+./build/bin/korapxmltool -t zip -T marmot:models/de.marmot app/src/test/resources/goe.zip
 
 # With KORAPXMLTOOL_MODELS_PATH (searches in /data/models/ if model not found locally)
 export KORAPXMLTOOL_MODELS_PATH=/data/models
-./build/bin/korapxmltool -f zip -t marmot:de.marmot app/src/test/resources/goe.zip
+./build/bin/korapxmltool -t zip -T marmot:de.marmot app/src/test/resources/goe.zip
 
-# Without setting KORAPXMLTOOL_MODELS_PATH (uses default ../lib/models from executable)
-./build/bin/korapxmltool -f zip -t marmot:de.marmot app/src/test/resources/goe.zip
+# Without setting KORAPXMLTOOL_MODELS_PATH (searches current directory only)
+./build/bin/korapxmltool -t zip -T marmot:models/de.marmot app/src/test/resources/goe.zip
 ```
 
 ### Tagging with integrated OpenNLP POS tagger directly to a new KorAP-XML ZIP file
@@ -183,12 +182,12 @@ You need to download the pre-trained MaltParser models from the [MaltParser mode
 Note that parsers take POS tagged input.
 
 ```shell script
-./build/bin/korapxmltool -f zip -T2 -P malt:german.mco goe.tree_tagger.zip
+./build/bin/korapxmltool -t zip -j2 -P malt:german.mco goe.tree_tagger.zip
 ```
 
 ### Tag with MarMoT and parse with Maltparser in one run directly to a new KorAP-XML ZIP file
 ```shell script
-./build/bin/korapxmltool -f zip -t marmot:models/de.marmot -P malt:german.mco goe.zip
+./build/bin/korapxmltool -t zip -T marmot:models/de.marmot -P malt:german.mco goe.zip
 ```
 
 ## Development and License

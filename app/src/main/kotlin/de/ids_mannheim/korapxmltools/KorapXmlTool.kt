@@ -72,27 +72,27 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "    ./build/bin/korapxmltool app/src/test/resources/wdf19.tree_tagger.zip | head -10",
             "",
             "  Word2Vec style output:",
-            "    ./build/bin/korapxmltool -f w2v app/src/test/resources/wud24_sample.zip",
+            "    ./build/bin/korapxmltool -t w2v app/src/test/resources/wud24_sample.zip",
             "",
             "  Extract metadata and convert:",
             "    ./build/bin/korapxmltool -m '<textSigle>([^<]+)' -m '<creatDate>([^<]+)' --word2vec t/data/wdf19.zip",
             "",
             "  NOW corpus export:",
-            "    ./build/bin/korapxmltool -f now /vol/corpora/DeReKo/current/KorAP/zip/*24.zip | pv > dach24.txt",
+            "    ./build/bin/korapxmltool -t now /vol/corpora/DeReKo/current/KorAP/zip/*24.zip | pv > dach24.txt",
             "",
             "  Tag with integrated MarMot POS tagger, and parse with internal Malt parser:",
-            "    ./build/bin/korapxmltool -f zip -t marmot:de.marmot -P malt:german.mco app/src/test/resources/goe.zip",
-            "    # (uses KORAPXMLTOOL_MODELS_PATH if model not found in current directory; defaults to ../lib/models)",
+            "    ./build/bin/korapxmltool -t zip -T marmot:de.marmot -P malt:german.mco app/src/test/resources/goe.zip",
+            "    # (uses KORAPXMLTOOL_MODELS_PATH if model not found in current directory)",
             "",
             "  Use external spaCy annotation (without dependencies):",
-            "    ./build/bin/korapxmltool -T4 -A \"docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest\" -f zip ./app/src/test/resources/goe.zip",
+            "    ./build/bin/korapxmltool -j4 -A \"docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest\" -t zip ./app/src/test/resources/goe.zip",
             "",
             "  Generate Krill tar from wud24_sample with multiple annotation foundries:",
-            "    ./build/bin/korapxmltool -f krill -D . app/src/test/resources/wud24_sample*.zip",
+            "    ./build/bin/korapxmltool -t krill -D . app/src/test/resources/wud24_sample*.zip",
             "",
             "  Large corpus annotation with custom memory and performance and default model settings:",
             "    KORAPXMLTOOL_XMX=500g KORAPXMLTOOL_MODELS_PATH=/data/models KORAPXMLTOOL_JAVA_OPTS=\"-XX:+UseG1GC\" \\",
-            "        ./build/bin/korapxmltool --threads 100 -f zip -t marmot -P malt wpd25*.zip"
+            "        ./build/bin/korapxmltool -j 100 -t zip -T marmot -P malt wpd25*.zip"
     ]
 )
 
@@ -111,7 +111,7 @@ class KorapXmlTool : Callable<Int> {
     var zipFileNames: Array<String>? = null
 
     @Option(
-        names = ["-f", "--output-format"],
+        names = ["-t", "--to"],
         description = ["Output format: ${ConlluOutputFormat.NAME}, ${Word2VecOutputFormat.NAME}, ${KorapXmlOutputFormat.NAME}, ${NowOutputFormat.NAME}, ${KrillOutputFormat.NAME}",
             "conllu: CoNLL-U format",
             "korapxml, xml, zip: KorAP-XML format zip",
@@ -169,16 +169,6 @@ class KorapXmlTool : Callable<Int> {
     )
     var columns: Int = 10
 
-    @Option(
-        names = ["--word2vec", "-w"],
-        description = ["Print text in LM training format: tokens separated by space, sentences separated by newline",
-            "Deprecated: use -f word2vec"]
-    )
-    fun setWord2Vec(word2vec: Boolean) {
-        if (word2vec) {
-            outputFormat = OutputFormat.WORD2VEC
-        }
-    }
 
     @Option(
         names = ["--exclude-zip-glob"],
@@ -237,7 +227,7 @@ class KorapXmlTool : Callable<Int> {
     var quiet: Boolean = false
 
     @Option(
-        names = ["--threads", "-T"],
+        names = ["-j", "--jobs", "--threads"],
         paramLabel = "THREADS",
         description = ["Maximum number of threads to use. Default: ${"$"}{DEFAULT-VALUE}"]
     )
@@ -250,12 +240,6 @@ class KorapXmlTool : Callable<Int> {
         System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", threads.toString())
     }
 
-    @Option(
-        names = ["--zip-parallelism"],
-        paramLabel = "N",
-        description = ["Maximum number of zip files to process concurrently. Defaults to --threads."]
-    )
-    var zipParallelism: Int? = null
 
     @Option(
         names = ["--sequential"],
@@ -266,7 +250,7 @@ class KorapXmlTool : Callable<Int> {
     var sequentialInZip: Boolean = false
 
     @Option(
-        names = ["--overwrite", "-o"],
+        names = ["-f", "--force"],
         description = ["Overwrite existing files"]
     )
     var overwrite: Boolean = false
@@ -295,7 +279,7 @@ class KorapXmlTool : Callable<Int> {
         names = ["--lemma-only"],
         description = [
             "Do not load texts from data.xml and output only lemmas (requires morpho.xml).",
-            "Only valid with -f word2vec or -f now; implies --lemma."
+            "Only valid with -t word2vec or -t now; implies --lemma."
         ]
     )
     var lemmaOnly: Boolean = false
@@ -347,7 +331,7 @@ class KorapXmlTool : Callable<Int> {
         return null
     }
     @Option(
-        names = ["--tag-with", "-t"],
+        names = ["-T", "--tag-with"],
         paramLabel = "TAGGER[:MODEL]",
         description = ["Specify a tagger and optionally a model: ${taggerFoundries}[:<path/to/model>].",
                       "If model is omitted, defaults are: marmot→de.marmot, opennlp→de-pos-maxent.bin, corenlp→german-fast.tagger"]
@@ -394,7 +378,7 @@ class KorapXmlTool : Callable<Int> {
     private var parserName: String? = null
     private var parserModel: String? = null
     @Option(
-        names = ["--parse-with", "-P"],
+        names = ["-P", "--parse-with"],
         paramLabel = "PARSER[:MODEL]",
         description = ["Specify a parser and optionally a model: ${parserFoundries}[:<path/to/model>].",
                       "If model is omitted, defaults are: malt→german.mco, corenlp→germanSR.ser.gz"]
@@ -465,7 +449,7 @@ class KorapXmlTool : Callable<Int> {
         if (lemmaOnly) {
             useLemma = true
             if (outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW) {
-                throw ParameterException(spec.commandLine(), "--lemma-only is supported only with -f word2vec or -f now")
+                throw ParameterException(spec.commandLine(), "--lemma-only is supported only with -t word2vec or -t now")
             }
         }
 
@@ -811,7 +795,7 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.info("Initializing krill TAR output: $krillOutputFileName")
 
             if (File(krillOutputFileName!!).exists() && !overwrite) {
-                LOGGER.severe("Output file $krillOutputFileName already exists. Use --overwrite to overwrite.")
+                LOGGER.severe("Output file $krillOutputFileName already exists. Use --force to overwrite.")
                 exitProcess(1)
             }
 
@@ -892,7 +876,7 @@ class KorapXmlTool : Callable<Int> {
 
                 // Check for existing output file BEFORE redirecting logging, so user sees the message
                 if (File(outputMorphoZipFileName).exists() && !overwrite) {
-                    val errorMsg = "Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite."
+                    val errorMsg = "Output file $outputMorphoZipFileName already exists. Use --force to overwrite."
                     System.err.println("ERROR: $errorMsg")
                     LOGGER.severe(errorMsg)
                     exitProcess(1)
@@ -987,13 +971,13 @@ class KorapXmlTool : Callable<Int> {
 
         if (sequentialInZip) {
             if (outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW) {
-                throw ParameterException(spec.commandLine(), "--sequential is supported only with -f word2vec or -f now")
+                throw ParameterException(spec.commandLine(), "--sequential is supported only with -t word2vec or -t now")
             }
         }
 
         if (maxThreads > 1) {
             val foundry = getFoundryFromZipFileNames(zips)
-            val parallelism = (zipParallelism ?: maxThreads).coerceAtLeast(1)
+            val parallelism = maxThreads.coerceAtLeast(1)
             LOGGER.info("Processing zips with ordered queue; parallelism=$parallelism; entries ${if (sequentialInZip) "sequential" else "parallel"}")
             processZipsWithQueue(zips, foundry, parallelism)
         } else {
@@ -1350,7 +1334,7 @@ class KorapXmlTool : Callable<Int> {
 
             // Check for existing output file BEFORE redirecting logging, so user sees the message
             if (File(outputMorphoZipFileName).exists() && !overwrite) {
-                val errorMsg = "Output file $outputMorphoZipFileName already exists. Use --overwrite to overwrite."
+                val errorMsg = "Output file $outputMorphoZipFileName already exists. Use --force to overwrite."
                 System.err.println("ERROR: $errorMsg")
                 LOGGER.severe(errorMsg)
                 exitProcess(1)
@@ -4206,7 +4190,7 @@ class KorapXmlTool : Callable<Int> {
         zipInventory.clear()
 
         // Scan ZIPs in parallel for faster startup
-        val scanParallelism = (zipParallelism ?: maxThreads).coerceAtLeast(1)
+        val scanParallelism = maxThreads.coerceAtLeast(1)
         val executor = java.util.concurrent.Executors.newFixedThreadPool(scanParallelism)
 
         try {
