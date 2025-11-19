@@ -4343,7 +4343,7 @@ class KorapXmlTool : Callable<Int> {
         // Start compression thread pool (parallel compression)
         val compressionThreads = maxThreads.coerceAtLeast(2)
         compressionExecutor = java.util.concurrent.Executors.newFixedThreadPool(compressionThreads) { r ->
-            Thread(r, "KrillCompressor-${Thread.currentThread().id}")
+            Thread(r, "KrillCompressor-${Thread.currentThread().threadId()}")
         }
         LOGGER.info("Started compression thread pool with $compressionThreads threads")
         
