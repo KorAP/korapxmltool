@@ -4395,7 +4395,53 @@ object KrillOutputFormat {
 
 fun main(args: Array<String>): Unit {
     try { Locale.setDefault(Locale.ROOT) } catch (_: Exception) {}
-    exitProcess(CommandLine(KorapXmlTool()).execute(*args))
+    
+    // Check if called as korapxml2krill for backward compatibility
+    val programName = System.getProperty("sun.java.command")?.split(" ")?.first()?.split("/")?.last()
+        ?: File(System.getProperty("java.class.path")).name
+    
+    val filteredArgs = if (programName == "korapxml2krill") {
+        // Filter out Perl-specific options and add krill format
+        val perlOptions = setOf("-z", "-w", "-c")
+        val newArgs = mutableListOf<String>()
+        
+        // Always set krill output format for korapxml2krill
+        if (!args.contains("-t") && !args.contains("--to")) {
+            newArgs.add("-t")
+            newArgs.add("krill")
+        }
+        
+        var i = 0
+        while (i < args.size) {
+            val arg = args[i]
+            when {
+                perlOptions.contains(arg) -> {
+                    // Skip this option
+                    if (arg == "-c" && i + 1 < args.size) {
+                        // Skip -c and its argument
+                        i++
+                    }
+                }
+                arg == "-t" || arg == "--to" -> {
+                    // If format is already specified, override with krill
+                    newArgs.add(arg)
+                    if (i + 1 < args.size) {
+                        i++
+                        newArgs.add("krill")
+                    }
+                }
+                else -> newArgs.add(arg)
+            }
+            i++
+        }
+        
+        System.err.println("korapxml2krill compatibility mode: filtered arguments")
+        newArgs.toTypedArray()
+    } else {
+        args
+    }
+    
+    exitProcess(CommandLine(KorapXmlTool()).execute(*filteredArgs))
 }
 
 /**
