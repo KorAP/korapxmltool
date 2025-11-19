@@ -14,6 +14,20 @@ Drop-in replacement for korapxml2conllu [KorAP-XML-CoNLL-U](https://github.com/K
 
 After building, the executable will be available at `./build/bin/korapxmltool`.
 
+## Command Line Options (v3.0)
+
+Key options for korapxmltool v3.0:
+
+- `-t FORMAT`, `--to FORMAT`: Output format (`zip`, `conllu`, `w2v`, `now`, `krill`)
+- `-j N`, `--jobs N`, `--threads N`: Number of threads/jobs to use
+- `-T TAGGER[:MODEL]`, `--tag-with TAGGER[:MODEL]`: POS tagger and optional model
+- `-P PARSER[:MODEL]`, `--parse-with PARSER[:MODEL]`: Parser and optional model  
+- `-f`, `--force`: Overwrite existing output files
+- `-q`, `--quiet`: Suppress progress output
+- `-D DIR`, `--output-dir DIR`: Output directory
+- `--lemma`: Use lemmas instead of surface forms (when available)
+- `--lemma-only`: Skip loading base tokens, output only lemmas
+
 ## Conversion to [CoNLL-U format](https://universaldependencies.org/format.html)
 
 ```shell script
@@ -35,7 +49,7 @@ $ ./build/bin/korapxmltool app/src/test/resources/wdf19.zip | head -10
 ## Conversion to language model training data input format from KorAP-XML
 
 ```shell script
-$ ./build/bin/korapxmltool --word2vec t/data/wdf19.zip
+$ ./build/bin/korapxmltool -t w2v app/src/test/resources//wdf19.zip
 
 Arts visuels Pourquoi toujours vouloir séparer BD et Manga ?
 Ffx 18:20 fév 25 , 2003 ( CET ) soit on ne sépara pas , soit alors on distingue aussi , le comics , le manwa , le manga ..
@@ -48,7 +62,7 @@ wikipedia ce prete parfaitement à ce genre de decryptage .
 ### Example producing language model training input with preceding metadata columns
 
 ```shell script
-./build/bin/korapxmltool -m '<textSigle>([^<]+)' -m '<creatDate>([^<]+)' --word2vec t/data/wdf19.zip
+./build/bin/korapxmltool -m '<textSigle>([^<]+)' -m '<creatDate>([^<]+)' -t w2v app/src/test/resources//wdf19.zip
 ```
 ```
 WDF19/A0000.10894	2014.08.28	Arts visuels Pourquoi toujours vouloir séparer BD et Manga ?
@@ -63,7 +77,7 @@ WDF19/A0000.10894	2014.08.28	wikipedia ce prete parfaitement à ce genre de decr
 One text per line with `<p>` as sentence delimiter.
 
 ```shell script
-./build/bin/korapxmltool -f now /vol/corpora/DeReKo/current/KorAP/zip/*24.zip | pv > dach24.txt
+./build/bin/korapxmltool -t now /vol/corpora/DeReKo/current/KorAP/zip/*24.zip | pv > dach24.txt
 ```
 
 ### Using lemmas instead of surface forms in word2vec / NOW output
@@ -72,17 +86,17 @@ If lemma annotations (morpho layer) are present alongside the base tokens, you c
 
 ```shell script
 # Word2Vec style output with lemmas where available
-./build/bin/korapxmltool --lemma -f w2v app/src/test/resources/goe.tree_tagger.zip | head -3
+./build/bin/korapxmltool --lemma -t w2v app/src/test/resources/goe.tree_tagger.zip | head -3
 
 # NOW corpus style output with lemmas
-./build/bin/korapxmltool --lemma -f now app/src/test/resources/goe.tree_tagger.zip | head -1
+./build/bin/korapxmltool --lemma -t now app/src/test/resources/goe.tree_tagger.zip | head -1
 ```
 
 If a lemma for a token is missing (`_`) the surface form is used as fallback.
 
 ### Lemma-only mode and I/O scheduling
 
-- `--lemma-only`: For `-f w2v` and `-f now`, skip loading `data.xml` and output only lemmas from `morpho.xml`. This reduces memory and speeds up throughput.
+- `--lemma-only`: For `-t w2v` and `-t now`, skip loading `data.xml` and output only lemmas from `morpho.xml`. This reduces memory and speeds up throughput.
 - `--sequential`: Process entries inside each zip sequentially (zips can still run in parallel). Recommended for `w2v`/`now` to keep locality and lower memory.
 - `--exclude-zip-glob GLOB` (repeatable): Skip zip basenames that match the glob (e.g., `--exclude-zip-glob 'w?d24.tree_tagger.zip'`).
 
@@ -105,7 +119,7 @@ At INFO level the tool logs:
 Generate a tar archive containing gzipped Krill/KoralQuery JSON files across all provided foundries.
 
 ```shell script
-./build/bin/korapxmltool -f krill -D out/krill \
+./build/bin/korapxmltool -t krill -D out/krill \
   app/src/test/resources/wud24_sample.zip \
   app/src/test/resources/wud24_sample.spacy.zip \
   app/src/test/resources/wud24_sample.marmot-malt.zip
@@ -119,7 +133,7 @@ This writes `out/krill/wud24_sample.krill.tar` plus a log file. Add more annotat
 
 You need to download the pre-trained MarMoT models from the [MarMoT models repository](http://cistern.cis.lmu.de/marmot/models/CURRENT/).
 
-You can specify the full path to the model, or set the `KORAPXMLTOOL_MODELS_PATH` environment variable to specify a default search directory. If not set, `KORAPXMLTOOL_MODELS_PATH` defaults to `../lib/models` relative to the executable location.
+You can specify the full path to the model, or set the `KORAPXMLTOOL_MODELS_PATH` environment variable to specify a default search directory:
 
 ```shell script
 # With full path
@@ -137,7 +151,7 @@ export KORAPXMLTOOL_MODELS_PATH=/data/models
 
 You need to download the pre-trained OpenNLP models from the [OpenNLP model download page](https://opennlp.apache.org/models.html#part_of_speech_tagging) or older models from the [legacy OpenNLP models archive](http://opennlp.sourceforge.net/models-1.5/).
 ```shell script
-./build/bin/korapxmltool -f zip -t opennlp:/usr/local/kl/korap/Ingestion/lib/models/opennlp/de-pos-maxent.bin /tmp/zca24.zip
+./build/bin/korapxmltool -t zip -T opennlp:/usr/local/kl/korap/Ingestion/lib/models/opennlp/de-pos-maxent.bin /tmp/zca24.zip
 ```
 
 ### Tag and lemmatize with TreeTagger
@@ -154,13 +168,13 @@ Language models are downloaded automatically.
 This requires the [spaCy Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/sota-pos-lemmatizers) and is only available for German.
 
 ```shell script
-./build/bin/korapxmltool -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest" -f zip ./app/src/test/resources/goe.zip
+./build/bin/korapxmltool -j4 -A "docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest" -t zip ./app/src/test/resources/goe.zip
 ```
 
 ### Tag, lemmatize and dependency parse with spaCy directly to a new KorAP-XML ZIP file
 
 ```shell script
-./build/bin/korapxmltool -T4 -A "docker run -e SPACY_USE_DEPENDENCIES=True --rm -i korap/conllu2spacy:latest" -f zip ./app/src/test/resources/goe.zip
+./build/bin/korapxmltool -j4 -A "docker run -e SPACY_USE_DEPENDENCIES=True --rm -i korap/conllu2spacy:latest" -t zip ./app/src/test/resources/goe.zip
 ```
 
 ### Tag, lemmatize and constituency parse with CoreNLP (3.X) directly to a new KorAP-XML ZIP file
@@ -168,8 +182,8 @@ This requires the [spaCy Docker Image with CoNLL-U Support](https://gitlab.ids-m
 Download the Stanford CoreNLP v3.X POS tagger and constituency parser models (e.g., `german-fast.tagger` and `germanSR.ser.gz`) into `libs/`.
 
 ```shell script
-./build/bin/korapxmltool -f zip -D out \
-  -t corenlp:libs/german-fast.tagger \
+./build/bin/korapxmltool -t zip -D out \
+  -T corenlp:libs/german-fast.tagger \
   -P corenlp:libs/germanSR.ser.gz \
   app/src/test/resources/wud24_sample.zip
 ```
