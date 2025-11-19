@@ -446,6 +446,18 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.info("Resolved model path '$original' to '$resolved'")
         }
 
+        // Validate input files exist before doing any processing
+        zipFileNames?.forEach { zipFile ->
+            if (!File(zipFile).exists()) {
+                System.err.println("ERROR: Input file does not exist: $zipFile")
+                return 1
+            }
+            if (!File(zipFile).canRead()) {
+                System.err.println("ERROR: Cannot read input file: $zipFile")
+                return 1
+            }
+        }
+
         if (lemmaOnly) {
             useLemma = true
             if (outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW) {
