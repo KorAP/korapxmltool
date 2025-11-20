@@ -1066,32 +1066,8 @@ class KorapXmlTool : Callable<Int> {
             }
             LOGGER.info("Expected foundries for Krill output: ${expectedFoundries.sorted()}")
 
-            // Build inventory of which texts exist in which ZIPs for incremental output
-            buildZipInventory(args)
-
-            // Initialize progress bar for incremental output
-            if (!quiet) {
-                val totalTexts = zipInventory.values.flatten().toSet().size
-                if (totalTexts > 0) {
-                    incrementalProgressBar = ProgressBarBuilder()
-                        .setTaskName("$baseZipName.krill.tar")
-                        .setInitialMax(totalTexts.toLong())
-                        .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
-                        .setUpdateIntervalMillis(500)
-                        .showSpeed()
-                        .build()
-                }
-            }
-
-            // Start dedicated writer thread for incremental output
-            // Only enable if we have multiple texts to benefit from incremental processing
-            val totalTexts = zipInventory.values.flatten().toSet().size
-            if (totalTexts > 1) {
-                startIncrementalWriterThread()
-                LOGGER.info("Enabled incremental output for $totalTexts texts")
-            } else {
-                LOGGER.info("Disabled incremental output (only $totalTexts text)")
-            }
+            // Note: Progress bar and incremental writer will be initialized in processZipsInterleavedForKrill
+            // after scanning ZIPs (to avoid double scanning)
         }
 
         if (annotateWith.isNotEmpty()) {
@@ -1458,23 +1434,48 @@ class KorapXmlTool : Callable<Int> {
         val foundryDataList = mutableListOf<FoundryData>()
         
         try {
-            // Open all ZIPs and keep them open
-            zips.forEach { zipPath ->
-                val zipFoundry = getFoundryFromZipFileName(zipPath)
-                LOGGER.info("Opening ZIP: $zipPath for foundry=$zipFoundry")
-                
-                try {
-                    val zipFile = ApacheZipFile(File(zipPath))
-                    val entries = zipFile.entries.toList()
-                        .filter { !it.isDirectory && it.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency)\\.xml$")) }
+            // Open all ZIPs in parallel for faster startup
+            val scanParallelism = maxThreads.coerceAtLeast(1)
+            val executor = java.util.concurrent.Executors.newFixedThreadPool(scanParallelism)
+            
+            val futures = zips.map { zipPath ->
+                executor.submit<FoundryData?> {
+                    val zipFoundry = getFoundryFromZipFileName(zipPath)
+                    LOGGER.info("Opening ZIP: $zipPath for foundry=$zipFoundry")
                     
-                    val entriesByTextId = entries.groupBy { getTextIdFromPath(it.name) }
-                    foundryDataList.add(FoundryData(zipFile, zipPath, zipFoundry, entriesByTextId))
-                    LOGGER.info("Found ${entriesByTextId.size} texts in $zipFoundry")
-                } catch (e: Exception) {
-                    LOGGER.severe("Failed to open ZIP $zipPath: ${e.message}")
+                    try {
+                        val zipFile = ApacheZipFile(File(zipPath))
+                        val entries = zipFile.entries.toList()
+                            .filter { !it.isDirectory && it.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency)\\.xml$")) }
+                        
+                        val entriesByTextId = entries.groupBy { getTextIdFromPath(it.name) }
+                        
+                        // Build inventory for this ZIP (used for old flow fallback and logging)
+                        zipInventory[zipPath] = entriesByTextId.keys.toMutableSet()
+                        
+                        // Use appropriate wording: base ZIP contains texts, annotation foundries have annotations on texts
+                        if (zipFoundry == "base") {
+                            LOGGER.info("  $zipPath contains ${entriesByTextId.size} texts")
+                        } else {
+                            LOGGER.info("  $zipPath has annotations on ${entriesByTextId.size} texts")
+                        }
+                        FoundryData(zipFile, zipPath, zipFoundry, entriesByTextId)
+                    } catch (e: Exception) {
+                        LOGGER.severe("Failed to open ZIP $zipPath: ${e.message}")
+                        null
+                    }
                 }
             }
+            
+            // Collect results
+            futures.forEach { future ->
+                val foundryData = future.get()
+                if (foundryData != null) {
+                    foundryDataList.add(foundryData)
+                }
+            }
+            
+            executor.shutdown()
             
             // Get all unique text IDs across all foundries, sorted
             val allTextIds = foundryDataList
@@ -1482,7 +1483,30 @@ class KorapXmlTool : Callable<Int> {
                 .toSet()
                 .sortedWith(this::compareTextIds)
             
+            // Set expected text order for the scanner
+            expectedTextOrder = allTextIds
+            nextTextOrderIndex = 0
+            scanOrderLogged = false
+            
             LOGGER.info("Processing ${allTextIds.size} texts across ${foundryDataList.size} foundries in interleaved order")
+            LOGGER.info("  Text processing order (first 20): ${expectedTextOrder.take(20)}")
+            
+            // Initialize progress bar now that we know the text count
+            if (!quiet && allTextIds.size > 0) {
+                incrementalProgressBar = ProgressBarBuilder()
+                    .setTaskName("${File(zips[0]).nameWithoutExtension.substringBefore('.')}.krill.tar")
+                    .setInitialMax(allTextIds.size.toLong())
+                    .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
+                    .setUpdateIntervalMillis(500)
+                    .showSpeed()
+                    .build()
+            }
+            
+            // Start incremental writer thread if we have multiple texts
+            if (allTextIds.size > 1) {
+                startIncrementalWriterThread()
+                LOGGER.info("Enabled incremental output for ${allTextIds.size} texts")
+            }
             
             // Start workers
             repeat(maxThreads) {
