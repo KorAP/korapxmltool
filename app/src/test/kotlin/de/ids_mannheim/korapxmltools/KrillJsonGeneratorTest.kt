@@ -433,4 +433,41 @@ class KrillJsonGeneratorTest {
         }
     }
 
+    @Test
+    fun testCorrectTextCount() {
+        val baseZip = loadResource("wud24_sample.zip").path
+        
+        val generatedTar = ensureKrillTar("text_count_test") { outputDir ->
+            arrayOf(
+                "-t", "krill",
+                "-D", outputDir.path,
+                baseZip
+            )
+        }
+
+        // Extract and count JSON files
+        val extractDir = File.createTempFile("extract", "").let { it.delete(); it.mkdirs(); it }
+        try {
+            val tarProcess = ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path)
+                .redirectErrorStream(true).start()
+            assertTrue(tarProcess.waitFor() == 0, "TAR extraction should succeed")
+
+            val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
+            
+            // wud24_sample.zip contains exactly 3 texts (based on data.xml files)
+            assertEquals(3, jsonFiles.size, "Should have exactly 3 JSON files for wud24_sample")
+            
+            // Verify we can read each JSON
+            jsonFiles.forEach { jsonFile ->
+                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
+                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                    .start().inputStream.bufferedReader().readText()
+                
+                assertTrue(jsonContent.contains("\"@type\":\"koral:corpus\""), 
+                    "Each JSON should be a valid Krill corpus document")
+            }
+        } finally {
+            extractDir.deleteRecursively()
+        }
+    }
 }

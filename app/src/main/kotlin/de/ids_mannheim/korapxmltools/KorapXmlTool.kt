@@ -1450,14 +1450,21 @@ class KorapXmlTool : Callable<Int> {
                         
                         val entriesByTextId = entries.groupBy { getTextIdFromPath(it.name) }
                         
+                        // Count only non-header entries for text count (header.xml is metadata, not a text)
+                        val textCount = entries.count { !it.name.contains("header.xml") && (it.name.endsWith("data.xml") || it.name.endsWith("morpho.xml")) }
+                        
                         // Build inventory for this ZIP (used for old flow fallback and logging)
-                        zipInventory[zipPath] = entriesByTextId.keys.toMutableSet()
+                        // Only include actual text IDs (not corpus/doc level header IDs)
+                        zipInventory[zipPath] = entries
+                            .filter { !it.name.contains("header.xml") }
+                            .map { getTextIdFromPath(it.name) }
+                            .toMutableSet()
                         
                         // Use appropriate wording: base ZIP contains texts, annotation foundries have annotations on texts
                         if (zipFoundry == "base") {
-                            LOGGER.info("  $zipPath contains ${entriesByTextId.size} texts")
+                            LOGGER.info("  $zipPath contains $textCount texts")
                         } else {
-                            LOGGER.info("  $zipPath has annotations on ${entriesByTextId.size} texts")
+                            LOGGER.info("  $zipPath has annotations on $textCount texts")
                         }
                         FoundryData(zipFile, zipPath, zipFoundry, entriesByTextId)
                     } catch (e: Exception) {
@@ -1478,8 +1485,13 @@ class KorapXmlTool : Callable<Int> {
             executor.shutdown()
             
             // Get all unique text IDs across all foundries, sorted
+            // Count only texts with data.xml (the actual text content)
             val allTextIds = foundryDataList
-                .flatMap { it.entriesByTextId.keys }
+                .flatMap { foundryData ->
+                    foundryData.entriesByTextId
+                        .filterValues { entries -> entries.any { it.name.endsWith("data.xml") } }
+                        .keys
+                }
                 .toSet()
                 .sortedWith(this::compareTextIds)
             
