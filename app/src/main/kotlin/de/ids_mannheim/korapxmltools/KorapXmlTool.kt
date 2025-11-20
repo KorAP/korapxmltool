@@ -26,6 +26,7 @@ import java.util.*
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.logging.ConsoleHandler
 import java.util.logging.Level
@@ -718,6 +719,17 @@ class KorapXmlTool : Callable<Int> {
     private var scanOrderLogged = false
     private var expectedTextOrder: List<String> = emptyList()
     private var nextTextOrderIndex: Int = 0
+    
+    // Work-stealing scheduler for Krill output: maintains queues per foundry
+    private val foundryTaskQueues: ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedQueue<PrioritizedTask>> = ConcurrentHashMap()
+    private val foundryTaskCounts: ConcurrentHashMap<String, AtomicInteger> = ConcurrentHashMap()
+    private val foundrySubmissionComplete: ConcurrentHashMap<String, Boolean> = ConcurrentHashMap()
+    private var workStealingSchedulerActive = false
+    @Volatile private var allFoundriesSubmitted = false
+    
+    // Track which foundries have completed each text for incremental output
+    private val textFoundryCompletion: ConcurrentHashMap<String, MutableSet<String>> = ConcurrentHashMap()
+    private val expectedFoundriesPerText: ConcurrentHashMap<String, Set<String>> = ConcurrentHashMap()
 
     // Priority-based task for foundry-aware scheduling
     private inner class PrioritizedTask(
@@ -983,14 +995,25 @@ class KorapXmlTool : Callable<Int> {
                 }
             }
         )
-        entryExecutor = java.util.concurrent.ThreadPoolExecutor(
-            maxThreads,
-            maxThreads,
-            0L,
-            java.util.concurrent.TimeUnit.MILLISECONDS,
-            priorityQueue
-        )
-        LOGGER.info("Initialized watermark-based entry executor with $maxThreads threads (foundries scheduled by text ID to progress together)")
+        // For Krill output, use work-stealing scheduler for optimal core utilization
+        if (outputFormat == OutputFormat.KRILL) {
+            workStealingSchedulerActive = true
+            allFoundriesSubmitted = false
+            entryExecutor = java.util.concurrent.Executors.newFixedThreadPool(maxThreads) { r ->
+                Thread(r, "KrillWorker-${Thread.currentThread().threadId()}")
+            }
+            LOGGER.info("Initialized work-stealing scheduler with $maxThreads worker threads for Krill output")
+        } else {
+            // For other formats, use priority-based executor
+            entryExecutor = java.util.concurrent.ThreadPoolExecutor(
+                maxThreads,
+                maxThreads,
+                0L,
+                java.util.concurrent.TimeUnit.MILLISECONDS,
+                priorityQueue
+            )
+            LOGGER.info("Initialized watermark-based entry executor with $maxThreads threads (foundries scheduled by text ID to progress together)")
+        }
 
         // Initialize TAR output for krill format
         if (outputFormat == OutputFormat.KRILL) {
@@ -1197,6 +1220,12 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
+        // Signal work-stealing scheduler that all foundries have been submitted
+        if (workStealingSchedulerActive) {
+            allFoundriesSubmitted = true
+            LOGGER.info("All foundries submitted to work-stealing scheduler")
+        }
+
         // Shutdown entry executor BEFORE closing worker pool to ensure no more tasks enqueue output after EOF
         entryExecutor?.shutdown()
         try {
@@ -1370,6 +1399,13 @@ class KorapXmlTool : Callable<Int> {
     }
 
     private fun processZipsWithQueue(zips: Array<String>, foundry: String, parallelism: Int) {
+        // For Krill output with work-stealing, use interleaved submission by text ID
+        if (outputFormat == OutputFormat.KRILL && workStealingSchedulerActive) {
+            processZipsInterleavedForKrill(zips)
+            return
+        }
+        
+        // Original sequential-per-ZIP processing for other formats
         val queue: java.util.concurrent.BlockingQueue<String> = java.util.concurrent.LinkedBlockingQueue()
         zips.forEach { queue.put(it) }
         val executor = Executors.newFixedThreadPool(parallelism)
@@ -1407,6 +1443,150 @@ class KorapXmlTool : Callable<Int> {
         } catch (ie: InterruptedException) {
             Thread.currentThread().interrupt()
         }
+    }
+    
+    /**
+     * Process ZIPs for Krill output with interleaved task submission.
+     * Instead of processing one ZIP/foundry at a time, submit tasks in text-ID order
+     * across ALL foundries to maintain balanced progress.
+     * 
+     * Opens all ZIPs upfront and keeps them open to avoid repeated open/close overhead.
+     */
+    private fun processZipsInterleavedForKrill(zips: Array<String>) {
+        // Map: foundry -> (zipFile, zipPath, entries-by-textId)
+        data class FoundryData(val zipFile: ApacheZipFile, val zipPath: String, val foundry: String, val entriesByTextId: Map<String, List<ZipArchiveEntry>>)
+        val foundryDataList = mutableListOf<FoundryData>()
+        
+        try {
+            // Open all ZIPs and keep them open
+            zips.forEach { zipPath ->
+                val zipFoundry = getFoundryFromZipFileName(zipPath)
+                LOGGER.info("Opening ZIP: $zipPath for foundry=$zipFoundry")
+                
+                try {
+                    val zipFile = ApacheZipFile(File(zipPath))
+                    val entries = zipFile.entries.toList()
+                        .filter { !it.isDirectory && it.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency)\\.xml$")) }
+                    
+                    val entriesByTextId = entries.groupBy { getTextIdFromPath(it.name) }
+                    foundryDataList.add(FoundryData(zipFile, zipPath, zipFoundry, entriesByTextId))
+                    LOGGER.info("Found ${entriesByTextId.size} texts in $zipFoundry")
+                } catch (e: Exception) {
+                    LOGGER.severe("Failed to open ZIP $zipPath: ${e.message}")
+                }
+            }
+            
+            // Get all unique text IDs across all foundries, sorted
+            val allTextIds = foundryDataList
+                .flatMap { it.entriesByTextId.keys }
+                .toSet()
+                .sortedWith(this::compareTextIds)
+            
+            LOGGER.info("Processing ${allTextIds.size} texts across ${foundryDataList.size} foundries in interleaved order")
+            
+            // Start workers
+            repeat(maxThreads) {
+                entryExecutor?.execute {
+                    workStealingWorker()
+                }
+            }
+            LOGGER.info("Started $maxThreads work-stealing workers")
+            
+            // Build expected foundries map for each text (for completion tracking)
+            allTextIds.forEach { textId ->
+                val foundriesForThisText = foundryDataList
+                    .filter { it.entriesByTextId.containsKey(textId) }
+                    .map { it.foundry }
+                    .toSet()
+                expectedFoundriesPerText[textId] = foundriesForThisText
+            }
+            
+            // Submit tasks in text-ID order, cycling through all foundries for each text
+            allTextIds.forEach { textId ->
+                foundryDataList.forEach { foundryData ->
+                    val textEntries = foundryData.entriesByTextId[textId]
+                    if (textEntries != null && textEntries.isNotEmpty()) {
+                        submitTextForFoundry(foundryData.zipFile, foundryData.zipPath, foundryData.foundry, textId, textEntries)
+                    }
+                }
+            }
+            
+            LOGGER.info("Completed interleaved submission of all tasks")
+            
+            // Wait for all tasks to complete
+            val totalTasks = foundryDataList.sumOf { it.entriesByTextId.size }
+            while (foundryTaskCounts.values.sumOf { it.get() } > 0) {
+                Thread.sleep(100)
+            }
+            
+        } finally {
+            // Close all ZIP files
+            foundryDataList.forEach { foundryData ->
+                try {
+                    foundryData.zipFile.close()
+                    LOGGER.info("Closed ZIP: ${foundryData.zipPath}")
+                } catch (e: Exception) {
+                    LOGGER.warning("Failed to close ZIP ${foundryData.zipPath}: ${e.message}")
+                }
+            }
+        }
+    }
+    
+    /**
+     * Submit a single text's entries for a specific foundry to the work-stealing queue.
+     */
+    private fun submitTextForFoundry(zipFile: ApacheZipFile, zipPath: String, foundry: String, textId: String, textEntries: List<ZipArchiveEntry>) {
+        val taskQueue = foundryTaskQueues.computeIfAbsent(foundry) {
+            java.util.concurrent.ConcurrentLinkedQueue<PrioritizedTask>()
+        }
+        val taskCount = foundryTaskCounts.computeIfAbsent(foundry) { AtomicInteger(0) }
+        
+        // Initialize watermark on first submission
+        if (!foundryWatermarks.containsKey(foundry)) {
+            foundryWatermarks.putIfAbsent(foundry, textId)
+        }
+        
+        // Task uses the already-open ZIP file
+        val prioritizedTask = PrioritizedTask(foundry, textId, Runnable {
+            try {
+                textEntries.forEach { entry ->
+                    processZipEntry(zipFile, zipPath, foundry, entry, false)
+                }
+                foundryWatermarks[foundry] = textId
+                
+                // Mark this foundry as complete for this text
+                val completedFoundries = textFoundryCompletion.computeIfAbsent(textId) {
+                    java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+                }
+                completedFoundries.add(foundry)
+                
+                // Check if all expected foundries have completed this text
+                val expectedFoundries = expectedFoundriesPerText[textId] ?: emptySet()
+                if (completedFoundries.containsAll(expectedFoundries)) {
+                    // All foundries complete - compress immediately in this worker thread
+                    // This avoids queueing overhead and ensures compression happens ASAP
+                    val textData = krillData[textId]
+                    if (textData != null && !krillCompressedData.containsKey(textId) && !krillCompressionFutures.containsKey(textId)) {
+                        // Mark as being compressed to prevent duplicate compression
+                        krillCompressionFutures[textId] = java.util.concurrent.CompletableFuture.completedFuture(null)
+                        
+                        // Compress inline in this worker thread (we have plenty of workers)
+                        compressKrillText(textId, textData)
+                        LOGGER.fine("Compressed completed text inline: $textId")
+                    }
+                }
+            } catch (t: Throwable) {
+                LOGGER.warning("Failed to process text $textId in $foundry: ${t.message}")
+            } finally {
+                taskCount.decrementAndGet()
+            }
+        })
+        
+        taskQueue.add(prioritizedTask)
+        taskCount.incrementAndGet()
+        
+        // Mark foundry as having submitted tasks
+        foundrySubmissionComplete[foundry] = true
     }
 
     // Convert a shell-like glob to a Regex: '*' -> ".*", '?' -> '.', anchored full match
@@ -1793,56 +1973,169 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.fine("Foundry watermarks before submitting $foundry entries: $watermarkStats")
         }
 
-        // Submit tasks with watermark-aware throttling
-        // Only submit tasks within a window of the global minimum watermark
-        // This keeps all foundries progressing together
-        val windowSize = maxOf(1000, maxThreads * 10)  // Allow some lead but not too much
         val latch = java.util.concurrent.CountDownLatch(textIds.size)
         
-        textIds.forEach { textId ->
-            // Check if we should throttle submission based on watermarks
-            var shouldWait = true
-            while (shouldWait) {
-                val minWatermark = foundryWatermarks.values.minByOrNull { it } ?: textId
-                val currentWatermark = foundryWatermarks[foundry] ?: textId
-                
-                // Calculate how far ahead this foundry is from the minimum
-                val minIndex = textIds.indexOf(minWatermark).takeIf { it >= 0 } ?: 0
-                val currentIndex = textIds.indexOf(currentWatermark).takeIf { it >= 0 } ?: 0
-                val textIdIndex = textIds.indexOf(textId)
-                
-                // Allow submission if within window of minimum or if we're behind minimum
-                if (textIdIndex < 0 || textIdIndex <= minIndex + windowSize || currentIndex <= minIndex) {
-                    shouldWait = false
-                } else {
-                    // Wait briefly for slower foundries to catch up
+        if (workStealingSchedulerActive) {
+            // Work-stealing mode for Krill output: submit tasks with throttling
+            // to prevent one foundry from racing too far ahead during submission
+            val taskQueue = foundryTaskQueues.computeIfAbsent(foundry) { 
+                java.util.concurrent.ConcurrentLinkedQueue<PrioritizedTask>() 
+            }
+            val taskCount = foundryTaskCounts.computeIfAbsent(foundry) { AtomicInteger(0) }
+            
+            // Submission throttle: don't queue more than this many texts ahead of slowest foundry
+            val submissionWindow = maxOf(100, maxThreads * 5)
+            
+            textIds.forEach { textId ->
+                // Throttle submission if this foundry is getting too far ahead
+                while (workStealingSchedulerActive && foundrySubmissionComplete.isNotEmpty()) {
+                    // Find the minimum NEXT text ID across all foundries (either in queue or submitted)
+                    val minNextTextId = foundryTaskQueues.entries
+                        .filter { it.value.isNotEmpty() }
+                        .minOfOrNull { it.value.peek()?.textId ?: "~~~~~" }
+                        ?: foundryWatermarks.values.minOrNull()
+                        ?: textId
+                    
+                    // Calculate position difference
+                    val minIndex = textIds.indexOf(minNextTextId).takeIf { it >= 0 } ?: 0
+                    val currentIndex = textIds.indexOf(textId).takeIf { it >= 0 } ?: 0
+                    
+                    // Allow submission if within window or if we're behind
+                    if (currentIndex <= minIndex + submissionWindow) {
+                        break
+                    }
+                    
+                    // Wait briefly for other foundries to catch up
                     Thread.sleep(10)
                 }
+                
+                val textEntries = entriesByTextId[textId] ?: emptyList()
+                val prioritizedTask = PrioritizedTask(foundry, textId, Runnable {
+                    try {
+                        // Process all entries for this text ID sequentially
+                        textEntries.forEach { entry ->
+                            processZipEntry(zipFile, zipPath, foundry, entry, waitForMorpho)
+                        }
+                        // Update watermark after completing this text
+                        foundryWatermarks[foundry] = textId
+                    } catch (t: Throwable) {
+                        LOGGER.warning("Failed to process text $textId in $foundry: ${t.message}")
+                    } finally {
+                        taskCount.decrementAndGet()
+                        latch.countDown()
+                    }
+                })
+                taskQueue.add(prioritizedTask)
+                taskCount.incrementAndGet()
             }
             
-            val textEntries = entriesByTextId[textId] ?: emptyList()
-
-            val prioritizedTask = PrioritizedTask(foundry, textId, Runnable {
-                try {
-                    // Process all entries for this text ID sequentially
-                    textEntries.forEach { entry ->
-                        processZipEntry(zipFile, zipPath, foundry, entry, waitForMorpho)
+            // Mark this foundry as having all tasks submitted
+            foundrySubmissionComplete[foundry] = true
+            
+            // Start workers on first foundry submission
+            if (foundrySubmissionComplete.size == 1) {
+                repeat(maxThreads) {
+                    entryExecutor?.execute {
+                        workStealingWorker()
                     }
-
-                    // Update watermark after completing this text
-                    foundryWatermarks[foundry] = textId
-                } catch (t: Throwable) {
-                    LOGGER.warning("Failed to process text $textId: ${t.message}")
-                } finally {
-                    latch.countDown()
                 }
-            })
-            entryExecutor?.execute(prioritizedTask)
+                LOGGER.info("Started $maxThreads work-stealing workers")
+            }
+            
+            LOGGER.info("Submitted ${textIds.size} tasks for foundry $foundry to work-stealing queue")
+        } else {
+            // Original watermark-based throttling for non-Krill formats
+            val windowSize = maxOf(1000, maxThreads * 10)
+            
+            textIds.forEach { textId ->
+                // Check if we should throttle submission based on watermarks
+                var shouldWait = true
+                while (shouldWait) {
+                    val minWatermark = foundryWatermarks.values.minByOrNull { it } ?: textId
+                    val currentWatermark = foundryWatermarks[foundry] ?: textId
+                    
+                    val minIndex = textIds.indexOf(minWatermark).takeIf { it >= 0 } ?: 0
+                    val currentIndex = textIds.indexOf(currentWatermark).takeIf { it >= 0 } ?: 0
+                    val textIdIndex = textIds.indexOf(textId)
+                    
+                    if (textIdIndex < 0 || textIdIndex <= minIndex + windowSize || currentIndex <= minIndex) {
+                        shouldWait = false
+                    } else {
+                        Thread.sleep(10)
+                    }
+                }
+                
+                val textEntries = entriesByTextId[textId] ?: emptyList()
+                val prioritizedTask = PrioritizedTask(foundry, textId, Runnable {
+                    try {
+                        textEntries.forEach { entry ->
+                            processZipEntry(zipFile, zipPath, foundry, entry, waitForMorpho)
+                        }
+                        foundryWatermarks[foundry] = textId
+                    } catch (t: Throwable) {
+                        LOGGER.warning("Failed to process text $textId: ${t.message}")
+                    } finally {
+                        latch.countDown()
+                    }
+                })
+                entryExecutor?.execute(prioritizedTask)
+            }
         }
+        
         try {
             latch.await()
         } catch (ie: InterruptedException) {
             Thread.currentThread().interrupt()
+        }
+    }
+    
+    /**
+     * Work-stealing worker: continuously picks tasks from the foundry with the lowest watermark.
+     * This ensures all cores stay busy helping slower foundries catch up.
+     * 
+     * Strategy: Look at the NEXT text ID in each foundry's queue (peek), not the completed watermark.
+     * This prevents all workers from rushing to the same "lowest" foundry.
+     */
+    private fun workStealingWorker() {
+        while (true) {
+            // Find foundry with lowest NEXT task (by peeking at queue head)
+            val foundryToProcess = synchronized(foundryTaskQueues) {
+                foundryTaskQueues.entries
+                    .filter { entry -> entry.value.isNotEmpty() }
+                    .minByOrNull { entry -> 
+                        // Use the NEXT text ID in queue (peek), not the completed watermark
+                        entry.value.peek()?.textId ?: "~~~~~"
+                    }?.key
+            }
+            
+            if (foundryToProcess == null) {
+                // No more work available - check if we're truly done
+                if (allFoundriesSubmitted) {
+                    val totalRemaining = foundryTaskCounts.values.sumOf { it.get() }
+                    if (totalRemaining == 0) {
+                        // All work complete
+                        break
+                    }
+                }
+                // Work might still be coming or in flight, wait briefly and retry
+                Thread.sleep(10)
+                continue
+            }
+            
+            // Steal a task from the chosen foundry
+            val queue = foundryTaskQueues[foundryToProcess]
+            val task = queue?.poll()
+            
+            if (task != null) {
+                try {
+                    task.run()
+                } catch (t: Throwable) {
+                    LOGGER.warning("Work-stealing worker failed on task: ${t.message}")
+                }
+            } else {
+                // Queue was emptied by another worker, continue stealing
+                Thread.yield()
+            }
         }
     }
 
@@ -4580,15 +4873,31 @@ class KorapXmlTool : Callable<Int> {
 
         // Phase 1: Find ALL ready texts (order doesn't matter for output)
         val readyTexts = mutableListOf<String>()
+        var checkedCount = 0
+        var newFlowCount = 0
+        var oldFlowCount = 0
         
         for (textId in krillData.keys) {
             // Skip if already output
             if (outputTexts.contains(textId)) continue
             
-            // Check if this text has all expected data
-            val relevantZips = zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
-            val allProcessed = relevantZips.all { path ->
-                processedTextsPerZip[path]?.contains(textId) == true
+            checkedCount++
+            
+            // Check completion using the new work-stealing tracking if available,
+            // otherwise fall back to the old ZIP-based tracking
+            val allProcessed = if (expectedFoundriesPerText.containsKey(textId)) {
+                // New flow: check if all expected foundries have completed this text
+                newFlowCount++
+                val completedFoundries = textFoundryCompletion[textId] ?: emptySet()
+                val expectedFoundries = expectedFoundriesPerText[textId] ?: emptySet()
+                completedFoundries.containsAll(expectedFoundries)
+            } else {
+                // Old flow: check if all relevant ZIPs have processed this text
+                oldFlowCount++
+                val relevantZips = zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
+                relevantZips.all { path ->
+                    processedTextsPerZip[path]?.contains(textId) == true
+                }
             }
             
             if (allProcessed) {
@@ -4612,12 +4921,14 @@ class KorapXmlTool : Callable<Int> {
         // Phase 2: Write compressed texts to TAR (only those already compressed, no waiting)
         // Event-driven: if compression is done, write it; otherwise skip and try next scan
         var outputCount = 0
+        var waitingForCompression = 0
         for (textId in readyTexts) {
             // Check if already compressed (event-based: poll, don't wait)
             val compressedData = krillCompressedData[textId]
             
             // If not yet compressed, skip for now (will be picked up in next scan)
             if (compressedData == null) {
+                waitingForCompression++
                 // Check if future is done without blocking
                 val future = krillCompressionFutures[textId]
                 if (future?.isDone == true) {
@@ -4673,8 +4984,8 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
-        if (outputCount > 0) {
-            LOGGER.fine("Batch output: $outputCount texts (${krillData.size} still pending)")
+        if (outputCount > 0 || readyTexts.isNotEmpty()) {
+            LOGGER.fine("Scan: checked=$checkedCount, newFlow=$newFlowCount, oldFlow=$oldFlowCount, ready=${readyTexts.size}, compressed=$outputCount, waitingCompression=$waitingForCompression, pending=${krillData.size}")
         }
     }
 
