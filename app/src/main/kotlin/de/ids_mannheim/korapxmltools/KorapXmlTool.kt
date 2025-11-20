@@ -236,9 +236,9 @@ class KorapXmlTool : Callable<Int> {
     @Option(
         names = ["-j", "--jobs", "--threads"],
         paramLabel = "THREADS",
-        description = ["Maximum number of threads to use. Default: ${"$"}{DEFAULT-VALUE}"]
+        description = ["Maximum number of threads to use. Default: intelligent detection based on format and available memory"]
     )
-    var maxThreads: Int = Runtime.getRuntime().availableProcessors() / 2
+    var maxThreads: Int = 0  // 0 = auto-detect in call()
     fun setThreads(threads: Int) {
         if (threads < 1) {
             throw ParameterException(spec.commandLine(), String.format(Locale.ROOT, "Invalid value `%d' for option '--threads': must be at least 1", threads))
@@ -322,6 +322,110 @@ class KorapXmlTool : Callable<Int> {
         "malt" to "german.mco",
         "corenlp" to "germanSR.ser.gz"
     )
+
+    // Calculate optimal thread count based on format, memory, and input characteristics
+    private fun calculateOptimalThreads(): Int {
+        val availableCores = Runtime.getRuntime().availableProcessors()
+        val availableMemoryGB = getAvailableMemoryGB()
+        
+        // Detect program name for compatibility mode
+        val programName = System.getProperty("sun.java.command")?.split(" ")?.first()?.split("/")?.last() ?: "korapxmltool"
+        
+        return when {
+            // CoNLL-U conversion: lightweight, max 10 threads
+            programName == "korapxml2conllu" || outputFormat == OutputFormat.CONLLU -> {
+                minOf(10, availableCores)
+            }
+            
+            // Krill export: depends on corpus size
+            programName == "korapxml2krill" || outputFormat == OutputFormat.KRILL -> {
+                calculateKrillThreads(availableCores, availableMemoryGB)
+            }
+            
+            // Tagging/Parsing: memory-intensive, needs careful balancing
+            taggerName != null || parserName != null -> {
+                calculateAnnotationThreads(availableCores, availableMemoryGB)
+            }
+            
+            // Default case: conservative threading for general processing
+            else -> {
+                minOf(availableCores / 2, 8)
+            }
+        }.also { threads ->
+            LOGGER.info("Thread calculation: format=$outputFormat, cores=$availableCores, memory=${availableMemoryGB}GB, result=$threads")
+        }
+    }
+    
+    private fun calculateKrillThreads(cores: Int, memoryGB: Double): Int {
+        // Analyze input corpus size if possible
+        val totalInputSize = zipFileNames?.sumOf { File(it).length() } ?: 0L
+        val totalInputGB = totalInputSize / (1024.0 * 1024.0 * 1024.0)
+        
+        return when {
+            // Very large corpora (>30GB): scale with cores, up to 75% utilization
+            totalInputGB > 30 -> {
+                minOf(cores, maxOf(32, cores * 3 / 4))
+            }
+            // Large corpora (>20GB): scale based on size and available cores
+            totalInputGB > 20 -> {
+                minOf(cores, maxOf(16, cores * 3 / 4))
+            }
+            // Medium-large corpora (10-20GB): scale threads with input size and cores
+            totalInputGB > 10 -> {
+                // For large machines (64+ cores), scale aggressively; medium machines (32+) moderately
+                when {
+                    cores >= 64 -> minOf(cores * 3 / 4, maxOf(16, (totalInputGB * 1.2).toInt()))
+                    cores >= 32 -> minOf(cores / 2, maxOf(10, (totalInputGB * 0.8).toInt()))
+                    else -> minOf(cores, 16)
+                }
+            }
+            // Medium corpora (1-10GB): 10 threads on small machines, scale on large machines
+            totalInputGB > 1 -> {
+                when {
+                    cores >= 64 -> minOf(cores / 2, 32)
+                    cores >= 32 -> minOf(cores / 4, 16)
+                    else -> minOf(cores, 10)
+                }
+            }
+            // Small-medium corpora (0.1-1GB): use 8 threads  
+            totalInputGB > 0.1 -> {
+                minOf(cores, 8)
+            }
+            // Very small corpora (<0.1GB): minimal threading + overhead for compression/writing
+            else -> {
+                minOf(4, cores / 2)
+            }
+        }.also { threads ->
+            LOGGER.info("Krill threading: input=${"%.1f".format(totalInputGB)}GB, cores=$cores, threads=$threads")
+        }
+    }
+    
+    private fun calculateAnnotationThreads(cores: Int, memoryGB: Double): Int {
+        // Annotation tools are very memory-intensive (especially parsers)
+        // Estimate memory per thread: parsing ~1.5GB, tagging ~0.8GB
+        val memoryPerThreadGB = when {
+            parserName != null -> 1.5  // 1.5GB per parser thread
+            taggerName != null -> 0.8  // 0.8GB per tagger thread  
+            else -> 0.5                // 0.5GB for other annotation
+        }
+        
+        val memoryBasedThreads = maxOf(1, ((memoryGB * 0.8) / memoryPerThreadGB).toInt())
+        val coreBasedThreads = maxOf(1, cores / 2)  // Leave cores for I/O and GC
+        
+        return minOf(memoryBasedThreads, coreBasedThreads, 16).also { threads ->
+            LOGGER.info("Annotation threading: ${parserName ?: taggerName}, memory=${"%.1f".format(memoryGB)}GB, " +
+                       "memLimit=${memoryBasedThreads}t, coreLimit=${coreBasedThreads}t, result=${threads}t")
+        }
+    }
+    
+    private fun getAvailableMemoryGB(): Double {
+        // Get heap size that was actually allocated by JVM
+        val runtime = Runtime.getRuntime()
+        val maxMemory = runtime.maxMemory()
+        
+        // Convert to GB, use 80% for safety (leave room for GC, off-heap, etc.)
+        return maxMemory * 0.8 / (1024.0 * 1024.0 * 1024.0)
+    }
 
     // Helper function to resolve model path with default search directory
     private fun resolveModelPath(modelPath: String): String? {
@@ -461,6 +565,12 @@ class KorapXmlTool : Callable<Int> {
         }
         LOGGER.level = level
         handler.level = level  // Handler also needs to be set to the same level
+
+        // Auto-detect optimal thread count if not specified
+        if (maxThreads == 0) {
+            maxThreads = calculateOptimalThreads()
+            LOGGER.info("Auto-detected optimal thread count: $maxThreads threads")
+        }
 
         // Log model path resolutions that occurred during parameter parsing
         modelPathResolutions.forEach { (original, resolved) ->

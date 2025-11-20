@@ -76,9 +76,86 @@ if ! $has_xmx; then
   # If no valid XMX was provided or parsing failed, use auto-detection
   if [[ -z ${xmx_mb:-} ]]; then
     mem_mb=$(detect_mem_limit_mb)
-    xmx_mb=$(( mem_mb * 75 / 100 ))
-    (( xmx_mb < 1024 )) && xmx_mb=1024
-    (( xmx_mb > 65536 )) && xmx_mb=65536
+    
+    # Intelligent memory allocation based on use case
+    # Check command line arguments for workload hints
+    workload_type="default"
+    large_corpus=false
+    has_annotation=false
+    
+    # Detect large corpus (>5GB input files)
+    # Note: This is a rough estimate - exact size will be calculated in Kotlin
+    total_input_size=0
+    for arg in "$@"; do
+      # Skip options and flags, only process files
+      if [[ "$arg" != -* && "$arg" == *.zip ]]; then
+        if [[ -e "$arg" ]]; then
+          # Use -L to follow symlinks (many corpora use symlinked ZIPs)
+          size=$(stat -L -c%s "$arg" 2>/dev/null || stat -L -f%z "$arg" 2>/dev/null || echo 0)
+          total_input_size=$((total_input_size + size))
+        fi
+      fi
+    done
+    
+    if (( total_input_size > 0 )); then
+      # Calculate with one decimal place for better accuracy with smaller files
+      if command -v bc >/dev/null 2>&1; then
+        total_input_gb_precise=$(echo "scale=1; $total_input_size / (1024*1024*1024)" | bc -l)
+        # Ensure we always have .X format, even for values < 1
+        [[ "$total_input_gb_precise" != *.* ]] && total_input_gb_precise="${total_input_gb_precise}.0"
+      else
+        # Fallback using awk for better precision
+        total_input_gb_precise=$(awk "BEGIN {printf \"%.1f\", $total_input_size / (1024*1024*1024)}")
+      fi
+      # Integer part for comparison (convert 1.5 -> 1, 0.1 -> 0, etc.)
+      total_input_gb=$(echo "$total_input_gb_precise" | cut -d. -f1)
+      # Handle case where total_input_gb might be empty for very small files
+      [[ -z "$total_input_gb" ]] && total_input_gb=0
+      (( total_input_gb > 5 )) && large_corpus=true
+    else
+      # Cannot determine size reliably at shell level
+      total_input_gb=0
+      total_input_gb_precise="0.0"
+    fi
+    
+    # Detect annotation workloads (memory-intensive)
+    for arg in "$@"; do
+      case "$arg" in
+        -T|--tag-with|-P|--parse-with) has_annotation=true ;;
+        *) ;;
+      esac
+    done
+    
+    # Calculate memory based on workload
+    if [[ "$has_annotation" == true ]]; then
+      # Annotation: need substantial memory for models + processing
+      if [[ "$large_corpus" == true ]]; then
+        # Large corpus + annotation: use 85% of memory, min 8GB, max 128GB
+        xmx_mb=$(( mem_mb * 85 / 100 ))
+        (( xmx_mb < 8192 )) && xmx_mb=8192
+        (( xmx_mb > 131072 )) && xmx_mb=131072
+      else
+        # Small corpus + annotation: use 80% of memory, min 4GB, max 64GB
+        xmx_mb=$(( mem_mb * 80 / 100 ))
+        (( xmx_mb < 4096 )) && xmx_mb=4096
+        (( xmx_mb > 65536 )) && xmx_mb=65536
+      fi
+      workload_type="annotation"
+    elif [[ "$large_corpus" == true ]]; then
+      # Large corpus without annotation: use 80% memory, min 4GB, max 96GB
+      xmx_mb=$(( mem_mb * 80 / 100 ))
+      (( xmx_mb < 4096 )) && xmx_mb=4096
+      (( xmx_mb > 98304 )) && xmx_mb=98304
+      workload_type="large_corpus"
+    else
+      # Default: lightweight processing, use 75% memory, min 1GB, max 32GB
+      xmx_mb=$(( mem_mb * 75 / 100 ))
+      (( xmx_mb < 1024 )) && xmx_mb=1024
+      (( xmx_mb > 32768 )) && xmx_mb=32768
+      workload_type="default"
+    fi
+    
+    echo "Auto-detected: workload=$workload_type, input=${total_input_gb_precise}GB, memory=${xmx_mb}MB" >&2
   fi
   EXTRA_OPTS+=("-Xmx${xmx_mb}m")
 fi
