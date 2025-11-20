@@ -2670,6 +2670,14 @@ class KorapXmlTool : Callable<Int> {
 
     // Formatter-based output methods using modular formatters
     private fun formatConlluOutput(foundry: String, docId: String): StringBuilder {
+        // For CoNLL-U output, show foundry-specific file path instead of base tokens.xml
+        val foundryFileName = if (foundry == "base") {
+            fnames[docId]  // Keep base/tokens.xml for base foundry
+        } else {
+            fnames[docId]?.replace("/base/tokens.xml", "/$foundry/morpho.xml")
+                ?: "$foundry/morpho.xml"
+        }
+        
         val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
             docId = docId,
             foundry = foundry,
@@ -2679,7 +2687,7 @@ class KorapXmlTool : Callable<Int> {
             morpho = morpho[docId],
             metadata = metadata[docId],
             extraFeatures = extraFeatures[docId],
-            fileName = fnames[docId],
+            fileName = foundryFileName,
             useLemma = useLemma,
             extractMetadataRegex = extractMetadataRegex,
             extractAttributesRegex = extractAttributesRegex,

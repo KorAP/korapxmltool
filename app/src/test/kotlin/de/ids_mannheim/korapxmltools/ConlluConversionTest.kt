@@ -9,6 +9,7 @@ import java.net.URL
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -384,5 +385,41 @@ class ConlluConversionTest {
             throw RuntimeException("Failed to extract $filePath from $zipFile: $error")
         }
         return content
+    }
+
+    @Test
+    fun testFoundrySpecificFilenameInConlluOutput() {
+        // Regression test for issue where CoNLL-U output showed base/tokens.xml
+        // instead of foundry-specific file (e.g., spacy/morpho.xml)
+        val spacyZip = loadResource("wud24_sample.spacy.zip")
+        val args = arrayOf("-t", "conllu", spacyZip.path)
+        
+        debug(args)
+        
+        val output = outContent.toString()
+        val lines = output.split("\n")
+        
+        // Check that foundry is correctly identified
+        val foundryLine = lines.find { it.startsWith("# foundry = ") }
+        assertNotNull(foundryLine, "Should have foundry comment line")
+        assertEquals("# foundry = spacy", foundryLine)
+        
+        // Check that filename points to spacy/morpho.xml, not base/tokens.xml
+        val filenameLine = lines.find { it.startsWith("# filename = ") }
+        assertNotNull(filenameLine, "Should have filename comment line")
+        assertTrue(
+            filenameLine!!.contains("/spacy/morpho.xml"),
+            "Filename should point to spacy/morpho.xml, but was: $filenameLine"
+        )
+        assertFalse(
+            filenameLine.contains("/base/tokens.xml"),
+            "Filename should not point to base/tokens.xml, but was: $filenameLine"
+        )
+        
+        // Verify the specific expected pattern for spacy foundry
+        assertTrue(
+            filenameLine.matches(Regex("# filename = .*/spacy/morpho\\.xml")),
+            "Filename should match pattern '*/spacy/morpho.xml', but was: $filenameLine"
+        )
     }
 }
