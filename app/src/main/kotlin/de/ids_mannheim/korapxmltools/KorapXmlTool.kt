@@ -2073,9 +2073,12 @@ class KorapXmlTool : Callable<Int> {
 
                 LOGGER.fine("Checking if ready to process $docId: texts=${texts[docId] != null}, sentences=${sentences[docId] != null}, tokens=${tokens[docId] != null}, morpho=${morpho[docId] != null}, morphoRequired=$morphoRequired, textRequired=$textRequired")
 
+                // Only check readiness if text hasn't been output yet
+                // This prevents checking texts that were output and had their data cleared
                 if ((texts[docId] != null || !textRequired) && sentences[docId] != null && tokens[docId] != null
                     && (!morphoRequired || morpho[docId] != null)
                     && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
+                    && !outputTexts.contains(docId)  // Skip if already output
                 ) {
                     LOGGER.fine("All data ready for $docId, calling processText")
                     processText(docId, foundry)
@@ -2128,6 +2131,7 @@ class KorapXmlTool : Callable<Int> {
                     }
                     if ((texts[docId] != null || !textRequired) && sentences[docId] != null && tokens[docId] != null
                         && (!morphoRequired || morpho[docId] != null)
+                        && !outputTexts.contains(docId)  // Skip if already output
                     ) {
                         LOGGER.info("Processing text (meta-ready): $docId in thread ${Thread.currentThread().threadId()}")
                         processText(docId, foundry)
