@@ -1446,7 +1446,7 @@ class KorapXmlTool : Callable<Int> {
                     try {
                         val zipFile = ApacheZipFile(File(zipPath))
                         val entries = zipFile.entries.toList()
-                            .filter { !it.isDirectory && it.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency)\\.xml$")) }
+                            .filter { !it.isDirectory && it.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency|header)\\.xml$")) }
                         
                         val entriesByTextId = entries.groupBy { getTextIdFromPath(it.name) }
                         

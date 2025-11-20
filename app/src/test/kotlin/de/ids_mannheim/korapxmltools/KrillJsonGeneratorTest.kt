@@ -396,4 +396,41 @@ class KrillJsonGeneratorTest {
             }
         }
     }
+
+    @Test
+    fun testMetadataPresence() {
+        val baseZip = loadResource("wud24_sample.zip").path
+        
+        val generatedTar = ensureKrillTar("metadata_test") { outputDir ->
+            arrayOf(
+                "-t", "krill",
+                "-D", outputDir.path,
+                baseZip
+            )
+        }
+
+        val kotlinJsons = readKrillJson(generatedTar)
+        assertTrue(kotlinJsons.isNotEmpty(), "Should have generated Krill JSON files")
+
+        // Test that essential metadata fields are present
+        kotlinJsons.forEach { (textId, json) ->
+            // Check for fields structure
+            assertTrue(json.contains("\"fields\""), "Text $textId should have fields metadata")
+            
+            // Check for common metadata fields that should be in header.xml
+            val metadataFields = listOf(
+                "\"title\"", "\"author\"", "\"pubPlace\"", "\"publisher\"",
+                "\"availability\"", "\"textType\"", "\"textDomain\""
+            )
+            
+            var hasMetadata = false
+            metadataFields.forEach { field ->
+                if (json.contains(field)) {
+                    hasMetadata = true
+                }
+            }
+            assertTrue(hasMetadata, "Text $textId should have at least some metadata fields from header.xml")
+        }
+    }
+
 }
