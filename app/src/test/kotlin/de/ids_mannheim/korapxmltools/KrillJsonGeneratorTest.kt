@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.PrintStream
 import java.net.URL
+import java.util.zip.GZIPInputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -62,10 +63,7 @@ class KrillJsonGeneratorTest {
                 assertTrue(jsonFiles.isNotEmpty(), "No JSON files found in ${tarFile.path}")
 
                 jsonFiles.associate { jsonFile ->
-                    val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                        .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                        .start()
-                        .inputStream
+                    val jsonContent = GZIPInputStream(jsonFile.inputStream())
                         .bufferedReader()
                         .use { it.readText() }
                     jsonFile.name.removeSuffix(".gz") to jsonContent
@@ -184,9 +182,8 @@ class KrillJsonGeneratorTest {
             assertTrue(jsonFiles.isNotEmpty())
 
             jsonFiles.forEach { jsonFile ->
-                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                    .start().inputStream.bufferedReader().readText()
+                val jsonContent = GZIPInputStream(jsonFile.inputStream())
+                    .bufferedReader().readText()
 
                 // Check for required fields in the JSON output
                 assertTrue(jsonContent.contains("\"@context\""))
@@ -223,9 +220,8 @@ class KrillJsonGeneratorTest {
             assertTrue(jsonFiles.isNotEmpty())
 
             jsonFiles.forEach { jsonFile ->
-                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                    .start().inputStream.bufferedReader().readText()
+                val jsonContent = GZIPInputStream(jsonFile.inputStream())
+                    .bufferedReader().readText()
 
                 assertTrue(
                     jsonContent.contains("<:") && jsonContent.contains("/d:"),
@@ -254,9 +250,8 @@ class KrillJsonGeneratorTest {
             assertTrue(jsonFiles.isNotEmpty())
 
             jsonFiles.forEach { jsonFile ->
-                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                    .start().inputStream.bufferedReader().readText()
+                val jsonContent = GZIPInputStream(jsonFile.inputStream())
+                    .bufferedReader().readText()
 
                 assertTrue(jsonContent.contains("base/s:t"), "JSON should contain base text span (base/s:t)")
                 assertTrue(jsonContent.contains("base/s:s"), "JSON should contain base sentence spans (base/s:s)")
@@ -286,9 +281,8 @@ class KrillJsonGeneratorTest {
             assertTrue(jsonFiles.isNotEmpty())
 
             jsonFiles.forEach { jsonFile ->
-                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                    .start().inputStream.bufferedReader().readText()
+                val jsonContent = GZIPInputStream(jsonFile.inputStream())
+                    .bufferedReader().readText()
 
                 val foundries = jsonContent.substringAfter("\"foundries\":").substringBefore(",").trim()
                 assertTrue(foundries.contains("spacy"))
@@ -463,9 +457,8 @@ class KrillJsonGeneratorTest {
             
             // Verify we can read each JSON
             jsonFiles.forEach { jsonFile ->
-                val jsonContent = ProcessBuilder("gunzip", "-c", jsonFile.path)
-                    .redirectOutput(ProcessBuilder.Redirect.PIPE)
-                    .start().inputStream.bufferedReader().readText()
+                val jsonContent = GZIPInputStream(jsonFile.inputStream())
+                    .bufferedReader().readText()
                 
                 assertTrue(jsonContent.contains("\"@type\":\"koral:corpus\""), 
                     "Each JSON should be a valid Krill corpus document")
