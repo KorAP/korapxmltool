@@ -4556,6 +4556,11 @@ class KorapXmlTool : Callable<Int> {
 
         synchronized(textData) {
             // Capture values locally to avoid TOCTOU race conditions
+            // If text content is missing but we have tokens, try to reconstruct it or warn
+            if (textData.textContent == null) {
+                LOGGER.warning("Text content missing for $docId, but tokens present. Krill output may be incomplete.")
+                textData.textContent = de.ids_mannheim.korapxmltools.NonBmpString("")
+            }
             val text = texts[docId]
             if (text != null) {
                 textData.textContent = text.toString()
