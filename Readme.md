@@ -12,9 +12,24 @@
 
 Converts between KorAP-XML ZIP format and formats like CoNLL-U, Krill, word2vec, NOW and annotates KorAP XML ZIPs with various taggers and parsers.
 
-Drop-in replacement for korapxml2conllu [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U) and korapxml2krill [KorAP-XML-Krill](https://github.com/KorAP/KorAP-XML-Krill)
+Drop-in replacement for korapxml2conllu, conllu2korapxml (see [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U)) and korapxml2krill (see [KorAP-XML-Krill](httpss://github.com/KorAP/KorAP-XML-Krill)), but still in the experimental stage. This concerns in particular the command line options, which might not yet be fully tested in all combinations.
 
 
+## Prerequisites
+
+This tool is designed to be run on a Unix-like system (e.g., Linux, macOS).
+
+### For running the JAR file (`korapxml2conllu.jar`):
+
+*   **Java 21 or higher** is required.
+
+### For running the executables in `build/bin/`:
+
+In addition to Java 21, the following are required for the wrapper scripts:
+
+*   A **Unix-like environment** with a `bash` shell.
+*   The `stat` command-line utility.
+*   For automatic memory detection, the system needs to support cgroups, specifically `/sys/fs/cgroup/memory`.
 
 ## Build
 
@@ -22,7 +37,9 @@ Drop-in replacement for korapxml2conllu [KorAP-XML-CoNLL-U](https://github.com/K
 ./gradlew build
 ```
 
-After building, the executable will be available at `./build/bin/korapxmltool`.
+After building, a fat jar file will be available at `./app/build/libs/korapxmltool.jar`. In addition,
+the executable `korapxmltool`, as well as the symbolic link shortcuts `korapxml2conllu` and `korapxml2krill`, will
+ be available at `./build/bin/`. 
 
 ## Command Line Options (v3.0)
 
