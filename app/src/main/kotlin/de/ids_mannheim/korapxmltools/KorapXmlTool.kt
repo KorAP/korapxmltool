@@ -1444,7 +1444,7 @@ class KorapXmlTool : Callable<Int> {
                     LOGGER.info("Opening ZIP: $zipPath for foundry=$zipFoundry")
                     
                     try {
-                        val zipFile = ApacheZipFile(File(zipPath))
+                        val zipFile = openZipFile(zipPath)
                         val entries = zipFile.entries.toList()
                             .filter { !it.isDirectory && it.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency|header)\\.xml$")) }
                         
