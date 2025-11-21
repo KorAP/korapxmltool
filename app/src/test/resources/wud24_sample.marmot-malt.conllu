@@ -1,0 +1,942 @@
+# foundry = marmot-malt
+# filename = WUD24/I0083/95367/base/tokens.xml
+# text_id = WUD24_I0083.95367
+# start_offsets = 1 1 10 21 24 28 37 39 46
+# end_offsets = 47 9 20 23 27 37 38 46 47
+1	Herzlich	_	_	ADJD	degree=pos	2	ADV	_	_
+2	willkommen	_	_	ADJD	degree=pos	_	_	_	_
+3	in	_	_	APPR	_	2	PP	_	_
+4	der	_	_	ART	case=dat|number=sg|gender=fem	5	DET	_	_
+5	Wikipedia	_	_	NE	case=dat|number=sg|gender=fem	3	PN	_	_
+6	,	_	_	$,	_	5	-PUNCT-	_	_
+7	IrisBra	_	_	NE	case=nom|number=sg|gender=fem	5	APP	_	_
+8	!	_	_	$.	_	7	-PUNCT-	_	_
+
+# start_offsets = 49 49 53 58 65 67 72 75 80 89 94 105 109 111 115 122 126 130 135 141 146 148 154 157 162 165 169 179 189 197 211 213 218 219 235 243 254 258 263 265 270 278 284 289 291 296 303 312 317 326 330
+# end_offsets = 331 52 57 65 66 71 74 79 88 93 104 109 110 114 121 125 129 134 140 146 147 153 156 161 164 168 178 188 196 211 212 218 219 234 242 253 257 263 264 269 277 283 289 290 295 302 311 316 325 330 331
+1	Ich	_	_	PPER	case=nom|number=sg|gender=*|person=1	10	SUBJ	_	_
+2	habe	_	_	VAFIN	number=sg|person=1|tense=pres|mood=ind	0	ROOT	_	_
+3	gesehen	_	_	VVPP	_	10	AUX	_	_
+4	,	_	_	$,	_	11	-PUNCT-	_	_
+5	dass	_	_	KOUS	_	19	KONJ	_	_
+6	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	19	SUBJ	_	_
+7	dich	_	_	PRF	case=acc|number=sg|person=2	18	OBJA	_	_
+8	kürzlich	_	_	ADV	_	18	ADV	_	_
+9	hier	_	_	ADV	_	18	ADV	_	_
+10	angemeldet	_	_	VVPP	_	19	AUX	_	_
+11	hast	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	11	OBJC	_	_
+12	,	_	_	$,	_	19	-PUNCT-	_	_
+13	und	_	_	KON	_	10	KON	_	_
+14	möchte	_	_	VMFIN	number=sg|person=3|tense=pres|mood=ind	21	CJ	_	_
+15	dir	_	_	PPER	case=dat|number=sg|gender=*|person=2	27	OBJD	_	_
+16	ein	_	_	ART	case=*|number=*|gender=*	26	DET	_	_
+17	paar	_	_	PIAT	case=*|number=*|gender=*	26	DET	_	_
+18	Tipps	_	_	NN	case=acc|number=pl|gender=masc	27	OBJA	_	_
+19	geben	_	_	VVINF	_	22	AUX	_	_
+20	,	_	_	$,	_	27	-PUNCT-	_	_
+21	damit	_	_	KOUS	_	_	_	_	_
+22	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	_	_	_	_
+23	dich	_	_	PRF	case=acc|number=sg|person=2	_	_	_	_
+24	in	_	_	APPR	_	36	PP	_	_
+25	der	_	_	ART	case=dat|number=sg|gender=fem	34	DET	_	_
+26	Wikipedia	_	_	NE	case=dat|number=sg|gender=fem	32	PN	_	_
+27	möglichst	_	_	ADV	_	36	ADV	_	_
+28	schnell	_	_	ADJD	degree=pos	_	_	_	_
+29	zurechtfindest	_	_	PTKVZ	_	_	_	_	_
+30	:	_	_	$.	_	37	-PUNCT-	_	_
+31	Datei	_	_	NN	case=nom|number=sg|gender=fem	_	_	_	_
+32	:	_	_	$.	_	39	-PUNCT-	_	_
+33	Signaturhinweis	_	_	NE	case=nom|number=sg|gender=fem	44	SUBJ	_	_
+34	deutsch	_	_	NE	case=dat|number=sg|gender=fem	41	APP	_	_
+35	vector.png	_	_	ADJD	degree=pos	44	ADV	_	_
+36	Sei	_	_	VAFIN	number=sg|person=3|tense=pres|mood=subj	39	KON	_	_
+37	mutig	_	_	ADJD	degree=pos	44	PRED	_	_
+38	,	_	_	$,	_	45	-PUNCT-	_	_
+39	aber	_	_	KON	_	44	KON	_	_
+40	vergiss	_	_	ADJA	case=nom|number=sg|gender=fem|degree=pos	49	ATTR	_	_
+41	bitte	_	_	NN	case=nom|number=sg|gender=fem	_	_	_	_
+42	nicht	_	_	PTKNEG	_	49	ADV	_	_
+43	,	_	_	$,	_	50	-PUNCT-	_	_
+44	dass	_	_	KOUS	_	57	KONJ	_	_
+45	andere	_	_	ADJA	case=nom|number=pl|gender=masc|degree=pos	54	ATTR	_	_
+46	Benutzer	_	_	NN	case=nom|number=pl|gender=masc	57	SUBJ	_	_
+47	auch	_	_	ADV	_	57	ADV	_	_
+48	Menschen	_	_	NN	case=nom|number=pl|gender=masc	57	PRED	_	_
+49	sind	_	_	VAFIN	number=pl|person=3|tense=pres|mood=ind	49	OBJC	_	_
+50	.	_	_	$.	_	57	-PUNCT-	_	_
+
+# start_offsets = 332 332 338 344 350 356 362 375 385 387 392 397 400 405 409 414 421 428
+# end_offsets = 429 337 343 349 355 361 374 385 386 391 396 399 404 408 413 420 428 429
+1	Daher	_	_	PROAV	_	_	_	_	_
+2	wahre	_	_	ADJA	case=acc|number=sg|gender=fem|degree=pos	61	ATTR	_	_
+3	bitte	_	_	NN	case=acc|number=sg|gender=fem	_	_	_	_
+4	immer	_	_	ADV	_	65	ADV	_	_
+5	einen	_	_	ART	case=acc|number=sg|gender=masc	65	DET	_	_
+6	freundlichen	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	65	ATTR	_	_
+7	Umgangston	_	_	NE	case=acc|number=sg|gender=masc	61	APP	_	_
+8	,	_	_	$,	_	65	-PUNCT-	_	_
+9	auch	_	_	ADV	_	61	ADV	_	_
+10	wenn	_	_	KOUS	_	74	KONJ	_	_
+11	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	74	SUBJ	_	_
+12	dich	_	_	PRF	case=acc|number=sg|person=2	74	OBJA	_	_
+13	mal	_	_	ADV	_	74	ADV	_	_
+14	über	_	_	ADV	_	74	ADV	_	_
+15	andere	_	_	PIS	case=acc|number=pl|gender=*	74	SUBJ	_	_
+16	ärgerst	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	67	-UNKNOWN-	_	_
+17	.	_	_	$.	_	74	-PUNCT-	_	_
+
+# start_offsets = 431 431 437 441 445 466 476 482 487 494 497 498 501 508 512 526 527
+# end_offsets = 528 436 440 444 465 475 481 486 493 496 498 500 507 511 526 527 528
+1	Bitte	_	_	PTKANT	_	0	ROOT	_	_
+2	gib	_	_	VVFIN	number=sg|person=3|tense=past|mood=ind	0	ROOT	_	_
+3	bei	_	_	APPR	_	77	PP	_	_
+4	Artikelbearbeitungen	_	_	NN	case=dat|number=pl|gender=fem	78	PN	_	_
+5	möglichst	_	_	ADV	_	81	ADV	_	_
+6	immer	_	_	ADV	_	77	ADV	_	_
+7	eine	_	_	ART	case=nom|number=sg|gender=fem	83	DET	_	_
+8	Quelle	_	_	NN	case=nom|number=sg|gender=fem	77	OBJA	_	_
+9	an	_	_	PTKVZ	_	77	AVZ	_	_
+10	(	_	_	$LRB	_	90	KONJ	_	_
+11	am	_	_	PTKA	_	87	ADV	_	_
+12	besten	_	_	ADJD	degree=sup	88	ADV	_	_
+13	als	_	_	APPR	_	90	PP	_	_
+14	Einzelnachweis	_	_	NN	case=nom|number=sg|gender=masc	88	PN	_	_
+15	)	_	_	$LRB	_	77	NEB	_	_
+16	.	_	_	$.	_	90	-PUNCT-	_	_
+
+# start_offsets = 530 530 539 545 557 562 565 569 590
+# end_offsets = 591 538 544 556 561 564 568 590 591
+1	Begründe	_	_	NN	case=nom|number=pl|gender=masc	_	_	_	_
+2	deine	_	_	PPOSAT	case=nom|number=pl|gender=masc	94	DET	_	_
+3	Bearbeitung	_	_	NN	case=acc|number=sg|gender=fem	92	GMOD	_	_
+4	kurz	_	_	ADJD	degree=pos	96	ADV	_	_
+5	in	_	_	APPR	_	92	PP	_	_
+6	der	_	_	ART	case=dat|number=sg|gender=fem	98	DET	_	_
+7	Zusammenfassungszeile	_	_	NN	case=dat|number=sg|gender=fem	96	PN	_	_
+8	.	_	_	$.	_	98	-PUNCT-	_	_
+
+# start_offsets = 592 592 598 609 611 613 618 625 634 640 649 660 666 668 673 677 683 689 704 710
+# end_offsets = 711 597 608 611 612 617 624 633 639 648 659 666 667 672 676 682 688 703 710 711
+1	Damit	_	_	PROAV	_	101	AVZ	_	_
+2	vermeidest	_	_	VVFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+3	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	101	SUBJ	_	_
+4	,	_	_	$,	_	102	-PUNCT-	_	_
+5	dass	_	_	KOUS	_	_	_	_	_
+6	andere	_	_	ADJA	case=nom|number=pl|gender=masc|degree=pos	106	ATTR	_	_
+7	Benutzer	_	_	NN	case=nom|number=pl|gender=masc	_	_	_	_
+8	deine	_	_	PPOSAT	case=acc|number=sg|gender=fem	108	DET	_	_
+9	Änderung	_	_	NN	case=acc|number=sg|gender=fem	110	OBJA	_	_
+10	rückgängig	_	_	ADJD	degree=pos	110	PRED	_	_
+11	machen	_	_	VVINF	_	_	_	_	_
+12	,	_	_	$,	_	110	-PUNCT-	_	_
+13	weil	_	_	KOUS	_	117	KONJ	_	_
+14	sie	_	_	PPER	case=nom|number=pl|gender=fem|person=3	117	SUBJ	_	_
+15	diese	_	_	PDS	case=acc|number=pl|gender=masc	116	OBJA	_	_
+16	nicht	_	_	PTKNEG	_	116	ADV	_	_
+17	nachvollziehen	_	_	VVINF	_	117	AUX	_	_
+18	können	_	_	VMINF	_	110	NEB	_	_
+19	.	_	_	$.	_	117	-PUNCT-	_	_
+
+# start_offsets = 713 713 719 724 731 735 741 746 750 755 768 772 776 786 794
+# end_offsets = 795 718 723 730 734 740 745 749 754 767 771 775 785 794 795
+1	Nicht	_	_	PTKNEG	_	121	ADV	_	_
+2	alle	_	_	PIAT	case=nom|number=pl|gender=*	121	DET	_	_
+3	Themen	_	_	NN	case=nom|number=pl|gender=neut	124	SUBJ	_	_
+4	und	_	_	KON	_	121	KON	_	_
+5	Texte	_	_	NN	case=nom|number=pl|gender=masc	122	CJ	_	_
+6	sind	_	_	VAFIN	number=pl|person=3|tense=pres|mood=ind	0	ROOT	_	_
+7	für	_	_	APPR	_	131	PP	_	_
+8	eine	_	_	ART	case=acc|number=sg|gender=fem	127	DET	_	_
+9	Enzyklopädie	_	_	NN	case=acc|number=sg|gender=fem	125	PN	_	_
+10	wie	_	_	KOKOM	_	127	KOM	_	_
+11	die	_	_	ART	case=nom|number=sg|gender=fem	130	DET	_	_
+12	Wikipedia	_	_	NE	case=nom|number=sg|gender=fem	128	CJ	_	_
+13	geeignet	_	_	VVPP	_	124	AUX	_	_
+14	.	_	_	$.	_	131	-PUNCT-	_	_
+
+# start_offsets = 796 796 811 816 826 830 839 846 849 858 860 865 868 872 878 887 888 892 902 908 912 916 925 926 944 953
+# end_offsets = 954 810 815 825 829 838 845 848 858 859 864 867 871 877 887 888 891 901 907 911 915 925 926 943 953 954
+1	Enttäuschungen	_	_	NN	case=nom|number=pl|gender=fem	0	ROOT	_	_
+2	beim	_	_	APPRART	case=dat|number=sg|gender=neut	133	PP	_	_
+3	Schreiben	_	_	NN	case=dat|number=sg|gender=neut	134	PN	_	_
+4	von	_	_	APPR	_	135	PP	_	_
+5	Artikeln	_	_	NN	case=dat|number=pl|gender=masc	136	PN	_	_
+6	kannst	_	_	VMFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+7	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	138	SUBJ	_	_
+8	vermeiden	_	_	VVINF	_	138	AUX	_	_
+9	,	_	_	$,	_	140	-PUNCT-	_	_
+10	wenn	_	_	KOUS	_	146	KONJ	_	_
+11	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	146	SUBJ	_	_
+12	dir	_	_	PPER	case=dat|number=sg|gender=*|person=2	146	OBJD	_	_
+13	zuvor	_	_	ADV	_	146	ADV	_	_
+14	Wikipedia	_	_	FM	_	138	NEB	_	_
+15	:	_	_	$.	_	146	-PUNCT-	_	_
+16	Was	_	_	PWS	case=acc|number=sg|gender=neut	151	PRED	_	_
+17	Wikipedia	_	_	NE	case=nom|number=sg|gender=fem	151	SUBJ	_	_
+18	nicht	_	_	PTKNEG	_	151	ADV	_	_
+19	ist	_	_	VAFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+20	und	_	_	KON	_	151	KON	_	_
+21	Wikipedia	_	_	NE	case=nom|number=sg|gender=fem	_	_	_	_
+22	:	_	_	$.	_	153	-PUNCT-	_	_
+23	Relevanzkriterien	_	_	NN	case=acc|number=pl|gender=neut	156	SUBJ	_	_
+24	anschaust	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	153	REL	_	_
+25	.	_	_	$.	_	156	-PUNCT-	_	_
+
+# start_offsets = 955 955 960 962 967 970 973 977 986 991 993 996 998 1003 1008 1014 1022
+# end_offsets = 1023 960 961 966 969 972 976 985 990 992 996 997 1002 1007 1013 1022 1023
+1	Schön	_	_	ADJD	degree=pos	_	_	_	_
+2	,	_	_	$,	_	158	-PUNCT-	_	_
+3	dass	_	_	KOUS	_	165	KONJ	_	_
+4	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	165	SUBJ	_	_
+5	zu	_	_	APPR	_	164	OBJP	_	_
+6	uns	_	_	PPER	case=dat|number=pl|gender=*|person=1	162	PN	_	_
+7	gestoßen	_	_	VVPP	_	165	AUX	_	_
+8	bist	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	158	KON	_	_
+9	–	_	_	XY	_	165	KON	_	_
+10	und	_	_	KON	_	166	KON	_	_
+11	:	_	_	$.	_	167	-PUNCT-	_	_
+12	Lass	_	_	NE	case=nom|number=sg|gender=*	172	OBJD	_	_
+13	dich	_	_	PRF	case=acc|number=sg|person=2	172	OBJA	_	_
+14	nicht	_	_	PTKNEG	_	172	ADV	_	_
+15	stressen	_	_	VVINF	_	167	CJ	_	_
+16	.	_	_	$.	_	172	-PUNCT-	_	_
+
+# start_offsets = 1024 1024 1030 1036 1042 1050 1055 1065 1070 1072 1076 1081 1086 1087 1091
+# end_offsets = 1092 1029 1035 1041 1049 1053 1064 1070 1071 1075 1080 1085 1087 1091 1092
+1	Einen	_	_	ART	case=acc|number=sg|gender=masc	176	DET	_	_
+2	guten	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	176	ATTR	_	_
+3	Start	_	_	NN	case=acc|number=sg|gender=masc	177	SUBJ	_	_
+4	wünscht	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+5	dir	_	_	PPER	case=dat|number=sg|gender=*|person=2	177	OBJD	_	_
+6	Kurator71	_	_	CARD	_	177	ZEIT	_	_
+7	09:11	_	_	CARD	_	179	KON	_	_
+8	,	_	_	$,	_	180	-PUNCT-	_	_
+9	15.	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	183	ATTR	_	_
+10	Sep.	_	_	NN	case=acc|number=sg|gender=masc	177	OBJA	_	_
+11	2014	_	_	CARD	_	183	APP	_	_
+12	(	_	_	$LRB	_	187	-PUNCT-	_	_
+13	CEST	_	_	NE	case=nom|number=sg|gender=neut	185	SUBJ	_	_
+14	)	_	_	$LRB	_	177	PRED	_	_
+
+# foundry = marmot-malt
+# filename = WUD24/Z0087/65594/base/tokens.xml
+# text_id = WUD24_Z0087.65594
+# start_offsets = 1 1 6 12 17 28 32 49 53 63 74 80 87 98 103 105 109 113 128 132 147 156
+# end_offsets = 157 5 11 16 26 31 48 52 62 73 79 86 97 103 104 108 112 127 131 146 156 157
+1	Dein	_	_	PPOSAT	case=nom|number=sg|gender=neut	2	DET	_	_
+2	Konto	_	_	NN	case=nom|number=sg|gender=neut	3	SUBJ	_	_
+3	wird	_	_	VAFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+4	umbenannt	_	_	VVPP	_	3	AUX	_	_
+5	Das	_	_	ART	case=nom|number=sg|gender=neut	6	DET	_	_
+6	Entwicklungsteam	_	_	NN	case=nom|number=sg|gender=neut	10	SUBJ	_	_
+7	der	_	_	ART	case=gen|number=sg|gender=fem	8	DET	_	_
+8	Wikimedia	_	_	NE	case=gen|number=sg|gender=fem	6	GMOD	_	_
+9	Foundation	_	_	NE	case=nom|number=sg|gender=fem	8	APP	_	_
+10	führt	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+11	einige	_	_	PIAT	case=acc|number=pl|gender=fem	12	DET	_	_
+12	Änderungen	_	_	NN	case=acc|number=pl|gender=fem	10	OBJA	_	_
+13	durch	_	_	PTKVZ	_	10	AVZ	_	_
+14	,	_	_	$,	_	13	-PUNCT-	_	_
+15	die	_	_	PRELS	case=nom|number=sg|gender=fem	20	SUBJ	_	_
+16	die	_	_	ART	case=acc|number=sg|gender=fem	17	DET	_	_
+17	Funktionsweise	_	_	NN	case=acc|number=sg|gender=fem	20	OBJA	_	_
+18	von	_	_	APPR	_	20	PP	_	_
+19	Benutzerkonten	_	_	NN	case=dat|number=pl|gender=neut	18	PN	_	_
+20	betreffen	_	_	VVINF	_	10	OBJI	_	_
+21	.	_	_	$.	_	20	-PUNCT-	_	_
+
+# start_offsets = 158 158 163 173 177 182 190 207 217 219 224 228 236 246 247 251 270 288 290 294 301 310 319 322 328
+# end_offsets = 329 162 172 176 181 189 206 217 218 223 227 235 245 247 250 269 288 289 293 300 309 318 321 328 329
+1	Dies	_	_	PDS	case=nom|number=sg|gender=neut	23	SUBJ	_	_
+2	geschieht	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+3	als	_	_	APPR	_	23	PP	_	_
+4	Teil	_	_	NN	case=acc|number=sg|gender=masc	24	PN	_	_
+5	unserer	_	_	PPOSAT	case=gen|number=pl|gender=fem	28	DET	_	_
+6	kontinuierlichen	_	_	ADJA	case=gen|number=pl|gender=fem|degree=pos	28	ATTR	_	_
+7	Bemühungen	_	_	NN	case=gen|number=pl|gender=fem	25	GMOD	_	_
+8	,	_	_	$,	_	28	-PUNCT-	_	_
+9	neue	_	_	ADJA	case=nom|number=pl|gender=fem|degree=pos	33	ATTR	_	_
+10	und	_	_	KON	_	30	KON	_	_
+11	bessere	_	_	ADJA	case=nom|number=pl|gender=fem|degree=comp	31	CJ	_	_
+12	Werkzeuge	_	_	NN	case=nom|number=pl|gender=neut	23	OBJA	_	_
+13	(	_	_	$LRB	_	38	-PUNCT-	_	_
+14	wie	_	_	KOKOM	_	34	KOM	_	_
+15	Wiki-übergreifende	_	_	ADJA	case=nom|number=pl|gender=fem|degree=pos	37	ATTR	_	_
+16	Benachrichtigungen	_	_	NN	case=nom|number=pl|gender=fem	35	CJ	_	_
+17	)	_	_	$LRB	_	33	APP	_	_
+18	für	_	_	APPR	_	38	PP	_	_
+19	unsere	_	_	PPOSAT	case=acc|number=pl|gender=masc	41	DET	_	_
+20	Benutzer	_	_	NN	case=acc|number=pl|gender=masc	39	PN	_	_
+21	anbieten	_	_	VVINF	_	0	ROOT	_	_
+22	zu	_	_	PTKZU	_	44	PART	_	_
+23	können	_	_	VMINF	_	42	CJ	_	_
+24	.	_	_	$.	_	44	-PUNCT-	_	_
+
+# start_offsets = 330 330 336 347 355 357 362 365 373 383 397 401
+# end_offsets = 402 335 346 355 356 361 364 372 382 396 401 402
+1	Diese	_	_	PDAT	case=nom|number=pl|gender=fem	47	DET	_	_
+2	Änderungen	_	_	NN	case=nom|number=pl|gender=fem	48	SUBJ	_	_
+3	bedingen	_	_	VVFIN	number=pl|person=3|tense=pres|mood=ind	0	ROOT	_	_
+4	,	_	_	$,	_	48	-PUNCT-	_	_
+5	dass	_	_	KOUS	_	55	KONJ	_	_
+6	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	55	SUBJ	_	_
+7	überall	_	_	ADV	_	55	ADV	_	_
+8	denselben	_	_	PDAT	case=acc|number=sg|gender=masc	54	DET	_	_
+9	Benutzernamen	_	_	NN	case=acc|number=sg|gender=masc	55	OBJA	_	_
+10	hast	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	48	OBJC	_	_
+11	.	_	_	$.	_	55	-PUNCT-	_	_
+
+# start_offsets = 403 403 411 418 422 426 431 442 446 456 463 465 469 473 484 488 500 512 516 527 542 546 552 563
+# end_offsets = 564 410 417 421 425 430 441 445 455 463 464 468 472 483 487 499 511 515 526 541 545 551 563 564
+1	Dadurch	_	_	PROAV	_	58	AUX	_	_
+2	können	_	_	VMFIN	number=pl|person=1|tense=pres|mood=ind	0	ROOT	_	_
+3	wir	_	_	PPER	case=nom|number=pl|gender=*|person=1	58	SUBJ	_	_
+4	dir	_	_	PPER	case=dat|number=sg|gender=*|person=2	65	OBJD	_	_
+5	neue	_	_	ADJA	case=acc|number=pl|gender=fem|degree=pos	62	ATTR	_	_
+6	Funktionen	_	_	NN	case=acc|number=pl|gender=fem	65	OBJA	_	_
+7	zur	_	_	APPRART	case=dat|number=sg|gender=fem	65	OBJP	_	_
+8	Verfügung	_	_	NN	case=dat|number=sg|gender=fem	63	PN	_	_
+9	stellen	_	_	VVINF	_	58	AUX	_	_
+10	,	_	_	$,	_	65	-PUNCT-	_	_
+11	die	_	_	PRELS	case=nom|number=sg|gender=fem	_	_	_	_
+12	das	_	_	ART	case=acc|number=sg|gender=neut	69	DET	_	_
+13	Bearbeiten	_	_	NN	case=acc|number=sg|gender=neut	_	_	_	_
+14	und	_	_	KON	_	_	_	_	_
+15	Diskutieren	_	_	VVFIN	number=pl|person=3|tense=pres|mood=ind	70	CJ	_	_
+16	erleichtern	_	_	VVINF	_	71	OBJI	_	_
+17	und	_	_	KON	_	72	KON	_	_
+18	flexiblere	_	_	ADJA	case=acc|number=pl|gender=neut|degree=comp	75	ATTR	_	_
+19	Benutzerrechte	_	_	NN	case=acc|number=pl|gender=neut	78	OBJA	_	_
+20	für	_	_	APPR	_	75	PP	_	_
+21	Tools	_	_	NN	case=acc|number=pl|gender=neut	76	PN	_	_
+22	ermöglichen	_	_	VVINF	_	73	CJ	_	_
+23	.	_	_	$.	_	78	-PUNCT-	_	_
+
+# start_offsets = 565 565 570 580 586 589 591 596 611 615 620 625 629 645 652 662 667 673
+# end_offsets = 674 569 579 585 589 590 595 610 614 619 624 628 644 651 661 666 673 674
+1	Eine	_	_	ART	case=nom|number=sg|gender=fem	81	DET	_	_
+2	Bedingung	_	_	NN	case=nom|number=sg|gender=fem	83	SUBJ	_	_
+3	dafür	_	_	PROAV	_	83	PRED	_	_
+4	ist	_	_	VAFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+5	,	_	_	$,	_	83	-PUNCT-	_	_
+6	dass	_	_	KOUS	_	95	KONJ	_	_
+7	Benutzerkonten	_	_	NN	case=nom|number=pl|gender=masc	95	SUBJ	_	_
+8	nun	_	_	ADV	_	94	ADV	_	_
+9	über	_	_	APPR	_	94	PP	_	_
+10	alle	_	_	PIAT	case=acc|number=pl|gender=masc	91	DET	_	_
+11	900	_	_	CARD	_	91	ATTR	_	_
+12	Wikimedia-Wikis	_	_	NN	case=acc|number=pl|gender=masc	88	PN	_	_
+13	hinweg	_	_	ADV	_	88	ADV	_	_
+14	eindeutig	_	_	ADJD	degree=pos	94	PRED	_	_
+15	sein	_	_	VAINF	_	95	AUX	_	_
+16	müssen	_	_	VMFIN	number=pl|person=3|tense=pres|mood=ind	83	PRED	_	_
+17	.	_	_	$.	_	95	-PUNCT-	_	_
+
+# start_offsets = 675 675 683 697 705 708 711 718 729
+# end_offsets = 730 682 696 704 707 710 717 729 730
+1	Weitere	_	_	ADJA	case=acc|number=pl|gender=fem|degree=comp	98	ATTR	_	_
+2	Informationen	_	_	NN	case=acc|number=pl|gender=fem	99	OBJA	_	_
+3	findest	_	_	VVFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+4	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	99	SUBJ	_	_
+5	in	_	_	APPR	_	99	PP	_	_
+6	dieser	_	_	PDAT	case=dat|number=sg|gender=fem	103	DET	_	_
+7	Ankündigung	_	_	NN	case=dat|number=sg|gender=fem	101	PN	_	_
+8	.	_	_	$.	_	103	-PUNCT-	_	_
+
+# start_offsets = 731 731 738 746 751 756 763 770 780 794 801 805 807
+# end_offsets = 808 737 745 750 755 762 769 779 793 800 804 807 808
+1	Leider	_	_	ADV	_	106	ADV	_	_
+2	benutzt	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+3	auch	_	_	ADV	_	106	ADV	_	_
+4	eine	_	_	ART	case=nom|number=sg|gender=fem	110	DET	_	_
+5	andere	_	_	ADJA	case=nom|number=sg|gender=fem|degree=pos	110	ATTR	_	_
+6	Person	_	_	NN	case=nom|number=sg|gender=fem	106	OBJA	_	_
+7	denselben	_	_	PDAT	case=acc|number=sg|gender=masc	112	DET	_	_
+8	Benutzernamen	_	_	NN	case=acc|number=sg|gender=masc	110	GMOD	_	_
+9	Zzippi	_	_	PTKVZ	_	106	AVZ	_	_
+10	wie	_	_	KOKOM	_	106	KOM	_	_
+11	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	114	CJ	_	_
+12	.	_	_	$.	_	115	-PUNCT-	_	_
+
+# start_offsets = 809 809 812 827 829 834 838 844 854 858 864 884 893 898 900 906 910 914 919 923 930 941 955 961 962 969 979 981 985 989 993 999
+# end_offsets = 1000 811 827 828 833 837 843 853 857 863 883 892 898 899 905 909 913 918 922 929 940 954 961 962 968 979 980 984 988 992 999 1000
+1	Um	_	_	KOUI	_	118	KONJ	_	_
+2	sicherzustellen	_	_	VVIZU	_	130	OBJI	_	_
+3	,	_	_	$,	_	118	-PUNCT-	_	_
+4	dass	_	_	KOUS	_	128	KONJ	_	_
+5	ihr	_	_	PPER	case=nom|number=pl|gender=*|person=2	128	SUBJ	_	_
+6	beide	_	_	PIS	case=nom|number=pl|gender=*	121	APP	_	_
+7	weiterhin	_	_	ADV	_	127	ADV	_	_
+8	auf	_	_	APPR	_	127	PP	_	_
+9	allen	_	_	PIAT	case=dat|number=pl|gender=neut	126	DET	_	_
+10	Wikimedia-Projekten	_	_	NN	case=dat|number=pl|gender=neut	124	PN	_	_
+11	arbeiten	_	_	VVINF	_	128	OBJI	_	_
+12	könnt	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	118	OBJC	_	_
+13	,	_	_	$,	_	128	-PUNCT-	_	_
+14	haben	_	_	VAFIN	number=pl|person=1|tense=pres|mood=ind	0	ROOT	_	_
+15	wir	_	_	PPER	case=nom|number=pl|gender=*|person=1	130	SUBJ	_	_
+16	für	_	_	APPR	_	_	_	_	_
+17	dich	_	_	PPER	case=acc|number=sg|gender=*|person=2	132	PN	_	_
+18	das	_	_	ART	case=nom|number=sg|gender=neut	137	DET	_	_
+19	global	_	_	ADJD	degree=pos	136	ADV	_	_
+20	eindeutige	_	_	ADJA	case=nom|number=sg|gender=masc|degree=pos	137	ATTR	_	_
+21	Benutzerkonto	_	_	NN	case=nom|number=sg|gender=masc	_	_	_	_
+22	Zzippi	_	_	NE	case=nom|number=sg|gender=masc	137	APP	_	_
+23	~	_	_	NE	case=nom|number=sg|gender=masc	138	APP	_	_
+24	dewiki	_	_	NE	case=nom|number=sg|gender=masc	139	APP	_	_
+25	reserviert	_	_	VVPP	_	_	_	_	_
+26	,	_	_	$,	_	141	-PUNCT-	_	_
+27	das	_	_	PRELS	case=nom|number=sg|gender=neut	146	SUBJ	_	_
+28	nur	_	_	ADV	_	146	ADV	_	_
+29	dir	_	_	PPER	case=dat|number=sg|gender=*|person=2	146	OBJD	_	_
+30	gehört	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	_	_	_	_
+31	.	_	_	$.	_	146	-PUNCT-	_	_
+
+# start_offsets = 1001 1001 1008 1012 1019 1024 1032 1034 1040 1043 1049 1057 1066 1077
+# end_offsets = 1078 1007 1011 1018 1023 1032 1033 1039 1042 1048 1056 1065 1077 1078
+1	Sollte	_	_	VMFIN	number=sg|person=3|tense=past|mood=subj	154	NEB	_	_
+2	dir	_	_	PPER	case=dat|number=sg|gender=*|person=2	148	SUBJ	_	_
+3	dieser	_	_	PDAT	case=nom|number=sg|gender=masc	151	DET	_	_
+4	Name	_	_	NN	case=nom|number=sg|gender=masc	152	OBJD	_	_
+5	gefallen	_	_	VVPP	_	148	AUX	_	_
+6	,	_	_	$,	_	152	-PUNCT-	_	_
+7	musst	_	_	VVFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+8	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	154	SUBJ	_	_
+9	keine	_	_	PIAT	case=acc|number=sg|gender=fem	158	DET	_	_
+10	weitere	_	_	ADJA	case=acc|number=sg|gender=fem|degree=comp	158	ATTR	_	_
+11	Änderung	_	_	NN	case=acc|number=sg|gender=fem	154	OBJA	_	_
+12	durchführen	_	_	VVINF	_	154	OBJI	_	_
+13	.	_	_	$.	_	159	-PUNCT-	_	_
+
+# start_offsets = 1079 1079 1084 1087 1094 1100 1108 1122 1130 1132 1139 1142 1146 1153 1159 1165 1171 1177 1183
+# end_offsets = 1184 1083 1086 1093 1099 1107 1121 1130 1131 1138 1141 1145 1152 1158 1164 1170 1176 1183 1184
+1	Wenn	_	_	KOUS	_	167	KONJ	_	_
+2	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	167	SUBJ	_	_
+3	jedoch	_	_	ADV	_	167	ADV	_	_
+4	einen	_	_	ART	case=acc|number=sg|gender=masc	166	DET	_	_
+5	anderen	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	166	ATTR	_	_
+6	Benutzernamen	_	_	NN	case=acc|number=sg|gender=masc	167	OBJA	_	_
+7	wünschst	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	169	NEB	_	_
+8	,	_	_	$,	_	167	-PUNCT-	_	_
+9	kannst	_	_	VMFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+10	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	169	SUBJ	_	_
+11	auf	_	_	APPR	_	177	PP	_	_
+12	dieser	_	_	PDAT	case=dat|number=sg|gender=fem	173	DET	_	_
+13	Seite	_	_	NN	case=dat|number=sg|gender=fem	171	PN	_	_
+14	einen	_	_	ART	case=acc|number=sg|gender=masc	176	DET	_	_
+15	neuen	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	176	ATTR	_	_
+16	Namen	_	_	NN	case=acc|number=sg|gender=masc	177	OBJA	_	_
+17	wählen	_	_	VVINF	_	169	AUX	_	_
+18	.	_	_	$.	_	177	-PUNCT-	_	_
+
+# start_offsets = 1185 1185 1190 1193 1199 1201 1206 1209 1217 1222 1237 1241 1248 1254 1262 1266 1272 1282 1300 1309 1313 1315 1323 1329 1333 1339 1346 1347 1376 1378 1381 1385 1397 1400 1407 1411 1416 1422 1437 1449 1452 1461 1463 1469 1474 1484 1495 1499
+# end_offsets = 1500 1189 1192 1199 1200 1205 1208 1216 1221 1236 1240 1247 1253 1261 1265 1271 1281 1299 1308 1313 1314 1322 1328 1332 1338 1346 1347 1376 1377 1380 1384 1396 1399 1406 1410 1415 1421 1436 1448 1451 1461 1462 1468 1473 1483 1494 1499 1500
+1	Wenn	_	_	KOUS	_	181	KONJ	_	_
+2	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	181	SUBJ	_	_
+3	denkst	_	_	VVFIN	number=sg|person=2|tense=pres|mood=ind	199	NEB	_	_
+4	,	_	_	$,	_	181	-PUNCT-	_	_
+5	dass	_	_	KOUS	_	191	KONJ	_	_
+6	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	191	SUBJ	_	_
+7	bereits	_	_	ADV	_	191	ADV	_	_
+8	alle	_	_	PIAT	case=acc|number=pl|gender=neut	187	DET	_	_
+9	Benutzerkonten	_	_	NN	case=acc|number=pl|gender=neut	191	OBJA	_	_
+10	mit	_	_	APPR	_	187	PP	_	_
+11	diesem	_	_	PDAT	case=dat|number=sg|gender=masc	190	DET	_	_
+12	Namen	_	_	NN	case=dat|number=sg|gender=masc	188	PN	_	_
+13	besitzt	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	181	OBJC	_	_
+14	und	_	_	KON	_	191	KON	_	_
+15	diese	_	_	PDAT	case=acc|number=sg|gender=fem	194	DET	_	_
+16	Nachricht	_	_	NN	case=acc|number=sg|gender=fem	196	OBJA	_	_
+17	fälschlicherweise	_	_	ADV	_	196	ADV	_	_
+18	erhalten	_	_	VVPP	_	197	AUX	_	_
+19	hast	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	192	CJ	_	_
+20	,	_	_	$,	_	197	-PUNCT-	_	_
+21	besuche	_	_	VVFIN	number=sg|person=3|tense=pres|mood=subj	0	ROOT	_	_
+22	bitte	_	_	ADV	_	199	ADV	_	_
+23	die	_	_	ART	case=nom|number=sg|gender=fem	202	DET	_	_
+24	Seite	_	_	NN	case=nom|number=sg|gender=fem	199	SUBJ	_	_
+25	Spezial	_	_	NN	case=nom|number=sg|gender=fem	199	OBJA	_	_
+26	:	_	_	$.	_	203	-PUNCT-	_	_
+27	Benutzerkonten_zusammenführen	_	_	VVINF	_	199	OBJI	_	_
+28	,	_	_	$,	_	205	-PUNCT-	_	_
+29	um	_	_	KOUI	_	211	KONJ	_	_
+30	den	_	_	ART	case=acc|number=sg|gender=masc	209	DET	_	_
+31	Sachverhalt	_	_	NN	case=acc|number=sg|gender=masc	211	OBJA	_	_
+32	zu	_	_	PTKZU	_	211	PART	_	_
+33	prüfen	_	_	VVINF	_	205	NEB	_	_
+34	und	_	_	KON	_	211	KON	_	_
+35	alle	_	_	PIAT	case=acc|number=pl|gender=neut	215	DET	_	_
+36	deine	_	_	PPOSAT	case=acc|number=pl|gender=neut	215	DET	_	_
+37	Benutzerkonten	_	_	NN	case=acc|number=pl|gender=neut	218	OBJA	_	_
+38	miteinander	_	_	ADV	_	218	ADV	_	_
+39	zu	_	_	PTKZU	_	218	PART	_	_
+40	verbinden	_	_	VVINF	_	212	CJ	_	_
+41	,	_	_	$,	_	218	-PUNCT-	_	_
+42	damit	_	_	KOUS	_	224	KONJ	_	_
+43	eine	_	_	ART	case=nom|number=sg|gender=fem	222	DET	_	_
+44	Umbennung	_	_	NN	case=nom|number=sg|gender=fem	224	SUBJ	_	_
+45	verhindert	_	_	VVPP	_	224	AUX	_	_
+46	wird	_	_	VAFIN	number=sg|person=3|tense=pres|mood=ind	218	NEB	_	_
+47	.	_	_	$.	_	224	-PUNCT-	_	_
+
+# start_offsets = 1501 1501 1506 1512 1517 1527 1531 1539 1553 1557 1560 1566 1570 1578 1582 1589 1600 1614 1622 1628 1630 1637 1643 1646 1651 1657 1661 1667 1681 1691 1697
+# end_offsets = 1698 1505 1511 1516 1526 1530 1538 1552 1556 1559 1565 1569 1577 1581 1588 1599 1613 1621 1628 1629 1636 1642 1645 1650 1656 1660 1666 1680 1690 1697 1698
+1	Dein	_	_	PPOSAT	case=nom|number=sg|gender=neut	227	DET	_	_
+2	Konto	_	_	NN	case=nom|number=sg|gender=neut	228	SUBJ	_	_
+3	wird	_	_	VAFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+4	weiterhin	_	_	ADV	_	232	ADV	_	_
+5	wie	_	_	KOKOM	_	232	KOM	_	_
+6	gewohnt	_	_	VVPP	_	230	CJ	_	_
+7	funktionieren	_	_	VVINF	_	228	AUX	_	_
+8	und	_	_	KON	_	228	KON	_	_
+9	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	235	SUBJ	_	_
+10	wirst	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	233	CJ	_	_
+11	als	_	_	APPR	_	_	_	_	_
+12	Urheber	_	_	NN	case=nom|number=sg|gender=masc	236	PN	_	_
+13	all	_	_	PIAT	case=*|number=*|gender=*	241	DET	_	_
+14	deiner	_	_	PPOSAT	case=gen|number=pl|gender=masc	241	DET	_	_
+15	bisherigen	_	_	ADJA	case=nom|number=pl|gender=fem|degree=pos	241	ATTR	_	_
+16	Bearbeitungen	_	_	NN	case=nom|number=pl|gender=fem	243	SUBJ	_	_
+17	genannt	_	_	VVPP	_	243	AUX	_	_
+18	werden	_	_	VAFIN	number=pl|person=3|tense=pres|mood=ind	_	_	_	_
+19	,	_	_	$,	_	243	-PUNCT-	_	_
+20	jedoch	_	_	ADV	_	246	ADV	_	_
+21	wirst	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	_	_	_	_
+22	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	246	SUBJ	_	_
+23	beim	_	_	APPRART	case=dat|number=sg|gender=neut	253	PP	_	_
+24	Login	_	_	NN	case=dat|number=sg|gender=neut	248	PN	_	_
+25	den	_	_	ART	case=acc|number=sg|gender=masc	252	DET	_	_
+26	neuen	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	252	ATTR	_	_
+27	Benutzernamen	_	_	NN	case=acc|number=sg|gender=masc	249	GMOD	_	_
+28	verwenden	_	_	VVINF	_	254	AUX	_	_
+29	müssen	_	_	VMINF	_	246	AUX	_	_
+30	.	_	_	$.	_	254	-PUNCT-	_	_
+
+# start_offsets = 1699 1699 1705 1718 1722 1740
+# end_offsets = 1741 1704 1717 1721 1740 1741
+1	Bitte	_	_	PTKANT	_	0	ROOT	_	_
+2	entschuldige	_	_	VVFIN	number=sg|person=3|tense=pres|mood=subj	0	ROOT	_	_
+3	die	_	_	ART	case=acc|number=pl|gender=fem	259	DET	_	_
+4	Unannehmlichkeiten	_	_	NN	case=acc|number=pl|gender=fem	257	OBJA	_	_
+5	.	_	_	$.	_	259	-PUNCT-	_	_
+
+# start_offsets = 1742 1742 1746 1753 1758 1768 1775 1778 1783 1788 1793 1796 1800 1807 1816 1825 1830 1834 1839 1845
+# end_offsets = 1846 1745 1752 1757 1767 1774 1777 1782 1787 1792 1795 1799 1806 1815 1824 1828 1833 1837 1845 1846
+1	Bei	_	_	APPR	_	265	PP	_	_
+2	Fragen	_	_	NN	case=dat|number=pl|gender=fem	261	PN	_	_
+3	oder	_	_	KON	_	262	KON	_	_
+4	Problemen	_	_	NN	case=dat|number=pl|gender=neut	263	CJ	_	_
+5	kannst	_	_	VMFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+6	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	265	SUBJ	_	_
+7	dich	_	_	PRF	case=acc|number=sg|person=2	_	_	_	_
+8	gern	_	_	ADV	_	_	_	_	_
+9	auch	_	_	ADV	_	_	_	_	_
+10	an	_	_	APPR	_	_	_	_	_
+11	die	_	_	ART	case=acc|number=pl|gender=masc	_	_	_	_
+12	beiden	_	_	PIAT	case=acc|number=pl|gender=masc	273	DET	_	_
+13	Stewards	_	_	NN	case=acc|number=pl|gender=masc	_	_	_	_
+14	DerHexer	_	_	NE	case=nom|number=sg|gender=*	273	APP	_	_
+15	und	_	_	KON	_	274	KON	_	_
+16	Hoo	_	_	NE	case=nom|number=sg|gender=*	275	CJ	_	_
+17	man	_	_	PIS	case=nom|number=sg|gender=*	_	_	_	_
+18	wenden	_	_	VVINF	_	_	_	_	_
+19	.	_	_	$.	_	278	-PUNCT-	_	_
+
+# start_offsets = 1847 1847 1853 1858 1860 1867 1877 1887 1894 1896 1906 1918 1920 1921 1923 1925 1929 1932
+# end_offsets = 1933 1852 1858 1859 1866 1876 1886 1894 1895 1905 1916 1920 1921 1923 1924 1928 1932 1933
+1	Viele	_	_	PIAT	case=nom|number=pl|gender=masc	281	DET	_	_
+2	Grüße	_	_	NN	case=nom|number=pl|gender=masc	295	GMOD	_	_
+3	,	_	_	$,	_	281	-PUNCT-	_	_
+4	Keegan	_	_	NE	case=nom|number=sg|gender=masc	281	APP	_	_
+5	Peterzell	_	_	NE	case=nom|number=sg|gender=masc	283	APP	_	_
+6	Community	_	_	FM	_	281	-UNKNOWN-	_	_
+7	Liaison	_	_	NN	case=nom|number=sg|gender=fem	281	APP	_	_
+8	,	_	_	$,	_	286	-PUNCT-	_	_
+9	Wikimedia	_	_	NE	case=nom|number=sg|gender=fem	286	APP	_	_
+10	Foundation	_	_	NE	case=nom|number=sg|gender=fem	288	APP	_	_
+11	23	_	_	CARD	_	281	ATTR	_	_
+12	:	_	_	$.	_	290	-PUNCT-	_	_
+13	50	_	_	CARD	_	281	APP	_	_
+14	,	_	_	$,	_	292	-PUNCT-	_	_
+15	19.	_	_	ADJA	case=nom|number=sg|gender=masc|degree=pos	295	ATTR	_	_
+16	Mär	_	_	NN	case=nom|number=sg|gender=masc	0	ROOT	_	_
+17	.	_	_	$.	_	295	-PUNCT-	_	_
+
+# start_offsets = 1934 1934 1939 1940 1943 1946 1957 1959 1964 1966 1970 1975 1980 1981 1985
+# end_offsets = 1986 1938 1940 1943 1944 1955 1958 1964 1965 1969 1974 1979 1981 1985 1986
+1	2015	_	_	CARD	_	310	ZEIT	_	_
+2	(	_	_	$LRB	_	310	GMOD	_	_
+3	CET	_	_	NE	case=nom|number=sg|gender=*	298	APP	_	_
+4	)	_	_	$LRB	_	310	GMOD	_	_
+5	Umbenannt	_	_	FM	_	306	-UNKNOWN-	_	_
+6	w	_	_	FM	_	301	APP	_	_
+7	12:05	_	_	CARD	_	302	APP	_	_
+8	,	_	_	$,	_	303	-PUNCT-	_	_
+9	22.	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	306	ATTR	_	_
+10	Apr.	_	_	NN	case=acc|number=sg|gender=masc	310	GMOD	_	_
+11	2015	_	_	CARD	_	306	APP	_	_
+12	(	_	_	$LRB	_	310	-PUNCT-	_	_
+13	CEST	_	_	NE	case=nom|number=sg|gender=neut	308	SUBJ	_	_
+14	)	_	_	$LRB	_	0	ROOT	_	_
+
+# foundry = marmot-malt
+# filename = WUD24/K0086/98010/base/tokens.xml
+# text_id = WUD24_K0086.98010
+# start_offsets = 1 1 6 12 17 28 32 49 53 63 74 80 87 98 103 105 109 113 128 132 147 156
+# end_offsets = 157 5 11 16 26 31 48 52 62 73 79 86 97 103 104 108 112 127 131 146 156 157
+1	Dein	_	_	PPOSAT	case=nom|number=sg|gender=neut	2	DET	_	_
+2	Konto	_	_	NN	case=nom|number=sg|gender=neut	3	SUBJ	_	_
+3	wird	_	_	VAFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+4	umbenannt	_	_	VVPP	_	3	AUX	_	_
+5	Das	_	_	ART	case=nom|number=sg|gender=neut	6	DET	_	_
+6	Entwicklungsteam	_	_	NN	case=nom|number=sg|gender=neut	10	SUBJ	_	_
+7	der	_	_	ART	case=gen|number=sg|gender=fem	8	DET	_	_
+8	Wikimedia	_	_	NE	case=gen|number=sg|gender=fem	6	GMOD	_	_
+9	Foundation	_	_	NE	case=nom|number=sg|gender=fem	8	APP	_	_
+10	führt	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+11	einige	_	_	PIAT	case=acc|number=pl|gender=fem	12	DET	_	_
+12	Änderungen	_	_	NN	case=acc|number=pl|gender=fem	10	OBJA	_	_
+13	durch	_	_	PTKVZ	_	10	AVZ	_	_
+14	,	_	_	$,	_	13	-PUNCT-	_	_
+15	die	_	_	PRELS	case=nom|number=sg|gender=fem	20	SUBJ	_	_
+16	die	_	_	ART	case=acc|number=sg|gender=fem	17	DET	_	_
+17	Funktionsweise	_	_	NN	case=acc|number=sg|gender=fem	20	OBJA	_	_
+18	von	_	_	APPR	_	20	PP	_	_
+19	Benutzerkonten	_	_	NN	case=dat|number=pl|gender=neut	18	PN	_	_
+20	betreffen	_	_	VVINF	_	10	OBJI	_	_
+21	.	_	_	$.	_	20	-PUNCT-	_	_
+
+# start_offsets = 158 158 163 173 177 182 190 207 217 219 224 228 236 246 247 251 270 288 290 294 301 310 319 322 328
+# end_offsets = 329 162 172 176 181 189 206 217 218 223 227 235 245 247 250 269 288 289 293 300 309 318 321 328 329
+1	Dies	_	_	PDS	case=nom|number=sg|gender=neut	23	SUBJ	_	_
+2	geschieht	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+3	als	_	_	APPR	_	23	PP	_	_
+4	Teil	_	_	NN	case=acc|number=sg|gender=masc	24	PN	_	_
+5	unserer	_	_	PPOSAT	case=gen|number=pl|gender=fem	28	DET	_	_
+6	kontinuierlichen	_	_	ADJA	case=gen|number=pl|gender=fem|degree=pos	28	ATTR	_	_
+7	Bemühungen	_	_	NN	case=gen|number=pl|gender=fem	25	GMOD	_	_
+8	,	_	_	$,	_	28	-PUNCT-	_	_
+9	neue	_	_	ADJA	case=nom|number=pl|gender=fem|degree=pos	33	ATTR	_	_
+10	und	_	_	KON	_	30	KON	_	_
+11	bessere	_	_	ADJA	case=nom|number=pl|gender=fem|degree=comp	31	CJ	_	_
+12	Werkzeuge	_	_	NN	case=nom|number=pl|gender=neut	23	OBJA	_	_
+13	(	_	_	$LRB	_	38	-PUNCT-	_	_
+14	wie	_	_	KOKOM	_	34	KOM	_	_
+15	Wiki-übergreifende	_	_	ADJA	case=nom|number=pl|gender=fem|degree=pos	37	ATTR	_	_
+16	Benachrichtigungen	_	_	NN	case=nom|number=pl|gender=fem	35	CJ	_	_
+17	)	_	_	$LRB	_	33	APP	_	_
+18	für	_	_	APPR	_	38	PP	_	_
+19	unsere	_	_	PPOSAT	case=acc|number=pl|gender=masc	41	DET	_	_
+20	Benutzer	_	_	NN	case=acc|number=pl|gender=masc	39	PN	_	_
+21	anbieten	_	_	VVINF	_	0	ROOT	_	_
+22	zu	_	_	PTKZU	_	44	PART	_	_
+23	können	_	_	VMINF	_	42	CJ	_	_
+24	.	_	_	$.	_	44	-PUNCT-	_	_
+
+# start_offsets = 330 330 336 347 355 357 362 365 373 383 397 401
+# end_offsets = 402 335 346 355 356 361 364 372 382 396 401 402
+1	Diese	_	_	PDAT	case=nom|number=pl|gender=fem	47	DET	_	_
+2	Änderungen	_	_	NN	case=nom|number=pl|gender=fem	48	SUBJ	_	_
+3	bedingen	_	_	VVFIN	number=pl|person=3|tense=pres|mood=ind	0	ROOT	_	_
+4	,	_	_	$,	_	48	-PUNCT-	_	_
+5	dass	_	_	KOUS	_	55	KONJ	_	_
+6	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	55	SUBJ	_	_
+7	überall	_	_	ADV	_	55	ADV	_	_
+8	denselben	_	_	PDAT	case=acc|number=sg|gender=masc	54	DET	_	_
+9	Benutzernamen	_	_	NN	case=acc|number=sg|gender=masc	55	OBJA	_	_
+10	hast	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	48	OBJC	_	_
+11	.	_	_	$.	_	55	-PUNCT-	_	_
+
+# start_offsets = 403 403 411 418 422 426 431 442 446 456 463 465 469 473 484 488 500 512 516 527 542 546 552 563
+# end_offsets = 564 410 417 421 425 430 441 445 455 463 464 468 472 483 487 499 511 515 526 541 545 551 563 564
+1	Dadurch	_	_	PROAV	_	58	AUX	_	_
+2	können	_	_	VMFIN	number=pl|person=1|tense=pres|mood=ind	0	ROOT	_	_
+3	wir	_	_	PPER	case=nom|number=pl|gender=*|person=1	58	SUBJ	_	_
+4	dir	_	_	PPER	case=dat|number=sg|gender=*|person=2	65	OBJD	_	_
+5	neue	_	_	ADJA	case=acc|number=pl|gender=fem|degree=pos	62	ATTR	_	_
+6	Funktionen	_	_	NN	case=acc|number=pl|gender=fem	65	OBJA	_	_
+7	zur	_	_	APPRART	case=dat|number=sg|gender=fem	65	OBJP	_	_
+8	Verfügung	_	_	NN	case=dat|number=sg|gender=fem	63	PN	_	_
+9	stellen	_	_	VVINF	_	58	AUX	_	_
+10	,	_	_	$,	_	65	-PUNCT-	_	_
+11	die	_	_	PRELS	case=nom|number=sg|gender=fem	_	_	_	_
+12	das	_	_	ART	case=acc|number=sg|gender=neut	69	DET	_	_
+13	Bearbeiten	_	_	NN	case=acc|number=sg|gender=neut	_	_	_	_
+14	und	_	_	KON	_	_	_	_	_
+15	Diskutieren	_	_	VVFIN	number=pl|person=3|tense=pres|mood=ind	70	CJ	_	_
+16	erleichtern	_	_	VVINF	_	71	OBJI	_	_
+17	und	_	_	KON	_	72	KON	_	_
+18	flexiblere	_	_	ADJA	case=acc|number=pl|gender=neut|degree=comp	75	ATTR	_	_
+19	Benutzerrechte	_	_	NN	case=acc|number=pl|gender=neut	78	OBJA	_	_
+20	für	_	_	APPR	_	75	PP	_	_
+21	Tools	_	_	NN	case=acc|number=pl|gender=neut	76	PN	_	_
+22	ermöglichen	_	_	VVINF	_	73	CJ	_	_
+23	.	_	_	$.	_	78	-PUNCT-	_	_
+
+# start_offsets = 565 565 570 580 586 589 591 596 611 615 620 625 629 645 652 662 667 673
+# end_offsets = 674 569 579 585 589 590 595 610 614 619 624 628 644 651 661 666 673 674
+1	Eine	_	_	ART	case=nom|number=sg|gender=fem	81	DET	_	_
+2	Bedingung	_	_	NN	case=nom|number=sg|gender=fem	83	SUBJ	_	_
+3	dafür	_	_	PROAV	_	83	PRED	_	_
+4	ist	_	_	VAFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+5	,	_	_	$,	_	83	-PUNCT-	_	_
+6	dass	_	_	KOUS	_	95	KONJ	_	_
+7	Benutzerkonten	_	_	NN	case=nom|number=pl|gender=masc	95	SUBJ	_	_
+8	nun	_	_	ADV	_	94	ADV	_	_
+9	über	_	_	APPR	_	94	PP	_	_
+10	alle	_	_	PIAT	case=acc|number=pl|gender=masc	91	DET	_	_
+11	900	_	_	CARD	_	91	ATTR	_	_
+12	Wikimedia-Wikis	_	_	NN	case=acc|number=pl|gender=masc	88	PN	_	_
+13	hinweg	_	_	ADV	_	88	ADV	_	_
+14	eindeutig	_	_	ADJD	degree=pos	94	PRED	_	_
+15	sein	_	_	VAINF	_	95	AUX	_	_
+16	müssen	_	_	VMFIN	number=pl|person=3|tense=pres|mood=ind	83	PRED	_	_
+17	.	_	_	$.	_	95	-PUNCT-	_	_
+
+# start_offsets = 675 675 683 697 705 708 711 718 729
+# end_offsets = 730 682 696 704 707 710 717 729 730
+1	Weitere	_	_	ADJA	case=acc|number=pl|gender=fem|degree=comp	98	ATTR	_	_
+2	Informationen	_	_	NN	case=acc|number=pl|gender=fem	99	OBJA	_	_
+3	findest	_	_	VVFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+4	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	99	SUBJ	_	_
+5	in	_	_	APPR	_	99	PP	_	_
+6	dieser	_	_	PDAT	case=dat|number=sg|gender=fem	103	DET	_	_
+7	Ankündigung	_	_	NN	case=dat|number=sg|gender=fem	101	PN	_	_
+8	.	_	_	$.	_	103	-PUNCT-	_	_
+
+# start_offsets = 731 731 738 746 751 756 763 770 780 794 802 806 808
+# end_offsets = 809 737 745 750 755 762 769 779 793 801 805 808 809
+1	Leider	_	_	ADV	_	106	ADV	_	_
+2	benutzt	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+3	auch	_	_	ADV	_	106	ADV	_	_
+4	eine	_	_	ART	case=nom|number=sg|gender=fem	110	DET	_	_
+5	andere	_	_	ADJA	case=nom|number=sg|gender=fem|degree=pos	110	ATTR	_	_
+6	Person	_	_	NN	case=nom|number=sg|gender=fem	106	OBJA	_	_
+7	denselben	_	_	PDAT	case=acc|number=sg|gender=masc	112	DET	_	_
+8	Benutzernamen	_	_	NN	case=acc|number=sg|gender=masc	110	GMOD	_	_
+9	Korsika	_	_	ADV	_	106	ADV	_	_
+10	wie	_	_	KOKOM	_	106	KOM	_	_
+11	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	114	CJ	_	_
+12	.	_	_	$.	_	115	-PUNCT-	_	_
+
+# start_offsets = 810 810 813 828 830 835 839 845 855 859 865 885 894 899 901 907 911 915 920 924 931 942 956 963 964 971 981 983 987 991 995 1001
+# end_offsets = 1002 812 828 829 834 838 844 854 858 864 884 893 899 900 906 910 914 919 923 930 941 955 963 964 970 981 982 986 990 994 1001 1002
+1	Um	_	_	KOUI	_	118	KONJ	_	_
+2	sicherzustellen	_	_	VVIZU	_	130	OBJI	_	_
+3	,	_	_	$,	_	118	-PUNCT-	_	_
+4	dass	_	_	KOUS	_	128	KONJ	_	_
+5	ihr	_	_	PPER	case=nom|number=pl|gender=*|person=2	128	SUBJ	_	_
+6	beide	_	_	PIS	case=nom|number=pl|gender=*	121	APP	_	_
+7	weiterhin	_	_	ADV	_	127	ADV	_	_
+8	auf	_	_	APPR	_	127	PP	_	_
+9	allen	_	_	PIAT	case=dat|number=pl|gender=neut	126	DET	_	_
+10	Wikimedia-Projekten	_	_	NN	case=dat|number=pl|gender=neut	124	PN	_	_
+11	arbeiten	_	_	VVINF	_	128	OBJI	_	_
+12	könnt	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	118	OBJC	_	_
+13	,	_	_	$,	_	128	-PUNCT-	_	_
+14	haben	_	_	VAFIN	number=pl|person=1|tense=pres|mood=ind	0	ROOT	_	_
+15	wir	_	_	PPER	case=nom|number=pl|gender=*|person=1	130	SUBJ	_	_
+16	für	_	_	APPR	_	_	_	_	_
+17	dich	_	_	PPER	case=acc|number=sg|gender=*|person=2	132	PN	_	_
+18	das	_	_	ART	case=nom|number=sg|gender=neut	137	DET	_	_
+19	global	_	_	ADJD	degree=pos	136	ADV	_	_
+20	eindeutige	_	_	ADJA	case=nom|number=sg|gender=fem|degree=pos	137	ATTR	_	_
+21	Benutzerkonto	_	_	NN	case=nom|number=sg|gender=fem	_	_	_	_
+22	Korsika	_	_	NE	case=nom|number=sg|gender=fem	137	APP	_	_
+23	~	_	_	XY	_	137	gmod-app	_	_
+24	dewiki	_	_	XY	_	137	APP	_	_
+25	reserviert	_	_	VVPP	_	_	_	_	_
+26	,	_	_	$,	_	141	-PUNCT-	_	_
+27	das	_	_	PRELS	case=nom|number=sg|gender=neut	146	SUBJ	_	_
+28	nur	_	_	ADV	_	146	ADV	_	_
+29	dir	_	_	PPER	case=dat|number=sg|gender=*|person=2	146	OBJD	_	_
+30	gehört	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	_	_	_	_
+31	.	_	_	$.	_	146	-PUNCT-	_	_
+
+# start_offsets = 1003 1003 1010 1014 1021 1026 1034 1036 1042 1045 1051 1059 1068 1079
+# end_offsets = 1080 1009 1013 1020 1025 1034 1035 1041 1044 1050 1058 1067 1079 1080
+1	Sollte	_	_	VMFIN	number=sg|person=3|tense=past|mood=subj	154	NEB	_	_
+2	dir	_	_	PPER	case=dat|number=sg|gender=*|person=2	148	SUBJ	_	_
+3	dieser	_	_	PDAT	case=nom|number=sg|gender=masc	151	DET	_	_
+4	Name	_	_	NN	case=nom|number=sg|gender=masc	152	OBJD	_	_
+5	gefallen	_	_	VVPP	_	148	AUX	_	_
+6	,	_	_	$,	_	152	-PUNCT-	_	_
+7	musst	_	_	VVFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+8	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	154	SUBJ	_	_
+9	keine	_	_	PIAT	case=acc|number=sg|gender=fem	158	DET	_	_
+10	weitere	_	_	ADJA	case=acc|number=sg|gender=fem|degree=comp	158	ATTR	_	_
+11	Änderung	_	_	NN	case=acc|number=sg|gender=fem	154	OBJA	_	_
+12	durchführen	_	_	VVINF	_	154	OBJI	_	_
+13	.	_	_	$.	_	159	-PUNCT-	_	_
+
+# start_offsets = 1081 1081 1086 1089 1096 1102 1110 1124 1132 1134 1141 1144 1148 1155 1161 1167 1173 1179 1185
+# end_offsets = 1186 1085 1088 1095 1101 1109 1123 1132 1133 1140 1143 1147 1154 1160 1166 1172 1178 1185 1186
+1	Wenn	_	_	KOUS	_	167	KONJ	_	_
+2	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	167	SUBJ	_	_
+3	jedoch	_	_	ADV	_	167	ADV	_	_
+4	einen	_	_	ART	case=acc|number=sg|gender=masc	166	DET	_	_
+5	anderen	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	166	ATTR	_	_
+6	Benutzernamen	_	_	NN	case=acc|number=sg|gender=masc	167	OBJA	_	_
+7	wünschst	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	169	NEB	_	_
+8	,	_	_	$,	_	167	-PUNCT-	_	_
+9	kannst	_	_	VMFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+10	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	169	SUBJ	_	_
+11	auf	_	_	APPR	_	177	PP	_	_
+12	dieser	_	_	PDAT	case=dat|number=sg|gender=fem	173	DET	_	_
+13	Seite	_	_	NN	case=dat|number=sg|gender=fem	171	PN	_	_
+14	einen	_	_	ART	case=acc|number=sg|gender=masc	176	DET	_	_
+15	neuen	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	176	ATTR	_	_
+16	Namen	_	_	NN	case=acc|number=sg|gender=masc	177	OBJA	_	_
+17	wählen	_	_	VVINF	_	169	AUX	_	_
+18	.	_	_	$.	_	177	-PUNCT-	_	_
+
+# start_offsets = 1187 1187 1192 1195 1201 1203 1208 1211 1219 1224 1239 1243 1250 1256 1264 1268 1274 1284 1302 1311 1315 1317 1325 1331 1335 1341 1348 1349 1378 1380 1383 1387 1399 1402 1409 1413 1418 1424 1439 1451 1454 1463 1465 1471 1476 1486 1497 1501
+# end_offsets = 1502 1191 1194 1201 1202 1207 1210 1218 1223 1238 1242 1249 1255 1263 1267 1273 1283 1301 1310 1315 1316 1324 1330 1334 1340 1348 1349 1378 1379 1382 1386 1398 1401 1408 1412 1417 1423 1438 1450 1453 1463 1464 1470 1475 1485 1496 1501 1502
+1	Wenn	_	_	KOUS	_	181	KONJ	_	_
+2	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	181	SUBJ	_	_
+3	denkst	_	_	VVFIN	number=sg|person=2|tense=pres|mood=ind	199	NEB	_	_
+4	,	_	_	$,	_	181	-PUNCT-	_	_
+5	dass	_	_	KOUS	_	191	KONJ	_	_
+6	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	191	SUBJ	_	_
+7	bereits	_	_	ADV	_	191	ADV	_	_
+8	alle	_	_	PIAT	case=acc|number=pl|gender=neut	187	DET	_	_
+9	Benutzerkonten	_	_	NN	case=acc|number=pl|gender=neut	191	OBJA	_	_
+10	mit	_	_	APPR	_	187	PP	_	_
+11	diesem	_	_	PDAT	case=dat|number=sg|gender=masc	190	DET	_	_
+12	Namen	_	_	NN	case=dat|number=sg|gender=masc	188	PN	_	_
+13	besitzt	_	_	VVFIN	number=sg|person=3|tense=pres|mood=ind	181	OBJC	_	_
+14	und	_	_	KON	_	191	KON	_	_
+15	diese	_	_	PDAT	case=acc|number=sg|gender=fem	194	DET	_	_
+16	Nachricht	_	_	NN	case=acc|number=sg|gender=fem	196	OBJA	_	_
+17	fälschlicherweise	_	_	ADV	_	196	ADV	_	_
+18	erhalten	_	_	VVPP	_	197	AUX	_	_
+19	hast	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	192	CJ	_	_
+20	,	_	_	$,	_	197	-PUNCT-	_	_
+21	besuche	_	_	VVFIN	number=sg|person=3|tense=pres|mood=subj	0	ROOT	_	_
+22	bitte	_	_	ADV	_	199	ADV	_	_
+23	die	_	_	ART	case=nom|number=sg|gender=fem	202	DET	_	_
+24	Seite	_	_	NN	case=nom|number=sg|gender=fem	199	SUBJ	_	_
+25	Spezial	_	_	NN	case=nom|number=sg|gender=fem	199	OBJA	_	_
+26	:	_	_	$.	_	203	-PUNCT-	_	_
+27	Benutzerkonten_zusammenführen	_	_	VVINF	_	199	OBJI	_	_
+28	,	_	_	$,	_	205	-PUNCT-	_	_
+29	um	_	_	KOUI	_	211	KONJ	_	_
+30	den	_	_	ART	case=acc|number=sg|gender=masc	209	DET	_	_
+31	Sachverhalt	_	_	NN	case=acc|number=sg|gender=masc	211	OBJA	_	_
+32	zu	_	_	PTKZU	_	211	PART	_	_
+33	prüfen	_	_	VVINF	_	205	NEB	_	_
+34	und	_	_	KON	_	211	KON	_	_
+35	alle	_	_	PIAT	case=acc|number=pl|gender=neut	215	DET	_	_
+36	deine	_	_	PPOSAT	case=acc|number=pl|gender=neut	215	DET	_	_
+37	Benutzerkonten	_	_	NN	case=acc|number=pl|gender=neut	218	OBJA	_	_
+38	miteinander	_	_	ADV	_	218	ADV	_	_
+39	zu	_	_	PTKZU	_	218	PART	_	_
+40	verbinden	_	_	VVINF	_	212	CJ	_	_
+41	,	_	_	$,	_	218	-PUNCT-	_	_
+42	damit	_	_	KOUS	_	224	KONJ	_	_
+43	eine	_	_	ART	case=nom|number=sg|gender=fem	222	DET	_	_
+44	Umbennung	_	_	NN	case=nom|number=sg|gender=fem	224	SUBJ	_	_
+45	verhindert	_	_	VVPP	_	224	AUX	_	_
+46	wird	_	_	VAFIN	number=sg|person=3|tense=pres|mood=ind	218	NEB	_	_
+47	.	_	_	$.	_	224	-PUNCT-	_	_
+
+# start_offsets = 1503 1503 1508 1514 1519 1529 1533 1541 1555 1559 1562 1568 1572 1580 1584 1591 1602 1616 1624 1630 1632 1639 1645 1648 1653 1659 1663 1669 1683 1693 1699
+# end_offsets = 1700 1507 1513 1518 1528 1532 1540 1554 1558 1561 1567 1571 1579 1583 1590 1601 1615 1623 1630 1631 1638 1644 1647 1652 1658 1662 1668 1682 1692 1699 1700
+1	Dein	_	_	PPOSAT	case=nom|number=sg|gender=neut	227	DET	_	_
+2	Konto	_	_	NN	case=nom|number=sg|gender=neut	228	SUBJ	_	_
+3	wird	_	_	VAFIN	number=sg|person=3|tense=pres|mood=ind	0	ROOT	_	_
+4	weiterhin	_	_	ADV	_	232	ADV	_	_
+5	wie	_	_	KOKOM	_	232	KOM	_	_
+6	gewohnt	_	_	VVPP	_	230	CJ	_	_
+7	funktionieren	_	_	VVINF	_	228	AUX	_	_
+8	und	_	_	KON	_	228	KON	_	_
+9	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	235	SUBJ	_	_
+10	wirst	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	233	CJ	_	_
+11	als	_	_	APPR	_	_	_	_	_
+12	Urheber	_	_	NN	case=nom|number=sg|gender=masc	236	PN	_	_
+13	all	_	_	PIAT	case=*|number=*|gender=*	241	DET	_	_
+14	deiner	_	_	PPOSAT	case=gen|number=pl|gender=masc	241	DET	_	_
+15	bisherigen	_	_	ADJA	case=nom|number=pl|gender=fem|degree=pos	241	ATTR	_	_
+16	Bearbeitungen	_	_	NN	case=nom|number=pl|gender=fem	243	SUBJ	_	_
+17	genannt	_	_	VVPP	_	243	AUX	_	_
+18	werden	_	_	VAFIN	number=pl|person=3|tense=pres|mood=ind	_	_	_	_
+19	,	_	_	$,	_	243	-PUNCT-	_	_
+20	jedoch	_	_	ADV	_	246	ADV	_	_
+21	wirst	_	_	VAFIN	number=sg|person=2|tense=pres|mood=ind	_	_	_	_
+22	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	246	SUBJ	_	_
+23	beim	_	_	APPRART	case=dat|number=sg|gender=neut	253	PP	_	_
+24	Login	_	_	NN	case=dat|number=sg|gender=neut	248	PN	_	_
+25	den	_	_	ART	case=acc|number=sg|gender=masc	252	DET	_	_
+26	neuen	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	252	ATTR	_	_
+27	Benutzernamen	_	_	NN	case=acc|number=sg|gender=masc	249	GMOD	_	_
+28	verwenden	_	_	VVINF	_	254	AUX	_	_
+29	müssen	_	_	VMINF	_	246	AUX	_	_
+30	.	_	_	$.	_	254	-PUNCT-	_	_
+
+# start_offsets = 1701 1701 1707 1720 1724 1742
+# end_offsets = 1743 1706 1719 1723 1742 1743
+1	Bitte	_	_	PTKANT	_	0	ROOT	_	_
+2	entschuldige	_	_	VVFIN	number=sg|person=3|tense=pres|mood=subj	0	ROOT	_	_
+3	die	_	_	ART	case=acc|number=pl|gender=fem	259	DET	_	_
+4	Unannehmlichkeiten	_	_	NN	case=acc|number=pl|gender=fem	257	OBJA	_	_
+5	.	_	_	$.	_	259	-PUNCT-	_	_
+
+# start_offsets = 1744 1744 1748 1755 1760 1770 1777 1780 1785 1790 1795 1798 1802 1809 1818 1827 1832 1836 1841 1847
+# end_offsets = 1848 1747 1754 1759 1769 1776 1779 1784 1789 1794 1797 1801 1808 1817 1826 1830 1835 1839 1847 1848
+1	Bei	_	_	APPR	_	265	PP	_	_
+2	Fragen	_	_	NN	case=dat|number=pl|gender=fem	261	PN	_	_
+3	oder	_	_	KON	_	262	KON	_	_
+4	Problemen	_	_	NN	case=dat|number=pl|gender=neut	263	CJ	_	_
+5	kannst	_	_	VMFIN	number=sg|person=2|tense=pres|mood=ind	0	ROOT	_	_
+6	du	_	_	PPER	case=nom|number=sg|gender=*|person=2	265	SUBJ	_	_
+7	dich	_	_	PRF	case=acc|number=sg|person=2	_	_	_	_
+8	gern	_	_	ADV	_	_	_	_	_
+9	auch	_	_	ADV	_	_	_	_	_
+10	an	_	_	APPR	_	_	_	_	_
+11	die	_	_	ART	case=acc|number=pl|gender=masc	_	_	_	_
+12	beiden	_	_	PIAT	case=acc|number=pl|gender=masc	273	DET	_	_
+13	Stewards	_	_	NN	case=acc|number=pl|gender=masc	_	_	_	_
+14	DerHexer	_	_	NE	case=nom|number=sg|gender=*	273	APP	_	_
+15	und	_	_	KON	_	274	KON	_	_
+16	Hoo	_	_	NE	case=nom|number=sg|gender=*	275	CJ	_	_
+17	man	_	_	PIS	case=nom|number=sg|gender=*	_	_	_	_
+18	wenden	_	_	VVINF	_	_	_	_	_
+19	.	_	_	$.	_	278	-PUNCT-	_	_
+
+# start_offsets = 1849 1849 1855 1860 1862 1869 1879 1889 1896 1898 1908 1920 1922 1923 1925 1927 1931 1934
+# end_offsets = 1935 1854 1860 1861 1868 1878 1888 1896 1897 1907 1918 1922 1923 1925 1926 1930 1934 1935
+1	Viele	_	_	PIAT	case=nom|number=pl|gender=masc	281	DET	_	_
+2	Grüße	_	_	NN	case=nom|number=pl|gender=masc	295	GMOD	_	_
+3	,	_	_	$,	_	281	-PUNCT-	_	_
+4	Keegan	_	_	NE	case=nom|number=sg|gender=masc	281	APP	_	_
+5	Peterzell	_	_	NE	case=nom|number=sg|gender=masc	283	APP	_	_
+6	Community	_	_	FM	_	281	-UNKNOWN-	_	_
+7	Liaison	_	_	NN	case=nom|number=sg|gender=fem	281	APP	_	_
+8	,	_	_	$,	_	286	-PUNCT-	_	_
+9	Wikimedia	_	_	NE	case=nom|number=sg|gender=fem	286	APP	_	_
+10	Foundation	_	_	NE	case=nom|number=sg|gender=fem	288	APP	_	_
+11	22	_	_	CARD	_	281	ATTR	_	_
+12	:	_	_	$.	_	290	-PUNCT-	_	_
+13	07	_	_	CARD	_	281	APP	_	_
+14	,	_	_	$,	_	292	-PUNCT-	_	_
+15	19.	_	_	ADJA	case=nom|number=sg|gender=masc|degree=pos	295	ATTR	_	_
+16	Mär	_	_	NN	case=nom|number=sg|gender=masc	0	ROOT	_	_
+17	.	_	_	$.	_	295	-PUNCT-	_	_
+
+# start_offsets = 1936 1936 1941 1942 1945 1948 1959 1961 1966 1968 1972 1977 1982 1983 1987
+# end_offsets = 1988 1940 1942 1945 1946 1957 1960 1966 1967 1971 1976 1981 1983 1987 1988
+1	2015	_	_	CARD	_	310	ZEIT	_	_
+2	(	_	_	$LRB	_	310	GMOD	_	_
+3	CET	_	_	NE	case=nom|number=sg|gender=*	298	APP	_	_
+4	)	_	_	$LRB	_	310	GMOD	_	_
+5	Umbenannt	_	_	FM	_	306	-UNKNOWN-	_	_
+6	w	_	_	FM	_	301	APP	_	_
+7	10:40	_	_	CARD	_	302	APP	_	_
+8	,	_	_	$,	_	303	-PUNCT-	_	_
+9	22.	_	_	ADJA	case=acc|number=sg|gender=masc|degree=pos	306	ATTR	_	_
+10	Apr.	_	_	NN	case=acc|number=sg|gender=masc	310	GMOD	_	_
+11	2015	_	_	CARD	_	306	APP	_	_
+12	(	_	_	$LRB	_	310	-PUNCT-	_	_
+13	CEST	_	_	NE	case=nom|number=sg|gender=neut	308	SUBJ	_	_
+14	)	_	_	$LRB	_	0	ROOT	_	_
+
