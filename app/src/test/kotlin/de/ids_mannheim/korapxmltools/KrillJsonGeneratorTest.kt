@@ -110,6 +110,7 @@ class KrillJsonGeneratorTest {
         val generatedTar = ensureKrillTar("wud24_full_foundries") { outputDir ->
             arrayOf(
                 "-t", "krill",
+                "-q",
                 "-l", "info",
                 "-D", outputDir.path,
                 baseZip, spacyZip, marmotMaltZip, opennlpZip, treeTaggerZip
@@ -211,7 +212,7 @@ class KrillJsonGeneratorTest {
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
 
         val generatedTar = ensureKrillTar("wud24_base_spacy") { outputDir ->
-            arrayOf("-t", "krill", "-D", outputDir.path, baseZip, spacyZip)
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip, spacyZip)
         }
         assertTrue(generatedTar.exists())
 
@@ -242,7 +243,7 @@ class KrillJsonGeneratorTest {
         val spacyZip = loadResource("wud24_sample.spacy.zip").path
 
         val generatedTar = ensureKrillTar("wud24_base_spacy") { outputDir ->
-            arrayOf("-t", "krill", "-D", outputDir.path, baseZip, spacyZip)
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip, spacyZip)
         }
         assertTrue(generatedTar.exists())
 
@@ -274,7 +275,7 @@ class KrillJsonGeneratorTest {
         val treeTaggerZip = loadResource("wud24_sample.tree_tagger.zip").path
 
         val generatedTar = ensureKrillTar("wud24_full_foundries") { outputDir ->
-            arrayOf("-t", "krill", "-D", outputDir.path, baseZip, spacyZip, marmotZip, opennlpZip, treeTaggerZip)
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip, spacyZip, marmotZip, opennlpZip, treeTaggerZip)
         }
         assertTrue(generatedTar.exists())
 
@@ -308,7 +309,7 @@ class KrillJsonGeneratorTest {
         val wud24Corenlp = loadResource("wud24_sample.corenlp.zip").path
 
         val defaultTar = ensureKrillTar("wud24_default_corenlp") { outputDir ->
-            arrayOf("-t", "krill", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
         }
         assertTrue(defaultTar.exists())
 
@@ -318,7 +319,7 @@ class KrillJsonGeneratorTest {
         assertTrue(defaultJsons.all { !it.contains("\"s:!\"") })
 
         val flagTar = ensureKrillTar("wud24_default_corenlp_nwt") { outputDir ->
-            arrayOf("-t", "krill", "--non-word-tokens", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
+            arrayOf("-t", "krill", "-q", "--non-word-tokens", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
         }
         assertTrue(flagTar.exists())
 
@@ -339,7 +340,7 @@ class KrillJsonGeneratorTest {
         assertTrue(referenceTar.exists())
 
         val kotlinTar = ensureKrillTar("wud24_reference_default") { outputDir ->
-            arrayOf("-t", "krill", "-D", outputDir.path, baseZip, spacyZip, marmotMaltZip, treeTaggerZip, corenlpZip)
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip, spacyZip, marmotMaltZip, treeTaggerZip, corenlpZip)
         }
         assertTrue(kotlinTar.exists())
 
@@ -371,7 +372,7 @@ class KrillJsonGeneratorTest {
 
         val kotlinTar = ensureKrillTar("wud24_reference_nwt") { outputDir ->
             arrayOf(
-                "-t", "krill", "--non-word-tokens", "-D", outputDir.path,
+                "-t", "krill", "-q", "--non-word-tokens", "-D", outputDir.path,
                 baseZip, spacyZip, marmotMaltZip, treeTaggerZip, corenlpZipNwt
             )
         }
@@ -405,6 +406,7 @@ class KrillJsonGeneratorTest {
         val generatedTar = ensureKrillTar("metadata_test") { outputDir ->
             arrayOf(
                 "-t", "krill",
+                "-q",
                 "-D", outputDir.path,
                 baseZip
             )
@@ -441,6 +443,7 @@ class KrillJsonGeneratorTest {
         val generatedTar = ensureKrillTar("text_count_test") { outputDir ->
             arrayOf(
                 "-t", "krill",
+                "-q",
                 "-D", outputDir.path,
                 baseZip
             )
@@ -480,6 +483,7 @@ class KrillJsonGeneratorTest {
         val defaultTar = ensureKrillTar("wud24_default_publisher", "wud24_sample.krill.tar") { outputDir ->
             arrayOf(
                 "-t", "krill",
+                "-q",
                 "-D", outputDir.path,
                 baseZip
             )
@@ -506,7 +510,7 @@ class KrillJsonGeneratorTest {
         }
         try {
             System.setProperty("K2K_PUBLISHER_STRING", "1")
-            debug(arrayOf("-t", "krill", "-D", envOutputDir.path, baseZip))
+            debug(arrayOf("-t", "krill", "-q", "-D", envOutputDir.path, baseZip))
             val envTar = File(envOutputDir, "wud24_sample.krill.tar")
             assertTrue(envTar.exists(), "Expected wud24_sample.krill.tar with env var")
             val envJsons = readKrillJson(envTar)
@@ -539,7 +543,7 @@ class KrillJsonGeneratorTest {
             mkdirs()
         }
         try {
-            debug(arrayOf("-t", "krill", "-D", defaultOutputDir.path, baseZip))
+            debug(arrayOf("-t", "krill", "-q", "-D", defaultOutputDir.path, baseZip))
             val defaultTar = File(defaultOutputDir, "wud24_sample.krill.tar")
             assertTrue(defaultTar.exists(), "Expected wud24_sample.krill.tar")
             val defaultJsons = readKrillJson(defaultTar)
@@ -567,7 +571,7 @@ class KrillJsonGeneratorTest {
         }
         try {
             System.setProperty("K2K_TRANSLATOR_TEXT", "1")
-            debug(arrayOf("-t", "krill", "-D", envOutputDir.path, baseZip))
+            debug(arrayOf("-t", "krill", "-q", "-D", envOutputDir.path, baseZip))
             val envTar = File(envOutputDir, "wud24_sample.krill.tar")
             assertTrue(envTar.exists(), "Expected wud24_sample.krill.tar with env var")
             val envJsons = readKrillJson(envTar)

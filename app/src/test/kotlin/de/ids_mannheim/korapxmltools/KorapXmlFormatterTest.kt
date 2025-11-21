@@ -85,9 +85,10 @@ class KorapXmlFormatterTest {
         try {
             val args = arrayOf(
                 "-t", "zip",
-                "-o",
+                "-f",
+                "-q",
                 "-D", outputDir.path,
-                "-t", "corenlp:${taggerModel.path}",
+                "-T", "corenlp:${taggerModel.path}",
                 "-P", "corenlp:${parserModel.path}",
                 baseZip
             )
