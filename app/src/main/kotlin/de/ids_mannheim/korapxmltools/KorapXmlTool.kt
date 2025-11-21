@@ -1228,6 +1228,31 @@ class KorapXmlTool : Callable<Int> {
                     morphoZipOutputStream!!.flush()
                     morphoZipOutputStream!!.close()
                     LOGGER.info("Closed output ZIP file after annotation processing")
+
+                    // Rename ZIP file if foundry was detected from CoNLL-U output
+                    if (targetZipFileName != null && externalFoundry != null) {
+                        val currentFile = File(targetZipFileName!!)
+                        val baseZipName = File(args[0]).name.replace(Regex("\\.zip$"), "")
+                        val newFileName = File(outputDir, "$baseZipName.$externalFoundry.zip").absolutePath
+                        
+                        if (currentFile.absolutePath != newFileName) {
+                            val newFile = File(newFileName)
+                            if (currentFile.renameTo(newFile)) {
+                                LOGGER.info("Renamed output ZIP from ${currentFile.name} to ${newFile.name} based on detected foundry")
+                                
+                                // Also rename the log file
+                                val oldLogFile = File(targetZipFileName!!.replace(Regex("\\.zip$"), ".log"))
+                                val newLogFile = File(newFileName.replace(Regex("\\.zip$"), ".log"))
+                                if (oldLogFile.exists() && oldLogFile.renameTo(newLogFile)) {
+                                    LOGGER.info("Renamed log file from ${oldLogFile.name} to ${newLogFile.name}")
+                                }
+                                
+                                targetZipFileName = newFileName
+                            } else {
+                                LOGGER.warning("Failed to rename ZIP file from ${currentFile.absolutePath} to $newFileName")
+                            }
+                        }
+                    }
                 } catch (e: Exception) {
                     LOGGER.severe("ERROR closing ZIP file: ${e.message}")
                     e.printStackTrace()
@@ -3643,9 +3668,17 @@ class KorapXmlTool : Callable<Int> {
         val sentenceSpans = mutableListOf<Span>()
         var sentenceStartOffset: Int? = null
         var sentenceEndOffset: Int? = null
+        var extractedFoundry: String? = null
 
         for (line in lines) {
             when {
+                line.startsWith("# foundry =") -> {
+                    val foundryStr = line.substring("# foundry =".length).trim()
+                    if (foundryStr.isNotEmpty()) {
+                        extractedFoundry = foundryStr
+                        LOGGER.fine("Extracted foundry from CoNLL-U output: $extractedFoundry")
+                    }
+                }
                 line.startsWith("# start_offsets =") -> {
                     val offsetsStr = line.substring("# start_offsets =".length).trim()
                     val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
@@ -3740,10 +3773,20 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
+        // Use extracted foundry from CoNLL-U output if available
+        val actualFoundry = if (extractedFoundry != null) {
+            LOGGER.info("Using foundry from CoNLL-U output: $extractedFoundry (was: $foundry)")
+            // Update the global externalFoundry variable for consistent naming
+            externalFoundry = extractedFoundry
+            extractedFoundry
+        } else {
+            foundry
+        }
+
         try {
             val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
                 docId = tempDocId,
-                foundry = foundry,
+                foundry = actualFoundry,
                 tokens = tokens[tempDocId],
                 sentences = sentences[tempDocId],
                 text = texts[tempDocId],
@@ -3766,7 +3809,7 @@ class KorapXmlTool : Callable<Int> {
                 "docid=\"$docId\""
             )
 
-            val morphoEntryPath = docId.replace(Regex("[_.]"), "/") + "/$foundry/morpho.xml"
+            val morphoEntryPath = docId.replace(Regex("[_.]"), "/") + "/$actualFoundry/morpho.xml"
 
             val morphoZipEntry = ZipArchiveEntry(morphoEntryPath)
             morphoZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
@@ -3786,7 +3829,7 @@ class KorapXmlTool : Callable<Int> {
             try {
                 val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
                     docId = tempDocId,
-                    foundry = foundry,
+                    foundry = actualFoundry,
                     tokens = tokens[tempDocId],
                     sentences = sentences[tempDocId],
                     text = texts[tempDocId],
@@ -3809,7 +3852,7 @@ class KorapXmlTool : Callable<Int> {
                     "docid=\"$docId\""
                 )
 
-                val dependencyEntryPath = docId.replace(Regex("[_.]"), "/") + "/$foundry/dependency.xml"
+                val dependencyEntryPath = docId.replace(Regex("[_.]"), "/") + "/$actualFoundry/dependency.xml"
 
                 val dependencyZipEntry = ZipArchiveEntry(dependencyEntryPath)
                 dependencyZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
