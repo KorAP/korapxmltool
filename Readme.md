@@ -1,5 +1,15 @@
 # korapxmltool
 
+[![Project Status: Active – The project has reached a stable, usable state and is being actively developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
+[![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/KorAP/korapxmltool)](https://github.com/KorAP/korapxmltool/releases)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/KorAP/korapxmltool/gradle.yml?branch=main)](https://github.com/KorAP/korapxmltool/actions)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Last commit](https://img.shields.io/github/last-commit/KorAP/korapxmltool.svg)](https://github.com/KorAP/korapxmltool/commits)
+[![GitHub issues](https://img.shields.io/github/issues-raw/KorAP/korapxmltool.svg)](https://github.com/KorAP/korapxmltool/issues)
+[![GitHub closed issues](https://img.shields.io/github/issues-closed-raw/KorAP/korapxmltool.svg)](https://github.com/KorAP/korapxmltool/issues)
+[![Github Stars](https://img.shields.io/github/stars/KorAP/korapxmltool.svg?style=social&label=Github)](https://github.com/KorAP/korapxmltool)
+
 Converts between KorAP-XML ZIP format and formats like CoNLL-U, Krill, word2vec, NOW and annotates KorAP XML ZIPs with various taggers and parsers.
 
 Drop-in replacement for korapxml2conllu [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U) and korapxml2krill [KorAP-XML-Krill](https://github.com/KorAP/KorAP-XML-Krill)
