@@ -1,11 +1,13 @@
 package de.ids_mannheim.korapxmltools
 
+import org.apache.commons.compress.archivers.zip.ZipFile
 import org.junit.After
 import org.junit.Before
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.PrintStream
 import java.net.URL
+import java.nio.charset.StandardCharsets
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -220,7 +222,8 @@ class ConlluConversionTest {
                 System.setIn(originalIn)
                 inputStream.close()
             }
-        } finally {
+        }
+        finally {
             outputDir.deleteRecursively()
         }
     }
@@ -365,26 +368,17 @@ class ConlluConversionTest {
     }
 
     private fun extractZipFileList(zipFile: File): List<String> {
-        val process = ProcessBuilder("unzip", "-l", zipFile.path)
-            .redirectOutput(ProcessBuilder.Redirect.PIPE)
-            .start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        process.waitFor()
-        return output.lines()
+        return ZipFile.builder().setFile(zipFile).get().use { zip ->
+            zip.entries.asSequence().map { it.name }.toList()
+        }
     }
 
     private fun extractFileFromZip(zipFile: File, filePath: String): String {
-        val process = ProcessBuilder("unzip", "-p", zipFile.path, filePath)
-            .redirectOutput(ProcessBuilder.Redirect.PIPE)
-            .redirectError(ProcessBuilder.Redirect.PIPE)
-            .start()
-        val content = process.inputStream.bufferedReader().use { it.readText() }
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            val error = process.errorStream.bufferedReader().use { it.readText() }
-            throw RuntimeException("Failed to extract $filePath from $zipFile: $error")
+        return ZipFile.builder().setFile(zipFile).get().use { zip ->
+            val entry = zip.getEntry(filePath)
+                ?: throw RuntimeException("Failed to find entry $filePath in $zipFile")
+            zip.getInputStream(entry).bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
         }
-        return content
     }
 
     @Test
