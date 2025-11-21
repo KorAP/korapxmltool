@@ -4563,7 +4563,7 @@ class KorapXmlTool : Callable<Int> {
             }
             val text = texts[docId]
             if (text != null) {
-                textData.textContent = text.toString()
+                textData.textContent = text
             }
             val tokenArray = tokens[docId]
             if (tokenArray != null) {
@@ -4780,7 +4780,7 @@ class KorapXmlTool : Callable<Int> {
         // Collect text content (only from base foundry)
         if (foundry == "base" && texts[docId] != null) {
             synchronized(textData) {
-                textData.textContent = texts[docId]!!.toString()
+                textData.textContent = texts[docId]!!
                 textData.tokens = tokens[docId]
                 textData.sentences = sentences[docId]
                 LOGGER.info("  Collected base text data for $docId: ${textData.textContent?.length ?: 0} chars, ${textData.tokens?.size ?: 0} tokens")

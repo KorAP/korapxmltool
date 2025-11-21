@@ -2,6 +2,7 @@ package de.ids_mannheim.korapxmltools.formatters
 
 import de.ids_mannheim.korapxmltools.KorapXmlTool.MorphoSpan
 import de.ids_mannheim.korapxmltools.KorapXmlTool.Span
+import de.ids_mannheim.korapxmltools.NonBmpString
 import java.util.logging.Logger
 
 /**
@@ -18,7 +19,7 @@ object KrillJsonGenerator {
      */
     data class KrillTextData(
         var textId: String,
-        var textContent: String? = null,
+        var textContent: NonBmpString? = null,
         var headerMetadata: MutableMap<String, Any> = mutableMapOf(),
         var tokens: Array<Span>? = null,
         var sentences: Array<Span>? = null,
@@ -207,7 +208,7 @@ object KrillJsonGenerator {
 
         // data section
         sb.append("\"data\":{")
-        sb.append("\"text\":${jsonString(textData.textContent ?: "")},")
+        sb.append("\"text\":${jsonString(textData.textContent?.toString() ?: "")},")
 
         val sentenceSpanFoundries = textData.structureSpans.foundriesWithSentenceSpans()
         val constituencySpanFoundries = textData.structureSpans.foundriesWithConstituencySpans()
@@ -354,9 +355,9 @@ object KrillJsonGenerator {
 
     private fun generateStream(textData: KrillTextData, includeNonWordTokens: Boolean): List<String> {
         val rawTokens = textData.tokens ?: return emptyList()
-        val text = textData.textContent ?: ""
+        val text = textData.textContent ?: NonBmpString("")
         val sentences = textData.sentences ?: emptyArray()
-        val tokens: List<Span> = if (includeNonWordTokens || text.isEmpty()) {
+        val tokens: List<Span> = if (includeNonWordTokens || text.length == 0) {
             rawTokens.toList()
         } else {
             rawTokens.filter { span -> shouldKeepTokenForKrill(text, span) }
@@ -568,8 +569,9 @@ object KrillJsonGenerator {
             tokenAnnotations.add(jsonString("_$index\$<i>${token.from}<i>${token.to}"))
 
             // Get surface form (used for both i: and s: annotations)
+            // Get surface form (used for both i: and s: annotations)
             val surfaceForm = if (token.to <= text.length) {
-                text.substring(token.from, token.to)
+                text.subSequence(token.from, token.to).toString()
             } else {
                 ""
             }
@@ -660,13 +662,19 @@ object KrillJsonGenerator {
         return result
     }
 
-    private fun shouldKeepTokenForKrill(text: String, span: Span): Boolean {
-        if (text.isEmpty()) return true
+    private fun shouldKeepTokenForKrill(text: NonBmpString, span: Span): Boolean {
+        if (text.length == 0) return true
         val safeFrom = span.from.coerceIn(0, text.length)
         val safeTo = span.to.coerceIn(safeFrom, text.length)
         if (safeFrom >= safeTo) return false
-        val surface = text.substring(safeFrom, safeTo)
-        return surface.any { it.isLetterOrDigit() || it == '_' }
+        val surface = text.subSequence(safeFrom, safeTo).toString()
+        val keep = surface.any { 
+            it.isLetterOrDigit() || 
+            it == '_' || 
+            it.isSurrogate() || 
+            Character.getType(it) == Character.OTHER_SYMBOL.toInt() 
+        }
+        return keep
     }
 
     // Extension functions for StructureSpan collections

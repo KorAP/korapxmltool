@@ -593,4 +593,51 @@ class KrillJsonGeneratorTest {
             envOutputDir.deleteRecursively()
         }
     }
+    @Test
+    fun krillCanHandleNonBmpText() {
+        val wdd17 = loadResource("wdd17sample.zip").path
+        val generatedTar = ensureKrillTar("wdd17_non_bmp", "wdd17sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, wdd17)
+        }
+        assertTrue(generatedTar.exists())
+
+        val jsons = readKrillJson(generatedTar)
+        assertTrue(jsons.isNotEmpty())
+
+        val combinedJsonContent = jsons.values.joinToString("\n")
+
+        // Check for the presence of the emoji sequence
+        // 🙈 🙉 🙊
+        assertTrue(combinedJsonContent.contains("\uD83D\uDE48"), "Should contain 🙈")
+        assertTrue(combinedJsonContent.contains("\uD83D\uDE49"), "Should contain 🙉")
+        assertTrue(combinedJsonContent.contains("\uD83D\uDE4A"), "Should contain 🙊")
+
+        // Check for the text context
+        assertTrue(combinedJsonContent.contains("mach"), "Should contain 'mach'")
+        assertTrue(combinedJsonContent.contains("Bereinige wenigstens die allergröbsten Sachen"), "Should contain German text")
+
+        // Check if emojis are indexed as tokens
+        assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE48\""), "Should contain token 🙈")
+        assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE49\""), "Should contain token 🙉")
+        assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE4A\""), "Should contain token 🙊")
+    }
+
+    @Test
+    fun krillCanHandleNonBmpTextWithNonWordTokens() {
+        val wdd17 = loadResource("wdd17sample.zip").path
+        val generatedTar = ensureKrillTar("wdd17_non_bmp_nwt", "wdd17sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "--non-word-tokens", "-D", outputDir.path, wdd17)
+        }
+        assertTrue(generatedTar.exists())
+
+        val jsons = readKrillJson(generatedTar)
+        assertTrue(jsons.isNotEmpty())
+
+        val combinedJsonContent = jsons.values.joinToString("\n")
+
+        // Check if emojis are indexed as tokens
+        assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE48\""), "Should contain token 🙈 with --non-word-tokens")
+        assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE49\""), "Should contain token 🙉 with --non-word-tokens")
+        assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE4A\""), "Should contain token 🙊 with --non-word-tokens")
+    }
 }
