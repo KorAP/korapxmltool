@@ -160,7 +160,8 @@ object KrillJsonGenerator {
                 }
                 "translator" -> {
                     // Check environment variable for type
-                    val translatorAsText = System.getenv("K2K_TRANSLATOR_TEXT")?.isNotEmpty() == true
+                    val translatorAsText = System.getenv("K2K_TRANSLATOR_TEXT")?.isNotEmpty() == true ||
+                        System.getProperty("K2K_TRANSLATOR_TEXT")?.isNotEmpty() == true
                     if (translatorAsText) {
                         "type:text" to jsonString(value.toString())
                     } else {
@@ -169,7 +170,8 @@ object KrillJsonGenerator {
                 }
                 "publisher" -> {
                     // Check environment variable for type
-                    val publisherAsString = System.getenv("K2K_PUBLISHER_STRING")?.isNotEmpty() == true
+                    val publisherAsString = System.getenv("K2K_PUBLISHER_STRING")?.isNotEmpty() == true ||
+                        System.getProperty("K2K_PUBLISHER_STRING")?.isNotEmpty() == true
                     if (publisherAsString) {
                         "type:string" to jsonString(value.toString())
                     } else {

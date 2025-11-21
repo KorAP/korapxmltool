@@ -9,7 +9,6 @@ import java.io.PrintStream
 import java.net.URL
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -188,6 +187,7 @@ class KrillJsonGeneratorTest {
                     .redirectOutput(ProcessBuilder.Redirect.PIPE)
                     .start().inputStream.bufferedReader().readText()
 
+                // Check for required fields in the JSON output
                 assertTrue(jsonContent.contains("\"@context\""))
                 assertTrue(jsonContent.contains("\"@type\":\"koral:corpus\""))
                 assertTrue(jsonContent.contains("\"data\""))
@@ -474,24 +474,23 @@ class KrillJsonGeneratorTest {
 
     @Test
     fun testPublisherAsStringEnvVar() {
-        val baseZip = loadResource("wdf19.zip").path
-        
-        // First test WITHOUT the environment variable (default: type:attachement)
-        val defaultTar = ensureKrillTar("wdf19_default_publisher", "wdf19.krill.tar") { outputDir ->
+        val baseZip = loadResource("wud24_sample.zip").path
+
+        // Test WITHOUT environment variable (default: type:attachement)
+        val defaultTar = ensureKrillTar("wud24_default_publisher", "wud24_sample.krill.tar") { outputDir ->
             arrayOf(
                 "-t", "krill",
                 "-D", outputDir.path,
                 baseZip
             )
         }
-
         val defaultJsons = readKrillJson(defaultTar)
         assertTrue(defaultJsons.isNotEmpty(), "Should have generated Krill JSON files")
-        
+
         // Check that publisher is type:attachement by default
         var foundPublisher = false
         defaultJsons.values.forEach { json ->
-            val publisherMatch = Regex(""""\s*key"\s*:\s*"publisher".*?"type"\s*:\s*"type:([^"]+)"""").find(json)
+            val publisherMatch = Regex(""""key"\s*:\s*"publisher".*?"type"\s*:\s*"type:([^"]+)""").find(json)
             if (publisherMatch != null) {
                 foundPublisher = true
                 val typeValue = publisherMatch.groupValues[1]
@@ -500,39 +499,23 @@ class KrillJsonGeneratorTest {
         }
         assertTrue(foundPublisher, "Should find publisher field in at least one document")
 
-        // Now test WITH K2K_PUBLISHER_STRING environment variable
-        val outputDir = File.createTempFile("publisher_string_test", "").apply {
+        // Test WITH K2K_PUBLISHER_STRING environment variable
+        val envOutputDir = File.createTempFile("publisher_string_test", "").apply {
             delete()
             mkdirs()
         }
-
         try {
-            val process = ProcessBuilder(
-                "java", "-jar", "app/build/libs/korapxmltool.jar",
-                "-t", "krill",
-                "-D", outputDir.path,
-                baseZip
-            )
-                .directory(File("/home/kupietz/KorAP/korapxmltool"))
-                .apply {
-                    environment()["K2K_PUBLISHER_STRING"] = "1"
-                }
-                .redirectErrorStream(true)
-                .start()
-
-            val exitCode = process.waitFor()
-            assertEquals(0, exitCode, "Krill conversion with K2K_PUBLISHER_STRING should succeed")
-
-            val tar = File(outputDir, "wdf19.krill.tar")
-            assertTrue(tar.exists(), "Expected wdf19.krill.tar")
-
-            val envJsons = readKrillJson(tar)
+            System.setProperty("K2K_PUBLISHER_STRING", "1")
+            debug(arrayOf("-t", "krill", "-D", envOutputDir.path, baseZip))
+            val envTar = File(envOutputDir, "wud24_sample.krill.tar")
+            assertTrue(envTar.exists(), "Expected wud24_sample.krill.tar with env var")
+            val envJsons = readKrillJson(envTar)
             assertTrue(envJsons.isNotEmpty(), "Should have generated Krill JSON files with env var")
 
             // Check that publisher is now type:string
             var foundPublisherWithEnv = false
             envJsons.values.forEach { json ->
-                val publisherMatch = Regex(""""\s*key"\s*:\s*"publisher".*?"type"\s*:\s*"type:([^"]+)"""").find(json)
+                val publisherMatch = Regex(""""key"\s*:\s*"publisher".*?"type"\s*:\s*"type:([^"]+)""").find(json)
                 if (publisherMatch != null) {
                     foundPublisherWithEnv = true
                     val typeValue = publisherMatch.groupValues[1]
@@ -541,131 +524,69 @@ class KrillJsonGeneratorTest {
             }
             assertTrue(foundPublisherWithEnv, "Should find publisher field with env var set")
         } finally {
-            outputDir.deleteRecursively()
+            System.clearProperty("K2K_PUBLISHER_STRING")
+            envOutputDir.deleteRecursively()
         }
     }
 
     @Test
     fun testTranslatorAsTextEnvVar() {
-        // Create a temporary test ZIP with translator field
-        val testDir = File.createTempFile("translator_test_corpus", "").apply {
+        val baseZip = loadResource("wud24_sample.zip").path
+
+        // Test WITHOUT environment variable (default: type:attachement)
+        val defaultOutputDir = File.createTempFile("translator_default", "").apply {
             delete()
             mkdirs()
         }
-
         try {
-            // Create a simple test corpus with translator metadata
-            val textDir = File(testDir, "TEST/TEST.00001")
-            textDir.mkdirs()
+            debug(arrayOf("-t", "krill", "-D", defaultOutputDir.path, baseZip))
+            val defaultTar = File(defaultOutputDir, "wud24_sample.krill.tar")
+            assertTrue(defaultTar.exists(), "Expected wud24_sample.krill.tar")
+            val defaultJsons = readKrillJson(defaultTar)
+            assertTrue(defaultJsons.isNotEmpty(), "Should have generated JSON")
 
-            File(textDir, "header.xml").writeText("""
-                <?xml version="1.0" encoding="UTF-8"?>
-                <idsHeader type="text" TEIform="teiHeader">
-                    <fileDesc>
-                        <titleStmt>
-                            <t.title>Test Document with Translator</t.title>
-                            <t.author>Test Author</t.author>
-                            <translator>Test Translator</translator>
-                        </titleStmt>
-                    </fileDesc>
-                </idsHeader>
-            """.trimIndent())
-
-            File(textDir, "data.xml").writeText("""
-                <?xml version="1.0" encoding="UTF-8"?>
-                <raw_text><text>Test content.</text></raw_text>
-            """.trimIndent())
-
-            // Create ZIP
-            val zipFile = File(testDir, "test_translator.zip")
-            val zipProcess = ProcessBuilder("zip", "-r", zipFile.path, "TEST")
-                .directory(testDir)
-                .redirectErrorStream(true)
-                .start()
-            assertEquals(0, zipProcess.waitFor(), "ZIP creation should succeed")
-
-            // Test WITHOUT K2K_TRANSLATOR_TEXT (default: type:attachement)
-            val defaultOutputDir = File.createTempFile("translator_default", "").apply {
-                delete()
-                mkdirs()
-            }
-
-            try {
-                val defaultProcess = ProcessBuilder(
-                    "java", "-jar", "app/build/libs/korapxmltool.jar",
-                    "-t", "krill",
-                    "-D", defaultOutputDir.path,
-                    zipFile.path
-                )
-                    .directory(File("/home/kupietz/KorAP/korapxmltool"))
-                    .redirectErrorStream(true)
-                    .start()
-
-                assertEquals(0, defaultProcess.waitFor(), "Default conversion should succeed")
-
-                val defaultTar = File(defaultOutputDir, "test_translator.krill.tar")
-                assertTrue(defaultTar.exists(), "Expected test_translator.krill.tar")
-
-                val defaultJsons = readKrillJson(defaultTar)
-                assertTrue(defaultJsons.isNotEmpty(), "Should have generated JSON")
-
-                var foundTranslator = false
-                defaultJsons.values.forEach { json ->
-                    val translatorMatch = Regex(""""\s*key"\s*:\s*"translator".*?"type"\s*:\s*"type:([^"]+)"""").find(json)
-                    if (translatorMatch != null) {
-                        foundTranslator = true
-                        val typeValue = translatorMatch.groupValues[1]
-                        assertEquals("attachement", typeValue, "Translator should be type:attachement by default")
-                    }
+            // Check that the translator is type:attachement by default
+            var foundTranslator = false
+            defaultJsons.values.forEach { json ->
+                val translatorMatch = Regex(""""key"\s*:\s*"translator".*?"type"\s*:\s*"type:([^"]+)""").find(json)
+                if (translatorMatch != null && json.contains("Test Translator")) {
+                    foundTranslator = true
+                    val typeValue = translatorMatch.groupValues[1]
+                    assertEquals("attachement", typeValue, "Translator should be type:attachement by default")
                 }
-                assertTrue(foundTranslator, "Should find translator field in generated JSON")
-            } finally {
-                defaultOutputDir.deleteRecursively()
             }
-
-            // Test WITH K2K_TRANSLATOR_TEXT (type:text)
-            val envOutputDir = File.createTempFile("translator_text", "").apply {
-                delete()
-                mkdirs()
-            }
-
-            try {
-                val envProcess = ProcessBuilder(
-                    "java", "-jar", "app/build/libs/korapxmltool.jar",
-                    "-t", "krill",
-                    "-D", envOutputDir.path,
-                    zipFile.path
-                )
-                    .directory(File("/home/kupietz/KorAP/korapxmltool"))
-                    .apply {
-                        environment()["K2K_TRANSLATOR_TEXT"] = "1"
-                    }
-                    .redirectErrorStream(true)
-                    .start()
-
-                assertEquals(0, envProcess.waitFor(), "Conversion with K2K_TRANSLATOR_TEXT should succeed")
-
-                val envTar = File(envOutputDir, "test_translator.krill.tar")
-                assertTrue(envTar.exists(), "Expected test_translator.krill.tar with env var")
-
-                val envJsons = readKrillJson(envTar)
-                assertTrue(envJsons.isNotEmpty(), "Should have generated JSON with env var")
-
-                var foundTranslatorWithEnv = false
-                envJsons.values.forEach { json ->
-                    val translatorMatch = Regex(""""\s*key"\s*:\s*"translator".*?"type"\s*:\s*"type:([^"]+)"""").find(json)
-                    if (translatorMatch != null) {
-                        foundTranslatorWithEnv = true
-                        val typeValue = translatorMatch.groupValues[1]
-                        assertEquals("text", typeValue, "Translator should be type:text when K2K_TRANSLATOR_TEXT is set")
-                    }
-                }
-                assertTrue(foundTranslatorWithEnv, "Should find translator field with env var set")
-            } finally {
-                envOutputDir.deleteRecursively()
-            }
+            assertTrue(foundTranslator, "Should find translator field with 'Test Translator' in generated JSON")
         } finally {
-            testDir.deleteRecursively()
+            defaultOutputDir.deleteRecursively()
+        }
+
+        // Test WITH K2K_TRANSLATOR_TEXT (type:text)
+        val envOutputDir = File.createTempFile("translator_text", "").apply {
+            delete()
+            mkdirs()
+        }
+        try {
+            System.setProperty("K2K_TRANSLATOR_TEXT", "1")
+            debug(arrayOf("-t", "krill", "-D", envOutputDir.path, baseZip))
+            val envTar = File(envOutputDir, "wud24_sample.krill.tar")
+            assertTrue(envTar.exists(), "Expected wud24_sample.krill.tar with env var")
+            val envJsons = readKrillJson(envTar)
+            assertTrue(envJsons.isNotEmpty(), "Should have generated JSON with env var")
+
+            // Check that the translator is now type:text
+            var foundTranslatorWithEnv = false
+            envJsons.values.forEach { json ->
+                val translatorMatch = Regex(""""key"\s*:\s*"translator".*?"type"\s*:\s*"type:([^"]+)""").find(json)
+                if (translatorMatch != null && json.contains("Test Translator")) {
+                    foundTranslatorWithEnv = true
+                    val typeValue = translatorMatch.groupValues[1]
+                    assertEquals("text", typeValue, "Translator should be type:text when K2K_TRANSLATOR_TEXT is set")
+                }
+            }
+            assertTrue(foundTranslatorWithEnv, "Should find translator field with 'Test Translator' and env var set")
+        } finally {
+            System.clearProperty("K2K_TRANSLATOR_TEXT")
+            envOutputDir.deleteRecursively()
         }
     }
 }
