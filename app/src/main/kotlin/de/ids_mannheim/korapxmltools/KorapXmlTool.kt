@@ -3419,30 +3419,33 @@ class KorapXmlTool : Callable<Int> {
                 XMLStreamConstants.END_ELEMENT -> {
                     val localName = reader.localName
                     if (localName == "f" && currentSpan != null && currentFName != null) {
-                        val value = textAccumulator.toString().trim()
-                        if (value.isNotEmpty()) {
-                            when (currentFName) {
-                                "lemma" -> if(currentSpan.lemma == "_") currentSpan.lemma = value.replace(UNKNOWN, "--")
-                                "upos" -> currentSpan.upos = value
-                                "xpos", "ctag", "pos" -> if(currentSpan.xpos == "_") currentSpan.xpos = value.replace(UNKNOWN, "--")
-                                "feats", "msd" -> if(currentSpan.feats == "_") currentSpan.feats = value
-                                "certainty" -> if(currentSpan.misc == "_") currentSpan.misc = value
-                            }
+                    val value = textAccumulator.toString().trim()
+                    if (value.isNotEmpty()) {
+                        fun append(current: String?, new: String): String {
+                            return if (current == null || current == "_") new else "$current|$new"
                         }
-                        textAccumulator.clear()
-                        currentFName = null
-                    } else if (localName == "span") {
-                        if (currentSpan != null && currentFromTo != null) {
-                            res[currentFromTo] = currentSpan
+                        when (currentFName) {
+                            "lemma" -> currentSpan.lemma = append(currentSpan.lemma, value.replace(UNKNOWN, "--"))
+                            "upos" -> currentSpan.upos = append(currentSpan.upos, value)
+                            "xpos", "ctag", "pos" -> currentSpan.xpos = append(currentSpan.xpos, value.replace(UNKNOWN, "--"))
+                            "feats", "msd" -> currentSpan.feats = append(currentSpan.feats, value)
+                            "certainty" -> currentSpan.misc = append(currentSpan.misc, value)
                         }
-                        currentSpan = null
-                        currentFromTo = null
                     }
+                    textAccumulator.clear()
+                    currentFName = null
+                } else if (localName == "span") {
+                    if (currentSpan != null && currentFromTo != null) {
+                        res[currentFromTo] = currentSpan
+                    }
+                    currentSpan = null
+                    currentFromTo = null
                 }
             }
         }
-        return Pair(res, allSpans.toTypedArray())
     }
+    return Pair(res, allSpans.toTypedArray())
+}
 
     private fun extractMorphoSpans(
         fsSpans: NodeList
@@ -3454,22 +3457,28 @@ class KorapXmlTool : Callable<Int> {
                 val fs = MorphoSpan()
                 val fromTo = "${node.getAttribute("from")}-${node.getAttribute("to")}"
                 IntStream.range(0, features.length).mapToObj(features::item).forEach { feature ->
-                        val attr = (feature as Element).getAttribute("name")
-                        val value = feature.textContent.trim()
-                        if (value.isEmpty()) return@forEach
-                        when (attr) {
-                            "lemma" -> if(fs.lemma == "_") fs.lemma = value.replace(UNKNOWN, "--")
-                            "upos" -> fs.upos = value
-                            "xpos", "ctag", "pos" -> if(fs.xpos == "_") fs.xpos = value.replace(UNKNOWN, "--")
-                            "feats", "msd" -> if(fs.feats == "_" ) fs.feats = value
-                            "type" -> if(fs.feats == "_") fs.feats = feature.getElementsByTagName("symbol").item(0).attributes.getNamedItem("value").textContent.trim()
-                            "certainty" -> if(fs.misc == "_") fs.misc = value
-                        }
+                    val attr = (feature as Element).getAttribute("name")
+                    val value = feature.textContent.trim()
+                    if (value.isEmpty()) return@forEach
+                    fun append(current: String?, new: String): String {
+                        return if (current == null || current == "_") new else "$current|$new"
                     }
-                res[fromTo] = fs
-            }
-        return res
-    }
+                    when (attr) {
+                        "lemma" -> fs.lemma = append(fs.lemma, value.replace(UNKNOWN, "--"))
+                        "upos" -> fs.upos = append(fs.upos, value)
+                        "xpos", "ctag", "pos" -> fs.xpos = append(fs.xpos, value.replace(UNKNOWN, "--"))
+                        "feats", "msd" -> fs.feats = append(fs.feats, value)
+                        "type" -> {
+                             val typeVal = feature.getElementsByTagName("symbol").item(0).attributes.getNamedItem("value").textContent.trim()
+                             fs.feats = append(fs.feats, typeVal)
+                        }
+                        "certainty" -> fs.misc = append(fs.misc, value)
+                    }
+                }
+            res[fromTo] = fs
+        }
+    return res
+}
 
     private fun extractDependencySpansStax(reader: XMLStreamReader): MutableMap<String, MorphoSpan> {
         val res: MutableMap<String, MorphoSpan> = HashMap()

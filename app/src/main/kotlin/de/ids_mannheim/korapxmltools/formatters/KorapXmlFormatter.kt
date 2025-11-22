@@ -59,48 +59,59 @@ object KorapXmlFormatter : OutputFormatter {
             spanNode.setAttribute("from", offsets[0])
             spanNode.setAttribute("to", offsets[1])
 
-            // fs element
-            val fs = doc.createElement("fs")
-            fs.setAttribute("type", "lex")
-            fs.setAttribute("xmlns", "http://www.tei-c.org/ns/1.0")
-            spanNode.appendChild(fs)
-            val f = doc.createElement("f")
-            f.setAttribute("name", "lex")
-            fs.appendChild(f)
+            // Split values by | to handle multiple interpretations
+            val lemmas = if (mfs.lemma != "_") mfs.lemma!!.split("|") else emptyList()
+            val uposList = if (mfs.upos != "_") mfs.upos!!.split("|") else emptyList()
+            val xposList = if (mfs.xpos != "_") mfs.xpos!!.split("|") else emptyList()
+            val featsList = if (mfs.feats != "_") mfs.feats!!.split("|") else emptyList()
+            val miscList = if (mfs.misc != "_") mfs.misc!!.split("|") else emptyList()
 
-            // Inner fs element
-            val innerFs = doc.createElement("fs")
-            f.appendChild(innerFs)
+            val maxLen = maxOf(lemmas.size, uposList.size, xposList.size, featsList.size, miscList.size).coerceAtLeast(1)
 
-            if (mfs.lemma != "_") {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "lemma")
-                innerF.textContent = mfs.lemma
-                innerFs.appendChild(innerF)
-            }
-            if (mfs.upos != "_") {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "upos")
-                innerF.textContent = mfs.upos
-                innerFs.appendChild(innerF)
-            }
-            if (mfs.xpos != "_") {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "pos")
-                innerF.textContent = mfs.xpos
-                innerFs.appendChild(innerF)
-            }
-            if (mfs.feats != "_") {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "msd")
-                innerF.textContent = mfs.feats
-                innerFs.appendChild(innerF)
-            }
-            if (mfs.misc != "_" && mfs.misc!!.matches(Regex("^[0-9.]+$"))) {
-                val innerF = doc.createElement("f")
-                innerF.setAttribute("name", "certainty")
-                innerF.textContent = mfs.misc
-                innerFs.appendChild(innerF)
+            for (j in 0 until maxLen) {
+                // fs element
+                val fs = doc.createElement("fs")
+                fs.setAttribute("type", "lex")
+                fs.setAttribute("xmlns", "http://www.tei-c.org/ns/1.0")
+                spanNode.appendChild(fs)
+                val f = doc.createElement("f")
+                f.setAttribute("name", "lex")
+                fs.appendChild(f)
+
+                // Inner fs element
+                val innerFs = doc.createElement("fs")
+                f.appendChild(innerFs)
+
+                if (j < lemmas.size) {
+                    val innerF = doc.createElement("f")
+                    innerF.setAttribute("name", "lemma")
+                    innerF.textContent = lemmas[j]
+                    innerFs.appendChild(innerF)
+                }
+                if (j < uposList.size) {
+                    val innerF = doc.createElement("f")
+                    innerF.setAttribute("name", "upos")
+                    innerF.textContent = uposList[j]
+                    innerFs.appendChild(innerF)
+                }
+                if (j < xposList.size) {
+                    val innerF = doc.createElement("f")
+                    innerF.setAttribute("name", "pos")
+                    innerF.textContent = xposList[j]
+                    innerFs.appendChild(innerF)
+                }
+                if (j < featsList.size) {
+                    val innerF = doc.createElement("f")
+                    innerF.setAttribute("name", "msd")
+                    innerF.textContent = featsList[j]
+                    innerFs.appendChild(innerF)
+                }
+                if (j < miscList.size && miscList[j].matches(Regex("^[0-9.]+$"))) {
+                    val innerF = doc.createElement("f")
+                    innerF.setAttribute("name", "certainty")
+                    innerF.textContent = miscList[j]
+                    innerFs.appendChild(innerF)
+                }
             }
 
             spanList.appendChild(spanNode)

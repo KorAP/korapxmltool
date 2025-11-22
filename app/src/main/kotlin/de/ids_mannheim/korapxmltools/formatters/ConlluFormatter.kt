@@ -114,15 +114,22 @@ object ConlluFormatter : OutputFormatter {
                 if (mfs != null) {
                     val miscWithOffset = if (context.includeOffsetsInMisc) {
                         val existing = mfs.misc ?: "_"
-                        if (existing == "_") "Offset=${span.from}-${span.to}" else "${existing}|Offset=${span.from}-${span.to}"
-                    } else mfs.misc ?: "_"
+                        val isMulti = (mfs.xpos != null && mfs.xpos!!.contains("|")) || (mfs.upos != null && mfs.upos!!.contains("|"))
+                        val miscVal = if (!isMulti && existing.matches(Regex("^[0-9.]+$"))) "_" else existing
+                        
+                        if (miscVal == "_") "Offset=${span.from}-${span.to}" else "${miscVal}|Offset=${span.from}-${span.to}"
+                    } else {
+                        val existing = mfs.misc ?: "_"
+                        val isMulti = (mfs.xpos != null && mfs.xpos!!.contains("|")) || (mfs.upos != null && mfs.upos!!.contains("|"))
+                        if (!isMulti && existing.matches(Regex("^[0-9.]+$"))) "_" else existing
+                    }
                     
                     try {
                         output.append(
                             printConlluToken(
                                 tokenIndex,
                                 tokenText,
-                                mfs.lemma ?: "_",
+                                mfs.lemma?.split("|")?.distinct()?.joinToString("|") ?: "_",
                                 mfs.upos ?: "_",
                                 mfs.xpos ?: "_",
                                 mfs.feats ?: "_",

@@ -615,12 +615,34 @@ object KrillJsonGenerator {
 
                         // POS (xpos) with optional byte encoding
                         if (morphoSpan.xpos != null && morphoSpan.xpos != "_") {
-                            tokenAnnotations.add(jsonString("$prefix/p:${morphoSpan.xpos!!.escapeKrillValue()}"))
+                            val xposList = morphoSpan.xpos!!.split("|")
+                            val miscList = if (morphoSpan.misc != null && morphoSpan.misc != "_") {
+                                morphoSpan.misc!!.split("|")
+                            } else {
+                                emptyList()
+                            }
+
+                            xposList.forEachIndexed { index, xpos ->
+                                val certainty = if (index < miscList.size) {
+                                    miscList[index].toDoubleOrNull()
+                                } else {
+                                    null
+                                }
+
+                                if (certainty != null && xposList.size > 1) {
+                                    val payload = kotlin.math.round(certainty * 255).toInt()
+                                    tokenAnnotations.add(jsonString("$prefix/p:${xpos.escapeKrillValue()}\$<b>129<b>$payload"))
+                                } else {
+                                    tokenAnnotations.add(jsonString("$prefix/p:${xpos.escapeKrillValue()}"))
+                                }
+                            }
                         }
 
                         // Lemma
                         if (morphoSpan.lemma != null && morphoSpan.lemma != "_") {
-                            tokenAnnotations.add(jsonString("$prefix/l:${morphoSpan.lemma!!.escapeKrillValue()}"))
+                            morphoSpan.lemma!!.split("|").distinct().forEach { lemma ->
+                                tokenAnnotations.add(jsonString("$prefix/l:${lemma.escapeKrillValue()}"))
+                            }
                         }
 
                         // UPOS (skip for tree_tagger as it only has xpos)

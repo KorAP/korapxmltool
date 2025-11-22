@@ -54,7 +54,7 @@ class ConlluFormatterTest {
         val args = arrayOf(loadResource("goe.tree_tagger.zip").path)
         debug(args)
         assertContains(outContent.toString(), "# foundry = tree_tagger")
-        assertContains(outContent.toString(), "9\tentzücke\tentzücken\t_\tVVFIN\t_\t_\t_\t_\t1.000000")
+        assertContains(outContent.toString(), "9\tentzücke\tentzücken\t_\tVVFIN\t_\t_\t_\t_\t_")
     }
 
     @Test
@@ -63,7 +63,7 @@ class ConlluFormatterTest {
         val args = arrayOf(goeTreeTagger)
         debug(args)
         assertContains(outContent.toString(), "# foundry = tree_tagger")
-        assertContains(outContent.toString(), "9\tentzücke\tentzücken\t_\tVVFIN\t_\t_\t_\t_\t1.000000")
+        assertContains(outContent.toString(), "9\tentzücke\tentzücken\t_\tVVFIN\t_\t_\t_\t_\t_")
     }
 
     @Test
