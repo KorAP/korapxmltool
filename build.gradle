@@ -5,4 +5,4 @@ repositories {
 }
 
 // Zentrale Projektversion für korapxmltool
-version = '3.00-rc2'
+version = '3.00-rc3'

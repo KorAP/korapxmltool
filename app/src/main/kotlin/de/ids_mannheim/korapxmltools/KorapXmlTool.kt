@@ -61,7 +61,7 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
 @Command(
     name = "korapxmltool",
     mixinStandardHelpOptions = true,
-    version = ["korapxmltool v3.00-rc2"],
+    version = ["korapxmltool v3.00-rc3"],
     usageHelpAutoWidth = false,
     usageHelpWidth = 200,
     description = ["Converts between KorAP-XML ZIP format and formats like CoNLL-U, Krill, word2vec, NOW\n"+
