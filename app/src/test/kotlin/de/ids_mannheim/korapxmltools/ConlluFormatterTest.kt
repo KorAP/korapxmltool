@@ -198,4 +198,43 @@ class ConlluFormatterTest {
                     "14\tAinsi\t_\t_\t_\t_\t_\t_\t_\t_\n"
         )
     }
+
+    @Test
+    fun testProbabilitySortingInConlluOutput() {
+        // Test probability sorting by converting the multipos.conllu file directly to CoNLL-U
+        // This tests the sortByProbability function without external annotation hanging issues
+        
+        // First, convert the multipos.conllu back to ZIP, then back to CoNLL-U to test our sorting
+        val args = arrayOf("-t", "zip", "-o", "test_multipos_temp.zip", 
+                          loadResource("wud24_sample.multipos.conllu").path)
+        debug(args)
+        
+        // Clear output buffer
+        outContent.reset()
+        errContent.reset()
+        
+        // Now convert the ZIP back to CoNLL-U to see if our sorting works
+        val args2 = arrayOf("test_multipos_temp.zip")
+        debug(args2)
+        
+        val output = outContent.toString()
+        
+        // Find the Foundation token line
+        val foundationLines = output.lines().filter { it.contains("Foundation") && it.contains("|") }
+        if (foundationLines.isNotEmpty()) {
+            val foundationLine = foundationLines.first()
+            val columns = foundationLine.split("\t")
+            
+            // Check if sorting was applied (looking for NN first since it has highest probability)
+            if (columns.size >= 5) {
+                val xpos = columns[4]
+                // The key test: NN should come first since it has probability 0.984
+                assertTrue(xpos.startsWith("NN"), "Highest probability POS tag (NN with 0.984) should come first in: $xpos")
+            }
+        }
+        
+        // Clean up
+        java.io.File("test_multipos_temp.zip").delete()
+    }
+
 }

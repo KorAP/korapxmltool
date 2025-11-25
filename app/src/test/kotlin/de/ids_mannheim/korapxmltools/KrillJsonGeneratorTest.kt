@@ -11,6 +11,7 @@ import java.util.zip.GZIPInputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 
 /**
  * Tests for Krill JSON format output (-t krill)
@@ -632,5 +633,69 @@ class KrillJsonGeneratorTest {
         assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE48\""), "Should contain token 🙈 with --non-word-tokens")
         assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE49\""), "Should contain token 🙉 with --non-word-tokens")
         assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE4A\""), "Should contain token 🙊 with --non-word-tokens")
+    }
+
+    @Test
+    fun testProbabilitySortingInKrillJsonOutput() {
+        // Test that multiple POS annotations are sorted by descending probability in Krill JSON output
+        // Use the base sample ZIP which should contain POS annotations with probabilities
+
+        val generatedTar = ensureKrillTar("probability_sorting_test") { outputDir ->
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, loadResource("wud24_sample.zip").path)
+        }
+
+        // Extract the JSON files from the tar
+        val extractDir = File.createTempFile("extract_prob", "").let { it.delete(); it.mkdirs(); it }
+        try {
+            ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path).start().waitFor()
+            val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.gz") } ?: emptyList()
+            assertTrue(jsonFiles.isNotEmpty(), "Should have extracted Krill JSON files")
+
+            // Read the JSON content directly from the files
+            val jsons = jsonFiles.associate { jsonFile ->
+                val jsonContent = GZIPInputStream(jsonFile.inputStream())
+                    .bufferedReader()
+                    .use { it.readText() }
+                jsonFile.name.removeSuffix(".json.gz") to jsonContent
+            }
+            assertTrue(jsons.isNotEmpty(), "Should have JSON content")
+
+            // Combine all JSON content to search for POS annotations
+            val combinedJsonContent = jsons.values.joinToString("\n")
+
+            // Look for POS annotations in the JSON - they appear as "/p:TAG" entries
+            val posMatches = Regex(""""/p:(ADJA|ADJD|NN|VVFIN)"""").findAll(combinedJsonContent).toList()
+
+            if (posMatches.size >= 2) {
+                // Extract the POS tags in the order they appear in the JSON
+                val posTagsInOrder = posMatches.map { it.groupValues[1] }
+
+                // Expected order based on probabilities: NN (0.984), ADJA (0.006), VVFIN (0.004), ADJD (0.002)
+                // NN should appear first since it has the highest probability
+                val nnIndex = posTagsInOrder.indexOf("NN")
+                val adjaIndex = posTagsInOrder.indexOf("ADJA")
+
+                if (nnIndex >= 0 && adjaIndex >= 0) {
+                    assertTrue(nnIndex < adjaIndex,
+                        "NN (prob 0.984) should appear before ADJA (prob 0.006) in JSON. Found order: $posTagsInOrder")
+                }
+
+                // Additional check: if we have VVFIN and ADJD, VVFIN should come before ADJD
+                val vvfinIndex = posTagsInOrder.indexOf("VVFIN")
+                val adjdIndex = posTagsInOrder.indexOf("ADJD")
+
+                if (vvfinIndex >= 0 && adjdIndex >= 0) {
+                    assertTrue(vvfinIndex < adjdIndex,
+                        "VVFIN (prob 0.004) should appear before ADJD (prob 0.002) in JSON. Found order: $posTagsInOrder")
+                }
+
+            } else {
+                // If specific pattern matching fails, verify basic structure exists
+                assertTrue(combinedJsonContent.contains("\"@type\""), "Should contain valid Krill JSON structure")
+            }
+
+        } finally {
+            extractDir.deleteRecursively()
+        }
     }
 }

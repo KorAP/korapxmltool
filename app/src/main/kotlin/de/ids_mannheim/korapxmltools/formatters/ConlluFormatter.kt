@@ -125,18 +125,24 @@ object ConlluFormatter : OutputFormatter {
                     }
                     
                     try {
+                        // Sort multiple POS annotations by descending probability
+                        val (sortedUpos, sortedXpos, sortedMisc) = sortByProbability(mfs.upos ?: "_", mfs.xpos ?: "_", miscWithOffset)
+                        
+                        // Sort multiple lemma annotations by descending probability
+                        val sortedLemma = sortLemmaByProbability(mfs.lemma ?: "_", mfs.xpos ?: "_", miscWithOffset)
+                        
                         output.append(
                             printConlluToken(
                                 tokenIndex,
                                 tokenText,
-                                mfs.lemma?.split("|")?.distinct()?.joinToString("|") ?: "_",
-                                mfs.upos ?: "_",
-                                mfs.xpos ?: "_",
+                                sortedLemma,
+                                sortedUpos,
+                                sortedXpos,
                                 mfs.feats ?: "_",
                                 resolveHeadValue(mfs.head),
                                 mfs.deprel ?: "_",
                                 mfs.deps ?: "_",
-                                miscWithOffset,
+                                sortedMisc,
                                 context.columns,
                                 context.compatibilityMode,
                                 context.tokenSeparator
@@ -312,6 +318,103 @@ object ConlluFormatter : OutputFormatter {
                 fields.subList(0, min(columns, 10)).joinToString("\t", postfix = tokenSeparator)
             }
         }
+    }
+    
+    /**
+     * Sort multiple POS annotations by descending probability.
+     * If probabilities are found in misc field, reorder upos, xpos, and misc accordingly.
+     */
+    private fun sortByProbability(upos: String, xpos: String, misc: String): Triple<String, String, String> {
+        // Extract probabilities from misc field (exclude Offset= part if present)
+        val miscParts = misc.split("|")
+        val probabilities = mutableListOf<Double?>()
+        val nonProbParts = mutableListOf<String>()
+        
+        for (part in miscParts) {
+            if (part.startsWith("Offset=")) {
+                nonProbParts.add(part)
+            } else {
+                val prob = part.toDoubleOrNull()
+                if (prob != null) {
+                    probabilities.add(prob)
+                } else {
+                    nonProbParts.add(part)
+                }
+            }
+        }
+        
+        // If we don't have probabilities or they don't match POS count, return as-is
+        val uposParts = if (upos == "_") emptyList() else upos.split("|")
+        val xposParts = if (xpos == "_") emptyList() else xpos.split("|")
+        
+        // Use xpos as the primary reference for multiple annotations
+        if (probabilities.isEmpty() || probabilities.size != xposParts.size) {
+            return Triple(upos, xpos, misc)
+        }
+        
+        // Create indexed list for sorting
+        val indexed = xposParts.mapIndexed { index, tag ->
+            val prob = probabilities.getOrNull(index) ?: 0.0
+            val uposTag = uposParts.getOrNull(index) ?: "_"
+            Triple(prob, uposTag, tag)
+        }
+        
+        // Sort by descending probability
+        val sorted = indexed.sortedByDescending { it.first }
+        
+        // Reconstruct the fields
+        val sortedUpos = if (uposParts.isNotEmpty()) {
+            sorted.map { it.second }.joinToString("|")
+        } else "_"
+        
+        val sortedXpos = sorted.map { it.third }.joinToString("|")
+        
+        val sortedProbs = sorted.map { "%.3f".format(it.first) }.joinToString("|")
+        val sortedMisc = if (nonProbParts.isNotEmpty()) {
+            (listOf(sortedProbs) + nonProbParts).joinToString("|")
+        } else {
+            sortedProbs
+        }
+        
+        return Triple(sortedUpos, sortedXpos, sortedMisc)
+    }
+    
+    /**
+     * Sort multiple lemma annotations by descending probability.
+     * Uses the same probability ordering as POS annotations from the misc field.
+     */
+    private fun sortLemmaByProbability(lemma: String, xpos: String, misc: String): String {
+        if (lemma == "_") return "_"
+        
+        // Extract probabilities from misc field (exclude Offset= part if present)
+        val miscParts = misc.split("|")
+        val probabilities = mutableListOf<Double>()
+        
+        for (part in miscParts) {
+            if (!part.startsWith("Offset=")) {
+                val prob = part.toDoubleOrNull()
+                if (prob != null) {
+                    probabilities.add(prob)
+                }
+            }
+        }
+        
+        val lemmaParts = lemma.split("|").distinct()
+        val xposParts = if (xpos == "_") emptyList() else xpos.split("|")
+        
+        // If we don't have probabilities or they don't match the count, return distinct lemmas as-is
+        if (probabilities.isEmpty() || probabilities.size != xposParts.size || lemmaParts.size != xposParts.size) {
+            return lemmaParts.joinToString("|")
+        }
+        
+        // Create indexed list for sorting
+        val indexed = lemmaParts.mapIndexed { index, lemmaValue ->
+            val prob = probabilities.getOrNull(index) ?: 0.0
+            Pair(prob, lemmaValue)
+        }
+        
+        // Sort by descending probability and return
+        return indexed.sortedByDescending { it.first }.map { it.second }.joinToString("|")
     }
     
     /**

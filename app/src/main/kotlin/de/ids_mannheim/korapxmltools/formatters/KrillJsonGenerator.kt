@@ -613,7 +613,7 @@ object KrillJsonGenerator {
                             features.sorted().forEach { tokenAnnotations.add(jsonString(it)) }
                         }
 
-                        // POS (xpos) with optional byte encoding
+                        // POS (xpos) with optional byte encoding - sorted by descending probability
                         if (morphoSpan.xpos != null && morphoSpan.xpos != "_") {
                             val xposList = morphoSpan.xpos!!.split("|")
                             val miscList = if (morphoSpan.misc != null && morphoSpan.misc != "_") {
@@ -622,14 +622,27 @@ object KrillJsonGenerator {
                                 emptyList()
                             }
 
-                            xposList.forEachIndexed { index, xpos ->
-                                val certainty = if (index < miscList.size) {
-                                    miscList[index].toDoubleOrNull()
-                                } else {
-                                    null
+                            // Sort by descending probability if probabilities are available
+                            val sortedPairs = if (miscList.size == xposList.size && 
+                                                 miscList.all { it.toDoubleOrNull() != null }) {
+                                xposList.mapIndexed { index, xpos ->
+                                    val certainty = miscList[index].toDoubleOrNull() ?: 0.0
+                                    Pair(xpos, certainty)
+                                }.sortedByDescending { it.second }
+                            } else {
+                                // If probabilities don't match, keep original order
+                                xposList.mapIndexed { index, xpos ->
+                                    val certainty = if (index < miscList.size) {
+                                        miscList[index].toDoubleOrNull()
+                                    } else {
+                                        null
+                                    }
+                                    Pair(xpos, certainty)
                                 }
+                            }
 
-                                if (certainty != null && xposList.size > 1) {
+                            sortedPairs.forEach { (xpos, certainty) ->
+                                if (certainty != null && sortedPairs.size > 1) {
                                     val payload = kotlin.math.round(certainty * 255).toInt()
                                     tokenAnnotations.add(jsonString("$prefix/p:${xpos.escapeKrillValue()}\$<b>129<b>$payload"))
                                 } else {
@@ -638,9 +651,31 @@ object KrillJsonGenerator {
                             }
                         }
 
-                        // Lemma
+                        // Lemma - sorted by descending probability if probabilities are available
                         if (morphoSpan.lemma != null && morphoSpan.lemma != "_") {
-                            morphoSpan.lemma!!.split("|").distinct().forEach { lemma ->
+                            val lemmaList = morphoSpan.lemma!!.split("|").distinct()
+                            val miscList = if (morphoSpan.misc != null && morphoSpan.misc != "_") {
+                                morphoSpan.misc!!.split("|")
+                            } else {
+                                emptyList()
+                            }
+                            
+                            // Extract probabilities from misc (exclude Offset= parts)
+                            val probabilities = miscList.filter { !it.startsWith("Offset=") }
+                                .mapNotNull { it.toDoubleOrNull() }
+                            
+                            val sortedLemmas = if (probabilities.size == lemmaList.size) {
+                                // Sort by descending probability
+                                lemmaList.mapIndexed { index, lemma ->
+                                    val certainty = probabilities.getOrNull(index) ?: 0.0
+                                    Pair(lemma, certainty)
+                                }.sortedByDescending { it.second }.map { it.first }
+                            } else {
+                                // If probabilities don't match, keep original order
+                                lemmaList
+                            }
+                            
+                            sortedLemmas.forEach { lemma ->
                                 tokenAnnotations.add(jsonString("$prefix/l:${lemma.escapeKrillValue()}"))
                             }
                         }

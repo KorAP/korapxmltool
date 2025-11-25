@@ -1,0 +1,942 @@
+# foundry = tree_tagger
+# filename = WUD24/I0083/95367/tree_tagger/morpho.xml
+# text_id = WUD24_I0083.95367
+# start_offsets = 1 1 10 21 24 28 37 39 46
+# end_offsets = 47 9 20 23 27 37 38 46 47
+1	Herzlich	herzlich	_	ADJD	_	_	_	_	_
+2	willkommen	willkommen	_	ADJD	_	_	_	_	_
+3	in	in	_	APPR	_	_	_	_	_
+4	der	die	_	ART|PRELS|PDS	_	_	_	_	0.947|0.050|0.002
+5	Wikipedia	Wikipedia	_	NE	_	_	_	_	_
+6	,	,	_	$,	_	_	_	_	_
+7	IrisBra	--	_	NN|NE	_	_	_	_	0.997|0.002
+8	!	!	_	$.	_	_	_	_	_
+
+# start_offsets = 49 49 53 58 65 67 72 75 80 89 94 105 109 111 115 122 126 130 135 141 146 148 154 157 162 165 169 179 189 197 211 213 218 219 235 243 254 258 263 265 270 278 284 289 291 296 303 312 317 326 330
+# end_offsets = 331 52 57 65 66 71 74 79 88 93 104 109 110 114 121 125 129 134 140 146 147 153 156 161 164 168 178 188 196 211 212 218 219 234 242 253 257 263 264 269 277 283 289 290 295 302 311 316 325 330 331
+1	Ich	ich	_	PPER|NN	_	_	_	_	0.982|0.018
+2	habe	haben	_	VAFIN|VAIMP	_	_	_	_	1.000|0.000
+3	gesehen	sehen	_	VVPP	_	_	_	_	_
+4	,	,	_	$,	_	_	_	_	_
+5	dass	dass	_	KOUS	_	_	_	_	_
+6	du	du	_	PPER	_	_	_	_	_
+7	dich	du	_	PPER	_	_	_	_	_
+8	kürzlich	kürzlich	_	ADJD	_	_	_	_	_
+9	hier	hier	_	ADV|PTKVZ	_	_	_	_	0.992|0.008
+10	angemeldet	anmelden	_	VVPP	_	_	_	_	_
+11	hast	haben	_	VAFIN	_	_	_	_	_
+12	,	,	_	$,	_	_	_	_	_
+13	und	und	_	KON	_	_	_	_	_
+14	möchte	mögen	_	VMFIN	_	_	_	_	_
+15	dir	du	_	PPER|PRF	_	_	_	_	0.555|0.445
+16	ein	eine	_	ART|PTKVZ|CARD|VVIMP	_	_	_	_	0.923|0.074|0.003|0.000
+17	paar	paar	_	PIAT|PIS|PTKVZ|VVIMP	_	_	_	_	0.984|0.005|0.005|0.005
+18	Tipps	Tip	_	NN	_	_	_	_	_
+19	geben	geben	_	VVINF|VVFIN	_	_	_	_	0.678|0.322
+20	,	,	_	$,	_	_	_	_	_
+21	damit	damit	_	PAV|KOUS	_	_	_	_	0.903|0.097
+22	du	du	_	PPER	_	_	_	_	_
+23	dich	du	_	PPER	_	_	_	_	_
+24	in	in	_	APPR	_	_	_	_	_
+25	der	die	_	ART|PRELS|PDS	_	_	_	_	0.947|0.050|0.002
+26	Wikipedia	Wikipedia	_	NE	_	_	_	_	_
+27	möglichst	möglichst	_	ADV|ADJD	_	_	_	_	0.976|0.024
+28	schnell	schnell	_	ADJD|VVIMP	_	_	_	_	1.000|0.000
+29	zurechtfindest	zurechtfinden	_	VVFIN|ADJA|ADV	_	_	_	_	0.994|0.002|0.002
+30	:	:	_	$.	_	_	_	_	_
+31	Datei	Datei	_	NN	_	_	_	_	_
+32	:	:	_	$.	_	_	_	_	_
+33	Signaturhinweis	Signaturhinweis	_	NN|ADJD|NE|VVIMP|ADJA|VVFIN	_	_	_	_	0.964|0.012|0.011|0.007|0.003|0.002
+34	deutsch	deutsch	_	ADJD	_	_	_	_	_
+35	vector.png	--	_	NE|ADJA|VVFIN|ADJD|NN	_	_	_	_	0.981|0.007|0.004|0.002|0.001
+36	Sei	sein	_	VAFIN	_	_	_	_	_
+37	mutig	mutig	_	ADJD	_	_	_	_	_
+38	,	,	_	$,	_	_	_	_	_
+39	aber	aber	_	ADV|KON	_	_	_	_	0.630|0.370
+40	vergiss	vergessen	_	VVIMP	_	_	_	_	_
+41	bitte	bitten	_	ADV|PTKANT|VVFIN|VVIMP	_	_	_	_	0.250|0.250|0.250|0.250
+42	nicht	nicht	_	PTKNEG	_	_	_	_	_
+43	,	,	_	$,	_	_	_	_	_
+44	dass	dass	_	KOUS	_	_	_	_	_
+45	andere	andere	_	ADJA|PIS	_	_	_	_	0.662|0.338
+46	Benutzer	Benutzer	_	NN	_	_	_	_	_
+47	auch	auch	_	ADV	_	_	_	_	_
+48	Menschen	Mensch	_	NN	_	_	_	_	_
+49	sind	sein	_	VAFIN	_	_	_	_	_
+50	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 332 332 338 344 350 356 362 375 385 387 392 397 400 405 409 414 421 428
+# end_offsets = 429 337 343 349 355 361 374 385 386 391 396 399 404 408 413 420 428 429
+1	Daher	daher	_	PAV|ADV|PTKVZ	_	_	_	_	0.987|0.007|0.006
+2	wahre	wahren	_	VVFIN|ADJA	_	_	_	_	0.519|0.481
+3	bitte	bitte	_	ADV|PTKANT|VVFIN|VVIMP	_	_	_	_	0.250|0.250|0.250|0.250
+4	immer	immer	_	ADV	_	_	_	_	_
+5	einen	eine	_	ART|PIS|ADJA|CARD|VVFIN|VVINF	_	_	_	_	0.961|0.024|0.012|0.001|0.001|0.001
+6	freundlichen	freundlich	_	ADJA	_	_	_	_	_
+7	Umgangston	Umgangston	_	NN	_	_	_	_	_
+8	,	,	_	$,	_	_	_	_	_
+9	auch	auch	_	ADV	_	_	_	_	_
+10	wenn	wenn	_	KOUS	_	_	_	_	_
+11	du	du	_	PPER	_	_	_	_	_
+12	dich	du	_	PPER	_	_	_	_	_
+13	mal	mal	_	ADV|PTKVZ|VVIMP	_	_	_	_	0.992|0.004|0.004
+14	über	über	_	APPR|PTKVZ	_	_	_	_	0.994|0.006
+15	andere	andere	_	ADJA|PIS	_	_	_	_	0.662|0.338
+16	ärgerst	--	_	VVFIN|ADJA	_	_	_	_	0.996|0.002
+17	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 431 431 437 441 445 466 476 482 487 494 497 498 501 508 512 526 527
+# end_offsets = 528 436 440 444 465 475 481 486 493 496 498 500 507 511 526 527 528
+1	Bitte	bitte	_	NN|ADV|PTKANT|VVFIN|VVIMP	_	_	_	_	0.500|0.125|0.125|0.125|0.125
+2	gib	geben	_	VVIMP	_	_	_	_	_
+3	bei	bei	_	APPR|PTKVZ	_	_	_	_	0.988|0.012
+4	Artikelbearbeitungen	Artikelbearbeitung	_	NN	_	_	_	_	_
+5	möglichst	möglichst	_	ADV|ADJD	_	_	_	_	0.976|0.024
+6	immer	immer	_	ADV	_	_	_	_	_
+7	eine	eine	_	ART|PIS|CARD|VVFIN	_	_	_	_	0.967|0.032|0.000|0.000
+8	Quelle	Quelle	_	NN	_	_	_	_	_
+9	an	an	_	APPR|PTKVZ|APZR|ADV	_	_	_	_	0.786|0.160|0.051|0.003
+10	(	(	_	$(	_	_	_	_	_
+11	am	an+die	_	APPRART|PTKA	_	_	_	_	0.944|0.056
+12	besten	gut	_	ADJA|ADJD	_	_	_	_	0.796|0.204
+13	als	als	_	KOKOM|KOUS|KON	_	_	_	_	0.842|0.132|0.026
+14	Einzelnachweis	Einzelnachweis	_	NN	_	_	_	_	_
+15	)	)	_	$(	_	_	_	_	_
+16	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 530 530 539 545 557 562 565 569 590
+# end_offsets = 591 538 544 556 561 564 568 590 591
+1	Begründe	begründen	_	VVFIN|VVIMP	_	_	_	_	0.998|0.002
+2	deine	dein	_	PPOSAT|PPOSS	_	_	_	_	0.997|0.003
+3	Bearbeitung	Bearbeitung	_	NN	_	_	_	_	_
+4	kurz	kurz	_	ADJD|PTKVZ	_	_	_	_	0.990|0.010
+5	in	in	_	APPR	_	_	_	_	_
+6	der	die	_	ART|PRELS|PDS	_	_	_	_	0.947|0.050|0.002
+7	Zusammenfassungszeile	Zusammenfassungszeile	_	NN	_	_	_	_	_
+8	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 592 592 598 609 611 613 618 625 634 640 649 660 666 668 673 677 683 689 704 710
+# end_offsets = 711 597 608 611 612 617 624 633 639 648 659 666 667 672 676 682 688 703 710 711
+1	Damit	damit	_	PAV|KOUS	_	_	_	_	0.903|0.097
+2	vermeidest	--	_	VVFIN|ADJA	_	_	_	_	0.996|0.002
+3	du	du	_	PPER	_	_	_	_	_
+4	,	,	_	$,	_	_	_	_	_
+5	dass	dass	_	KOUS	_	_	_	_	_
+6	andere	andere	_	ADJA|PIS	_	_	_	_	0.662|0.338
+7	Benutzer	Benutzer	_	NN	_	_	_	_	_
+8	deine	dein	_	PPOSAT|PPOSS	_	_	_	_	0.997|0.003
+9	Änderung	Änderung	_	NN	_	_	_	_	_
+10	rückgängig	rückgängig	_	ADJD	_	_	_	_	_
+11	machen	machen	_	VVINF|VVFIN	_	_	_	_	0.800|0.200
+12	,	,	_	$,	_	_	_	_	_
+13	weil	weil	_	KOUS|VVIMP	_	_	_	_	0.998|0.002
+14	sie	sie	_	PPER	_	_	_	_	_
+15	diese	dies	_	PDAT|PDS	_	_	_	_	0.925|0.075
+16	nicht	nicht	_	PTKNEG	_	_	_	_	_
+17	nachvollziehen	nachvollziehen	_	VVINF|VVFIN	_	_	_	_	0.690|0.310
+18	können	können	_	VMFIN|VMINF|VVFIN|VVINF	_	_	_	_	0.693|0.306|0.001|0.001
+19	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 713 713 719 724 731 735 741 746 750 755 768 772 776 786 794
+# end_offsets = 795 718 723 730 734 740 745 749 754 767 771 775 785 794 795
+1	Nicht	nicht	_	PTKNEG	_	_	_	_	_
+2	alle	alle	_	PIAT|PIS	_	_	_	_	0.769|0.231
+3	Themen	Thema	_	NN	_	_	_	_	_
+4	und	und	_	KON	_	_	_	_	_
+5	Texte	Text	_	NN	_	_	_	_	_
+6	sind	sein	_	VAFIN	_	_	_	_	_
+7	für	für	_	APPR	_	_	_	_	_
+8	eine	eine	_	ART|PIS|CARD|VVFIN	_	_	_	_	0.967|0.032|0.000|0.000
+9	Enzyklopädie	Enzyklopädie	_	NN	_	_	_	_	_
+10	wie	wie	_	KOKOM|KOUS|PWAV	_	_	_	_	0.663|0.336|0.001
+11	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+12	Wikipedia	Wikipedia	_	NE	_	_	_	_	_
+13	geeignet	eignen	_	ADJD|VVPP	_	_	_	_	0.785|0.215
+14	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 796 796 811 816 826 830 839 846 849 858 860 865 868 872 878 887 888 892 902 908 912 916 925 926 944 953
+# end_offsets = 954 810 815 825 829 838 845 848 858 859 864 867 871 877 887 888 891 901 907 911 915 925 926 943 953 954
+1	Enttäuschungen	Enttäuschung	_	NN	_	_	_	_	_
+2	beim	bei+die	_	APPRART	_	_	_	_	_
+3	Schreiben	Schreiben	_	NN	_	_	_	_	_
+4	von	von	_	APPR|NE	_	_	_	_	0.993|0.007
+5	Artikeln	Artikel	_	NN	_	_	_	_	_
+6	kannst	können	_	VMFIN	_	_	_	_	_
+7	du	du	_	PPER	_	_	_	_	_
+8	vermeiden	vermeiden	_	VVINF|VVFIN	_	_	_	_	0.922|0.078
+9	,	,	_	$,	_	_	_	_	_
+10	wenn	wenn	_	KOUS	_	_	_	_	_
+11	du	du	_	PPER	_	_	_	_	_
+12	dir	du	_	PPER|PRF	_	_	_	_	0.555|0.445
+13	zuvor	zuvor	_	ADV|PTKVZ	_	_	_	_	0.963|0.037
+14	Wikipedia	Wikipedia	_	NE	_	_	_	_	_
+15	:	:	_	$.	_	_	_	_	_
+16	Was	was	_	PRELS|PWS|PWAT|PIAT|PIS	_	_	_	_	0.588|0.349|0.022|0.020|0.020
+17	Wikipedia	Wikipedia	_	NE	_	_	_	_	_
+18	nicht	nicht	_	PTKNEG	_	_	_	_	_
+19	ist	sein	_	VAFIN	_	_	_	_	_
+20	und	und	_	KON	_	_	_	_	_
+21	Wikipedia	Wikipedia	_	NE	_	_	_	_	_
+22	:	:	_	$.	_	_	_	_	_
+23	Relevanzkriterien	Relevanzkriterium	_	NN|ADJA|ADJD|NE	_	_	_	_	0.748|0.192|0.055|0.005
+24	anschaust	anschauen	_	VVFIN	_	_	_	_	_
+25	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 955 955 960 962 967 970 973 977 986 991 993 996 998 1003 1008 1014 1022
+# end_offsets = 1023 960 961 966 969 972 976 985 990 992 996 997 1002 1007 1013 1022 1023
+1	Schön	schön	_	ADJD|PTKVZ	_	_	_	_	0.980|0.020
+2	,	,	_	$,	_	_	_	_	_
+3	dass	dass	_	KOUS	_	_	_	_	_
+4	du	du	_	PPER	_	_	_	_	_
+5	zu	zu	_	PTKZU|APPR|PTKVZ|PTKA|ADV	_	_	_	_	0.580|0.341|0.045|0.032|0.002
+6	uns	wir	_	PPER|PRF	_	_	_	_	0.694|0.306
+7	gestoßen	stoßen	_	VVPP	_	_	_	_	_
+8	bist	sein	_	VAFIN	_	_	_	_	_
+9	–	-	_	$(	_	_	_	_	_
+10	und	und	_	KON	_	_	_	_	_
+11	:	:	_	$.	_	_	_	_	_
+12	Lass	lassen	_	VVIMP	_	_	_	_	_
+13	dich	du	_	PPER	_	_	_	_	_
+14	nicht	nicht	_	PTKNEG	_	_	_	_	_
+15	stressen	--	_	ADJA|ADJD|TRUNC	_	_	_	_	0.863|0.131|0.005
+16	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1024 1024 1030 1036 1042 1050 1055 1065 1070 1072 1076 1081 1086 1087 1091
+# end_offsets = 1092 1029 1035 1041 1049 1053 1064 1070 1071 1075 1080 1085 1087 1091 1092
+1	Einen	eine	_	ART|PIS|ADJA|CARD|VVFIN|VVINF	_	_	_	_	0.961|0.024|0.012|0.001|0.001|0.001
+2	guten	gut	_	ADJA	_	_	_	_	_
+3	Start	Start	_	NN	_	_	_	_	_
+4	wünscht	wünschen	_	VVFIN|VVIMP	_	_	_	_	1.000|0.000
+5	dir	du	_	PPER|PRF	_	_	_	_	0.555|0.445
+6	Kurator71	--	_	NN|ADJA|VVFIN|ADJD	_	_	_	_	0.984|0.006|0.004|0.002
+7	09:11	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+8	,	,	_	$,	_	_	_	_	_
+9	15.	@ord@	_	ADJA|ADV	_	_	_	_	0.966|0.034
+10	Sep.	Sep.	_	NN	_	_	_	_	_
+11	2014	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+12	(	(	_	$(	_	_	_	_	_
+13	CEST	--	_	NN|ADJA|VVFIN|ADJD	_	_	_	_	0.984|0.006|0.004|0.002
+14	)	)	_	$(	_	_	_	_	_
+
+# foundry = tree_tagger
+# filename = WUD24/K0086/98010/tree_tagger/morpho.xml
+# text_id = WUD24_K0086.98010
+# start_offsets = 1 1 6 12 17 28 32 49 53 63 74 80 87 98 103 105 109 113 128 132 147 156
+# end_offsets = 157 5 11 16 26 31 48 52 62 73 79 86 97 103 104 108 112 127 131 146 156 157
+1	Dein	dein	_	PPOSAT	_	_	_	_	_
+2	Konto	Konto	_	NN	_	_	_	_	_
+3	wird	werden	_	VAFIN	_	_	_	_	_
+4	umbenannt	umbenennen	_	VVPP	_	_	_	_	_
+5	Das	die	_	ART|PDS|PRELS	_	_	_	_	0.720|0.175|0.106
+6	Entwicklungsteam	Entwicklungsteam	_	NN	_	_	_	_	_
+7	der	die	_	ART|PRELS|PDS	_	_	_	_	0.947|0.050|0.002
+8	Wikimedia	--	_	NN|NE	_	_	_	_	0.777|0.222
+9	Foundation	--	_	NN|ADJA|VVFIN|ADJD	_	_	_	_	0.984|0.006|0.004|0.002
+10	führt	führen	_	VVFIN|VVIMP	_	_	_	_	1.000|0.000
+11	einige	einige	_	PIAT|PIS|VVFIN	_	_	_	_	0.774|0.220|0.006
+12	Änderungen	Änderung	_	NN	_	_	_	_	_
+13	durch	durch	_	APPR|PTKVZ|ADV	_	_	_	_	0.974|0.025|0.001
+14	,	,	_	$,	_	_	_	_	_
+15	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+16	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+17	Funktionsweise	Funktionsweise	_	NN	_	_	_	_	_
+18	von	von	_	APPR|NE	_	_	_	_	0.993|0.007
+19	Benutzerkonten	Benutzerkonto	_	NN|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.975|0.009|0.006|0.004|0.002
+20	betreffen	betreffen	_	VVFIN|VVINF	_	_	_	_	0.655|0.345
+21	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 158 158 163 173 177 182 190 207 217 219 224 228 236 246 247 251 270 288 290 294 301 310 319 322 328
+# end_offsets = 329 162 172 176 181 189 206 217 218 223 227 235 245 247 250 269 288 289 293 300 309 318 321 328 329
+1	Dies	dies	_	PDS|PDAT	_	_	_	_	0.968|0.032
+2	geschieht	geschehen	_	VVFIN	_	_	_	_	_
+3	als	als	_	KOKOM|KOUS|KON	_	_	_	_	0.842|0.132|0.026
+4	Teil	Teil	_	NN	_	_	_	_	_
+5	unserer	unser	_	PPOSAT|PPOSS	_	_	_	_	0.999|0.001
+6	kontinuierlichen	kontinuierlich	_	ADJA	_	_	_	_	_
+7	Bemühungen	Bemühung	_	NN	_	_	_	_	_
+8	,	,	_	$,	_	_	_	_	_
+9	neue	neu	_	ADJA	_	_	_	_	_
+10	und	und	_	KON	_	_	_	_	_
+11	bessere	gut	_	ADJA|VVFIN	_	_	_	_	0.896|0.104
+12	Werkzeuge	Werkzeug	_	NN	_	_	_	_	_
+13	(	(	_	$(	_	_	_	_	_
+14	wie	wie	_	KOKOM|KOUS|PWAV	_	_	_	_	0.663|0.336|0.001
+15	Wiki-übergreifende	Wiki-übergreifende	_	NN|ADJA	_	_	_	_	0.995|0.004
+16	Benachrichtigungen	Benachrichtigung	_	NN	_	_	_	_	_
+17	)	)	_	$(	_	_	_	_	_
+18	für	für	_	APPR	_	_	_	_	_
+19	unsere	unser	_	PPOSAT|PPOSS	_	_	_	_	0.999|0.001
+20	Benutzer	Benutzer	_	NN	_	_	_	_	_
+21	anbieten	anbieten	_	VVFIN|VVINF	_	_	_	_	0.524|0.476
+22	zu	zu	_	PTKZU|APPR|PTKVZ|PTKA|ADV	_	_	_	_	0.580|0.341|0.045|0.032|0.002
+23	können	können	_	VMFIN|VMINF|VVFIN|VVINF	_	_	_	_	0.693|0.306|0.001|0.001
+24	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 330 330 336 347 355 357 362 365 373 383 397 401
+# end_offsets = 402 335 346 355 356 361 364 372 382 396 401 402
+1	Diese	dies	_	PDAT|PDS	_	_	_	_	0.925|0.075
+2	Änderungen	Änderung	_	NN	_	_	_	_	_
+3	bedingen	bedingen	_	VVINF|VVFIN	_	_	_	_	0.690|0.310
+4	,	,	_	$,	_	_	_	_	_
+5	dass	dass	_	KOUS	_	_	_	_	_
+6	du	du	_	PPER	_	_	_	_	_
+7	überall	überall	_	ADV	_	_	_	_	_
+8	denselben	derselb	_	PDAT|PDS	_	_	_	_	0.795|0.205
+9	Benutzernamen	Benutzername	_	NN	_	_	_	_	_
+10	hast	haben	_	VAFIN	_	_	_	_	_
+11	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 403 403 411 418 422 426 431 442 446 456 463 465 469 473 484 488 500 512 516 527 542 546 552 563
+# end_offsets = 564 410 417 421 425 430 441 445 455 463 464 468 472 483 487 499 511 515 526 541 545 551 563 564
+1	Dadurch	dadurch	_	PAV	_	_	_	_	_
+2	können	können	_	VMFIN|VMINF|VVFIN|VVINF	_	_	_	_	0.693|0.306|0.001|0.001
+3	wir	wir	_	PPER	_	_	_	_	_
+4	dir	du	_	PPER|PRF	_	_	_	_	0.555|0.445
+5	neue	neu	_	ADJA	_	_	_	_	_
+6	Funktionen	Funktion	_	NN	_	_	_	_	_
+7	zur	zu+die	_	APPRART	_	_	_	_	_
+8	Verfügung	Verfügung	_	NN	_	_	_	_	_
+9	stellen	stellen	_	VVFIN|VVINF	_	_	_	_	0.544|0.456
+10	,	,	_	$,	_	_	_	_	_
+11	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+12	das	die	_	ART|PDS|PRELS	_	_	_	_	0.720|0.175|0.106
+13	Bearbeiten	Bearbeiten	_	NN	_	_	_	_	_
+14	und	und	_	KON	_	_	_	_	_
+15	Diskutieren	Diskutieren	_	NN	_	_	_	_	_
+16	erleichtern	erleichtern	_	VVINF|VVFIN	_	_	_	_	0.897|0.103
+17	und	und	_	KON	_	_	_	_	_
+18	flexiblere	flexibel	_	ADJA	_	_	_	_	_
+19	Benutzerrechte	Benutzerrecht|rechte	_	NN	_	_	_	_	_
+20	für	für	_	APPR	_	_	_	_	_
+21	Tools	Tool	_	NN	_	_	_	_	_
+22	ermöglichen	ermöglichen	_	VVINF|VVFIN	_	_	_	_	0.676|0.324
+23	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 565 565 570 580 586 589 591 596 611 615 620 625 629 645 652 662 667 673
+# end_offsets = 674 569 579 585 589 590 595 610 614 619 624 628 644 651 661 666 673 674
+1	Eine	eine	_	ART|PIS	_	_	_	_	0.970|0.029
+2	Bedingung	Bedingung	_	NN	_	_	_	_	_
+3	dafür	dafür	_	PAV	_	_	_	_	_
+4	ist	sein	_	VAFIN	_	_	_	_	_
+5	,	,	_	$,	_	_	_	_	_
+6	dass	dass	_	KOUS	_	_	_	_	_
+7	Benutzerkonten	Benutzerkonto	_	NN|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.975|0.009|0.006|0.004|0.002
+8	nun	nun	_	ADV|KOUS	_	_	_	_	0.996|0.004
+9	über	über	_	APPR|PTKVZ	_	_	_	_	0.994|0.006
+10	alle	alle	_	PIAT|PIS	_	_	_	_	0.769|0.231
+11	900	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+12	Wikimedia-Wikis	--	_	NE|NN|TRUNC	_	_	_	_	0.976|0.021|0.002
+13	hinweg	hinweg	_	ADV|PTKVZ	_	_	_	_	0.890|0.110
+14	eindeutig	eindeutig	_	ADJD	_	_	_	_	_
+15	sein	sein	_	VAINF|PPOSAT	_	_	_	_	0.767|0.233
+16	müssen	müssen	_	VMFIN|VMINF|VVFIN|VVINF	_	_	_	_	0.746|0.253|0.001|0.001
+17	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 675 675 683 697 705 708 711 718 729
+# end_offsets = 730 682 696 704 707 710 717 729 730
+1	Weitere	weit	_	ADJA|NN	_	_	_	_	0.995|0.005
+2	Informationen	Information	_	NN	_	_	_	_	_
+3	findest	finden	_	VVFIN	_	_	_	_	_
+4	du	du	_	PPER	_	_	_	_	_
+5	in	in	_	APPR	_	_	_	_	_
+6	dieser	dies	_	PDAT|PDS	_	_	_	_	0.965|0.035
+7	Ankündigung	Ankündigung	_	NN	_	_	_	_	_
+8	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 731 731 738 746 751 756 763 770 780 794 802 806 808
+# end_offsets = 809 737 745 750 755 762 769 779 793 801 805 808 809
+1	Leider	leider	_	ADV	_	_	_	_	_
+2	benutzt	benutzen	_	VVPP|VVFIN|ADJD|VVIMP	_	_	_	_	0.782|0.132|0.086|0.000
+3	auch	auch	_	ADV	_	_	_	_	_
+4	eine	eine	_	ART|PIS|CARD|VVFIN	_	_	_	_	0.967|0.032|0.000|0.000
+5	andere	andere	_	ADJA|PIS	_	_	_	_	0.662|0.338
+6	Person	Person	_	NN	_	_	_	_	_
+7	denselben	derselb	_	PDAT|PDS	_	_	_	_	0.795|0.205
+8	Benutzernamen	Benutzername	_	NN	_	_	_	_	_
+9	Korsika	Korsika	_	NE	_	_	_	_	_
+10	wie	wie	_	KOKOM|KOUS|PWAV	_	_	_	_	0.663|0.336|0.001
+11	du	du	_	PPER	_	_	_	_	_
+12	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 810 810 813 828 830 835 839 845 855 859 865 885 894 899 901 907 911 915 920 924 931 942 956 963 964 971 981 983 987 991 995 1001
+# end_offsets = 1002 812 828 829 834 838 844 854 858 864 884 893 899 900 906 910 914 919 923 930 941 955 963 964 970 981 982 986 990 994 1001 1002
+1	Um	um	_	APPR|KOUI|PTKVZ|ADV	_	_	_	_	0.703|0.271|0.025|0.001
+2	sicherzustellen	sicherstellen	_	VVIZU	_	_	_	_	_
+3	,	,	_	$,	_	_	_	_	_
+4	dass	dass	_	KOUS	_	_	_	_	_
+5	ihr	ihr	_	PPOSAT|PPER	_	_	_	_	0.681|0.319
+6	beide	beide	_	PIAT|PIS	_	_	_	_	0.507|0.493
+7	weiterhin	weiterhin	_	ADV	_	_	_	_	_
+8	auf	auf	_	APPR|PTKVZ|ADV	_	_	_	_	0.946|0.054|0.000
+9	allen	alle	_	PIAT|PIS	_	_	_	_	0.869|0.131
+10	Wikimedia-Projekten	Wikimedia-Projekt	_	NN	_	_	_	_	_
+11	arbeiten	arbeiten	_	VVFIN|VVINF	_	_	_	_	0.553|0.447
+12	könnt	können	_	VMFIN	_	_	_	_	_
+13	,	,	_	$,	_	_	_	_	_
+14	haben	haben	_	VAFIN|VAINF	_	_	_	_	0.833|0.167
+15	wir	wir	_	PPER	_	_	_	_	_
+16	für	für	_	APPR	_	_	_	_	_
+17	dich	du	_	PPER	_	_	_	_	_
+18	das	die	_	ART|PDS|PRELS	_	_	_	_	0.720|0.175|0.106
+19	global	global	_	ADJD	_	_	_	_	_
+20	eindeutige	eindeutig	_	ADJA	_	_	_	_	_
+21	Benutzerkonto	Benutzerkonto	_	NN	_	_	_	_	_
+22	Korsika	Korsika	_	NE	_	_	_	_	_
+23	~	~	_	XY	_	_	_	_	_
+24	dewiki	--	_	ADJA|VVFIN|ADJD|NN|NE|VVINF|VVPP|TRUNC|VVIMP|VVIZU	_	_	_	_	0.654|0.228|0.060|0.016|0.013|0.011|0.011|0.004|0.002|0.001
+25	reserviert	reservieren	_	VVPP|VVFIN|ADJD|VVIMP	_	_	_	_	0.782|0.132|0.086|0.000
+26	,	,	_	$,	_	_	_	_	_
+27	das	die	_	ART|PDS|PRELS	_	_	_	_	0.720|0.175|0.106
+28	nur	nur	_	ADV	_	_	_	_	_
+29	dir	du	_	PPER|PRF	_	_	_	_	0.555|0.445
+30	gehört	gehören	_	VVFIN|VVPP|ADJD|VVIMP	_	_	_	_	0.835|0.149|0.016|0.000
+31	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1003 1003 1010 1014 1021 1026 1034 1036 1042 1045 1051 1059 1068 1079
+# end_offsets = 1080 1009 1013 1020 1025 1034 1035 1041 1044 1050 1058 1067 1079 1080
+1	Sollte	sollen	_	VMFIN|VVFIN	_	_	_	_	1.000|0.000
+2	dir	du	_	PPER|PRF	_	_	_	_	0.555|0.445
+3	dieser	dies	_	PDAT|PDS	_	_	_	_	0.965|0.035
+4	Name	Name	_	NN	_	_	_	_	_
+5	gefallen	fallen|gefallen	_	VVPP|VVINF|VVFIN	_	_	_	_	0.809|0.180|0.011
+6	,	,	_	$,	_	_	_	_	_
+7	musst	müssen	_	VMFIN	_	_	_	_	_
+8	du	du	_	PPER	_	_	_	_	_
+9	keine	keine	_	PIAT|PIS	_	_	_	_	0.997|0.003
+10	weitere	weit	_	ADJA	_	_	_	_	_
+11	Änderung	Änderung	_	NN	_	_	_	_	_
+12	durchführen	durchfahren|durchführen	_	VVFIN	_	_	_	_	_
+13	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1081 1081 1086 1089 1096 1102 1110 1124 1132 1134 1141 1144 1148 1155 1161 1167 1173 1179 1185
+# end_offsets = 1186 1085 1088 1095 1101 1109 1123 1132 1133 1140 1143 1147 1154 1160 1166 1172 1178 1185 1186
+1	Wenn	wenn	_	KOUS	_	_	_	_	_
+2	du	du	_	PPER	_	_	_	_	_
+3	jedoch	jedoch	_	ADV|KON	_	_	_	_	0.956|0.044
+4	einen	eine	_	ART|PIS|ADJA|CARD|VVFIN|VVINF	_	_	_	_	0.961|0.024|0.012|0.001|0.001|0.001
+5	anderen	andere	_	ADJA|PIS	_	_	_	_	0.756|0.244
+6	Benutzernamen	Benutzername	_	NN	_	_	_	_	_
+7	wünschst	wünschen	_	VVFIN	_	_	_	_	_
+8	,	,	_	$,	_	_	_	_	_
+9	kannst	können	_	VMFIN	_	_	_	_	_
+10	du	du	_	PPER	_	_	_	_	_
+11	auf	auf	_	APPR|PTKVZ|ADV	_	_	_	_	0.946|0.054|0.000
+12	dieser	dies	_	PDAT|PDS	_	_	_	_	0.965|0.035
+13	Seite	Seite	_	NN	_	_	_	_	_
+14	einen	eine	_	ART|PIS|ADJA|CARD|VVFIN|VVINF	_	_	_	_	0.961|0.024|0.012|0.001|0.001|0.001
+15	neuen	neu	_	ADJA	_	_	_	_	_
+16	Namen	Name	_	NN	_	_	_	_	_
+17	wählen	wählen	_	VVINF|VVFIN	_	_	_	_	0.922|0.078
+18	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1187 1187 1192 1195 1201 1203 1208 1211 1219 1224 1239 1243 1250 1256 1264 1268 1274 1284 1302 1311 1315 1317 1325 1331 1335 1341 1348 1349 1378 1380 1383 1387 1399 1402 1409 1413 1418 1424 1439 1451 1454 1463 1465 1471 1476 1486 1497 1501
+# end_offsets = 1502 1191 1194 1201 1202 1207 1210 1218 1223 1238 1242 1249 1255 1263 1267 1273 1283 1301 1310 1315 1316 1324 1330 1334 1340 1348 1349 1378 1379 1382 1386 1398 1401 1408 1412 1417 1423 1438 1450 1453 1463 1464 1470 1475 1485 1496 1501 1502
+1	Wenn	wenn	_	KOUS	_	_	_	_	_
+2	du	du	_	PPER	_	_	_	_	_
+3	denkst	denken	_	VVFIN	_	_	_	_	_
+4	,	,	_	$,	_	_	_	_	_
+5	dass	dass	_	KOUS	_	_	_	_	_
+6	du	du	_	PPER	_	_	_	_	_
+7	bereits	bereits	_	ADV	_	_	_	_	_
+8	alle	alle	_	PIAT|PIS	_	_	_	_	0.769|0.231
+9	Benutzerkonten	Benutzerkonto	_	NN|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.975|0.009|0.006|0.004|0.002
+10	mit	mit	_	APPR|PTKVZ	_	_	_	_	0.979|0.021
+11	diesem	dies	_	PDAT|PDS	_	_	_	_	0.996|0.004
+12	Namen	Name	_	NN	_	_	_	_	_
+13	besitzt	besitzen	_	VVFIN|VVIMP	_	_	_	_	1.000|0.000
+14	und	und	_	KON	_	_	_	_	_
+15	diese	dies	_	PDAT|PDS	_	_	_	_	0.925|0.075
+16	Nachricht	Nachricht	_	NN	_	_	_	_	_
+17	fälschlicherweise	fälschlicherweise	_	ADV	_	_	_	_	_
+18	erhalten	erhalten	_	VVPP|VVINF|VVFIN|ADJD	_	_	_	_	0.409|0.393|0.193|0.005
+19	hast	haben	_	VAFIN	_	_	_	_	_
+20	,	,	_	$,	_	_	_	_	_
+21	besuche	besuchen	_	VVFIN	_	_	_	_	_
+22	bitte	bitte	_	ADV|PTKANT|VVFIN|VVIMP	_	_	_	_	0.250|0.250|0.250|0.250
+23	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+24	Seite	Seite	_	NN	_	_	_	_	_
+25	Spezial	Spezial	_	NN	_	_	_	_	_
+26	:	:	_	$.	_	_	_	_	_
+27	Benutzerkonten_zusammenführen	Benutzerkonten_zusammenführen	_	NN|ADJA|VVFIN|ADJD|NE|TRUNC|VVINF|VVPP|VVIMP	_	_	_	_	0.496|0.331|0.116|0.031|0.006|0.006|0.006|0.006|0.001
+28	,	,	_	$,	_	_	_	_	_
+29	um	um	_	APPR|KOUI|PTKVZ|ADV	_	_	_	_	0.703|0.271|0.025|0.001
+30	den	die	_	ART|PRELS|PDS	_	_	_	_	0.987|0.009|0.004
+31	Sachverhalt	Sachverhalt	_	NN	_	_	_	_	_
+32	zu	zu	_	PTKZU|APPR|PTKVZ|PTKA|ADV	_	_	_	_	0.580|0.341|0.045|0.032|0.002
+33	prüfen	prüfen	_	VVINF|VVFIN	_	_	_	_	0.595|0.405
+34	und	und	_	KON	_	_	_	_	_
+35	alle	alle	_	PIAT|PIS	_	_	_	_	0.769|0.231
+36	deine	dein	_	PPOSAT|PPOSS	_	_	_	_	0.997|0.003
+37	Benutzerkonten	Benutzerkonto	_	NN|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.975|0.009|0.006|0.004|0.002
+38	miteinander	miteinander	_	ADV	_	_	_	_	_
+39	zu	zu	_	PTKZU|APPR|PTKVZ|PTKA|ADV	_	_	_	_	0.580|0.341|0.045|0.032|0.002
+40	verbinden	verbinden	_	VVINF|VVFIN	_	_	_	_	0.563|0.437
+41	,	,	_	$,	_	_	_	_	_
+42	damit	damit	_	PAV|KOUS	_	_	_	_	0.903|0.097
+43	eine	eine	_	ART|PIS|CARD|VVFIN	_	_	_	_	0.967|0.032|0.000|0.000
+44	Umbennung	--	_	NN	_	_	_	_	_
+45	verhindert	verhindern	_	VVPP|VVFIN|ADJD|VVIMP	_	_	_	_	0.532|0.382|0.086|0.000
+46	wird	werden	_	VAFIN	_	_	_	_	_
+47	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1503 1503 1508 1514 1519 1529 1533 1541 1555 1559 1562 1568 1572 1580 1584 1591 1602 1616 1624 1630 1632 1639 1645 1648 1653 1659 1663 1669 1683 1693 1699
+# end_offsets = 1700 1507 1513 1518 1528 1532 1540 1554 1558 1561 1567 1571 1579 1583 1590 1601 1615 1623 1630 1631 1638 1644 1647 1652 1658 1662 1668 1682 1692 1699 1700
+1	Dein	dein	_	PPOSAT	_	_	_	_	_
+2	Konto	Konto	_	NN	_	_	_	_	_
+3	wird	werden	_	VAFIN	_	_	_	_	_
+4	weiterhin	weiterhin	_	ADV	_	_	_	_	_
+5	wie	wie	_	KOKOM|KOUS|PWAV	_	_	_	_	0.663|0.336|0.001
+6	gewohnt	gewohnt	_	VVPP|ADJD	_	_	_	_	0.965|0.035
+7	funktionieren	funktionieren	_	VVINF|VVFIN	_	_	_	_	0.845|0.155
+8	und	und	_	KON	_	_	_	_	_
+9	du	du	_	PPER	_	_	_	_	_
+10	wirst	werden	_	VAFIN	_	_	_	_	_
+11	als	als	_	KOKOM|KOUS|KON	_	_	_	_	0.842|0.132|0.026
+12	Urheber	Urheber	_	NN	_	_	_	_	_
+13	all	alle	_	PIAT|FM	_	_	_	_	0.819|0.181
+14	deiner	dein	_	PPOSAT|PPER|PPOSS	_	_	_	_	0.939|0.030|0.030
+15	bisherigen	bisherig	_	ADJA	_	_	_	_	_
+16	Bearbeitungen	Bearbeitung	_	NN	_	_	_	_	_
+17	genannt	nennen	_	VVPP	_	_	_	_	_
+18	werden	werden	_	VAINF|VAFIN	_	_	_	_	0.563|0.437
+19	,	,	_	$,	_	_	_	_	_
+20	jedoch	jedoch	_	ADV|KON	_	_	_	_	0.956|0.044
+21	wirst	werden	_	VAFIN	_	_	_	_	_
+22	du	du	_	PPER	_	_	_	_	_
+23	beim	bei+die	_	APPRART	_	_	_	_	_
+24	Login	Login	_	NN	_	_	_	_	_
+25	den	die	_	ART|PRELS|PDS	_	_	_	_	0.987|0.009|0.004
+26	neuen	neu	_	ADJA	_	_	_	_	_
+27	Benutzernamen	Benutzername	_	NN	_	_	_	_	_
+28	verwenden	verwenden	_	VVINF|VVFIN	_	_	_	_	0.845|0.155
+29	müssen	müssen	_	VMFIN|VMINF|VVFIN|VVINF	_	_	_	_	0.746|0.253|0.001|0.001
+30	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1701 1701 1707 1720 1724 1742
+# end_offsets = 1743 1706 1719 1723 1742 1743
+1	Bitte	bitte	_	NN|ADV|PTKANT|VVFIN|VVIMP	_	_	_	_	0.500|0.125|0.125|0.125|0.125
+2	entschuldige	entschuldigen	_	VVFIN	_	_	_	_	_
+3	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+4	Unannehmlichkeiten	Unannehmlichkeit	_	NN	_	_	_	_	_
+5	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1744 1744 1748 1755 1760 1770 1777 1780 1785 1790 1795 1798 1802 1809 1818 1827 1832 1836 1841 1847
+# end_offsets = 1848 1747 1754 1759 1769 1776 1779 1784 1789 1794 1797 1801 1808 1817 1826 1830 1835 1839 1847 1848
+1	Bei	bei	_	APPR|PTKVZ	_	_	_	_	0.988|0.012
+2	Fragen	Frage	_	NN	_	_	_	_	_
+3	oder	oder	_	KON	_	_	_	_	_
+4	Problemen	Problem	_	NN	_	_	_	_	_
+5	kannst	können	_	VMFIN	_	_	_	_	_
+6	du	du	_	PPER	_	_	_	_	_
+7	dich	du	_	PPER	_	_	_	_	_
+8	gern	gern	_	ADV	_	_	_	_	_
+9	auch	auch	_	ADV	_	_	_	_	_
+10	an	an	_	APPR|PTKVZ|APZR|ADV	_	_	_	_	0.786|0.160|0.051|0.003
+11	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+12	beiden	beide	_	PIAT|PIS	_	_	_	_	0.962|0.038
+13	Stewards	Steward	_	NN	_	_	_	_	_
+14	DerHexer	--	_	ADJA|ADJD	_	_	_	_	0.941|0.057
+15	und	und	_	KON	_	_	_	_	_
+16	Hoo	--	_	NE|NN|ADJA|VVFIN|ADJD	_	_	_	_	0.767|0.216|0.007|0.004|0.002
+17	man	man	_	PIS	_	_	_	_	_
+18	wenden	wenden	_	VVINF|VVFIN	_	_	_	_	0.538|0.462
+19	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1849 1849 1855 1860 1862 1869 1879 1889 1896 1898 1908 1920 1922 1923 1925 1927 1931 1934
+# end_offsets = 1935 1854 1860 1861 1868 1878 1888 1896 1897 1907 1918 1922 1923 1925 1926 1930 1934 1935
+1	Viele	viele	_	PIAT|PIS	_	_	_	_	0.831|0.169
+2	Grüße	Gruß	_	NN	_	_	_	_	_
+3	,	,	_	$,	_	_	_	_	_
+4	Keegan	--	_	NE|NN|ADJA|VVFIN|ADJD	_	_	_	_	0.767|0.216|0.007|0.004|0.002
+5	Peterzell	--	_	NE	_	_	_	_	_
+6	Community	Community	_	NN	_	_	_	_	_
+7	Liaison	Liaison	_	NN	_	_	_	_	_
+8	,	,	_	$,	_	_	_	_	_
+9	Wikimedia	--	_	NN|NE	_	_	_	_	0.777|0.222
+10	Foundation	--	_	NN|ADJA|VVFIN|ADJD	_	_	_	_	0.984|0.006|0.004|0.002
+11	22	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+12	:	:	_	$.	_	_	_	_	_
+13	07	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+14	,	,	_	$,	_	_	_	_	_
+15	19.	@ord@	_	ADJA|ADV	_	_	_	_	0.966|0.034
+16	Mär	mären	_	VVIMP	_	_	_	_	_
+17	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1936 1936 1941 1942 1945 1948 1959 1961 1966 1968 1972 1977 1982 1983 1987
+# end_offsets = 1988 1940 1942 1945 1946 1957 1960 1966 1967 1971 1976 1981 1983 1987 1988
+1	2015	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+2	(	(	_	$(	_	_	_	_	_
+3	CET	--	_	NE|NN	_	_	_	_	0.487|0.487
+4	)	)	_	$(	_	_	_	_	_
+5	Umbenannt	umbenennen	_	VVPP	_	_	_	_	_
+6	w	--	_	ADJA|VVFIN|ADJD|NN|NE|VVINF|VVPP|TRUNC|VVIMP|VVIZU	_	_	_	_	0.654|0.228|0.060|0.016|0.013|0.011|0.011|0.004|0.002|0.001
+7	10:40	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+8	,	,	_	$,	_	_	_	_	_
+9	22.	@ord@	_	ADJA|ADV	_	_	_	_	0.966|0.034
+10	Apr.	April	_	NN	_	_	_	_	_
+11	2015	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+12	(	(	_	$(	_	_	_	_	_
+13	CEST	--	_	NN|ADJA|VVFIN|ADJD	_	_	_	_	0.984|0.006|0.004|0.002
+14	)	)	_	$(	_	_	_	_	_
+
+# foundry = tree_tagger
+# filename = WUD24/Z0087/65594/tree_tagger/morpho.xml
+# text_id = WUD24_Z0087.65594
+# start_offsets = 1 1 6 12 17 28 32 49 53 63 74 80 87 98 103 105 109 113 128 132 147 156
+# end_offsets = 157 5 11 16 26 31 48 52 62 73 79 86 97 103 104 108 112 127 131 146 156 157
+1	Dein	dein	_	PPOSAT	_	_	_	_	_
+2	Konto	Konto	_	NN	_	_	_	_	_
+3	wird	werden	_	VAFIN	_	_	_	_	_
+4	umbenannt	umbenennen	_	VVPP	_	_	_	_	_
+5	Das	die	_	ART|PDS|PRELS	_	_	_	_	0.720|0.175|0.106
+6	Entwicklungsteam	Entwicklungsteam	_	NN	_	_	_	_	_
+7	der	die	_	ART|PRELS|PDS	_	_	_	_	0.947|0.050|0.002
+8	Wikimedia	--	_	NN|NE	_	_	_	_	0.777|0.222
+9	Foundation	--	_	NN|ADJA|VVFIN|ADJD	_	_	_	_	0.984|0.006|0.004|0.002
+10	führt	führen	_	VVFIN|VVIMP	_	_	_	_	1.000|0.000
+11	einige	einige	_	PIAT|PIS|VVFIN	_	_	_	_	0.774|0.220|0.006
+12	Änderungen	Änderung	_	NN	_	_	_	_	_
+13	durch	durch	_	APPR|PTKVZ|ADV	_	_	_	_	0.974|0.025|0.001
+14	,	,	_	$,	_	_	_	_	_
+15	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+16	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+17	Funktionsweise	Funktionsweise	_	NN	_	_	_	_	_
+18	von	von	_	APPR|NE	_	_	_	_	0.993|0.007
+19	Benutzerkonten	Benutzerkonto	_	NN|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.975|0.009|0.006|0.004|0.002
+20	betreffen	betreffen	_	VVFIN|VVINF	_	_	_	_	0.655|0.345
+21	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 158 158 163 173 177 182 190 207 217 219 224 228 236 246 247 251 270 288 290 294 301 310 319 322 328
+# end_offsets = 329 162 172 176 181 189 206 217 218 223 227 235 245 247 250 269 288 289 293 300 309 318 321 328 329
+1	Dies	dies	_	PDS|PDAT	_	_	_	_	0.968|0.032
+2	geschieht	geschehen	_	VVFIN	_	_	_	_	_
+3	als	als	_	KOKOM|KOUS|KON	_	_	_	_	0.842|0.132|0.026
+4	Teil	Teil	_	NN	_	_	_	_	_
+5	unserer	unser	_	PPOSAT|PPOSS	_	_	_	_	0.999|0.001
+6	kontinuierlichen	kontinuierlich	_	ADJA	_	_	_	_	_
+7	Bemühungen	Bemühung	_	NN	_	_	_	_	_
+8	,	,	_	$,	_	_	_	_	_
+9	neue	neu	_	ADJA	_	_	_	_	_
+10	und	und	_	KON	_	_	_	_	_
+11	bessere	gut	_	ADJA|VVFIN	_	_	_	_	0.896|0.104
+12	Werkzeuge	Werkzeug	_	NN	_	_	_	_	_
+13	(	(	_	$(	_	_	_	_	_
+14	wie	wie	_	KOKOM|KOUS|PWAV	_	_	_	_	0.663|0.336|0.001
+15	Wiki-übergreifende	Wiki-übergreifende	_	NN|ADJA	_	_	_	_	0.995|0.004
+16	Benachrichtigungen	Benachrichtigung	_	NN	_	_	_	_	_
+17	)	)	_	$(	_	_	_	_	_
+18	für	für	_	APPR	_	_	_	_	_
+19	unsere	unser	_	PPOSAT|PPOSS	_	_	_	_	0.999|0.001
+20	Benutzer	Benutzer	_	NN	_	_	_	_	_
+21	anbieten	anbieten	_	VVFIN|VVINF	_	_	_	_	0.524|0.476
+22	zu	zu	_	PTKZU|APPR|PTKVZ|PTKA|ADV	_	_	_	_	0.580|0.341|0.045|0.032|0.002
+23	können	können	_	VMFIN|VMINF|VVFIN|VVINF	_	_	_	_	0.693|0.306|0.001|0.001
+24	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 330 330 336 347 355 357 362 365 373 383 397 401
+# end_offsets = 402 335 346 355 356 361 364 372 382 396 401 402
+1	Diese	dies	_	PDAT|PDS	_	_	_	_	0.925|0.075
+2	Änderungen	Änderung	_	NN	_	_	_	_	_
+3	bedingen	bedingen	_	VVINF|VVFIN	_	_	_	_	0.690|0.310
+4	,	,	_	$,	_	_	_	_	_
+5	dass	dass	_	KOUS	_	_	_	_	_
+6	du	du	_	PPER	_	_	_	_	_
+7	überall	überall	_	ADV	_	_	_	_	_
+8	denselben	derselb	_	PDAT|PDS	_	_	_	_	0.795|0.205
+9	Benutzernamen	Benutzername	_	NN	_	_	_	_	_
+10	hast	haben	_	VAFIN	_	_	_	_	_
+11	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 403 403 411 418 422 426 431 442 446 456 463 465 469 473 484 488 500 512 516 527 542 546 552 563
+# end_offsets = 564 410 417 421 425 430 441 445 455 463 464 468 472 483 487 499 511 515 526 541 545 551 563 564
+1	Dadurch	dadurch	_	PAV	_	_	_	_	_
+2	können	können	_	VMFIN|VMINF|VVFIN|VVINF	_	_	_	_	0.693|0.306|0.001|0.001
+3	wir	wir	_	PPER	_	_	_	_	_
+4	dir	du	_	PPER|PRF	_	_	_	_	0.555|0.445
+5	neue	neu	_	ADJA	_	_	_	_	_
+6	Funktionen	Funktion	_	NN	_	_	_	_	_
+7	zur	zu+die	_	APPRART	_	_	_	_	_
+8	Verfügung	Verfügung	_	NN	_	_	_	_	_
+9	stellen	stellen	_	VVFIN|VVINF	_	_	_	_	0.544|0.456
+10	,	,	_	$,	_	_	_	_	_
+11	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+12	das	die	_	ART|PDS|PRELS	_	_	_	_	0.720|0.175|0.106
+13	Bearbeiten	Bearbeiten	_	NN	_	_	_	_	_
+14	und	und	_	KON	_	_	_	_	_
+15	Diskutieren	Diskutieren	_	NN	_	_	_	_	_
+16	erleichtern	erleichtern	_	VVINF|VVFIN	_	_	_	_	0.897|0.103
+17	und	und	_	KON	_	_	_	_	_
+18	flexiblere	flexibel	_	ADJA	_	_	_	_	_
+19	Benutzerrechte	Benutzerrecht|rechte	_	NN	_	_	_	_	_
+20	für	für	_	APPR	_	_	_	_	_
+21	Tools	Tool	_	NN	_	_	_	_	_
+22	ermöglichen	ermöglichen	_	VVINF|VVFIN	_	_	_	_	0.676|0.324
+23	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 565 565 570 580 586 589 591 596 611 615 620 625 629 645 652 662 667 673
+# end_offsets = 674 569 579 585 589 590 595 610 614 619 624 628 644 651 661 666 673 674
+1	Eine	eine	_	ART|PIS	_	_	_	_	0.970|0.029
+2	Bedingung	Bedingung	_	NN	_	_	_	_	_
+3	dafür	dafür	_	PAV	_	_	_	_	_
+4	ist	sein	_	VAFIN	_	_	_	_	_
+5	,	,	_	$,	_	_	_	_	_
+6	dass	dass	_	KOUS	_	_	_	_	_
+7	Benutzerkonten	Benutzerkonto	_	NN|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.975|0.009|0.006|0.004|0.002
+8	nun	nun	_	ADV|KOUS	_	_	_	_	0.996|0.004
+9	über	über	_	APPR|PTKVZ	_	_	_	_	0.994|0.006
+10	alle	alle	_	PIAT|PIS	_	_	_	_	0.769|0.231
+11	900	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+12	Wikimedia-Wikis	--	_	NE|NN|TRUNC	_	_	_	_	0.976|0.021|0.002
+13	hinweg	hinweg	_	ADV|PTKVZ	_	_	_	_	0.890|0.110
+14	eindeutig	eindeutig	_	ADJD	_	_	_	_	_
+15	sein	sein	_	VAINF|PPOSAT	_	_	_	_	0.767|0.233
+16	müssen	müssen	_	VMFIN|VMINF|VVFIN|VVINF	_	_	_	_	0.746|0.253|0.001|0.001
+17	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 675 675 683 697 705 708 711 718 729
+# end_offsets = 730 682 696 704 707 710 717 729 730
+1	Weitere	weit	_	ADJA|NN	_	_	_	_	0.995|0.005
+2	Informationen	Information	_	NN	_	_	_	_	_
+3	findest	finden	_	VVFIN	_	_	_	_	_
+4	du	du	_	PPER	_	_	_	_	_
+5	in	in	_	APPR	_	_	_	_	_
+6	dieser	dies	_	PDAT|PDS	_	_	_	_	0.965|0.035
+7	Ankündigung	Ankündigung	_	NN	_	_	_	_	_
+8	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 731 731 738 746 751 756 763 770 780 794 801 805 807
+# end_offsets = 808 737 745 750 755 762 769 779 793 800 804 807 808
+1	Leider	leider	_	ADV	_	_	_	_	_
+2	benutzt	benutzen	_	VVPP|VVFIN|ADJD|VVIMP	_	_	_	_	0.782|0.132|0.086|0.000
+3	auch	auch	_	ADV	_	_	_	_	_
+4	eine	eine	_	ART|PIS|CARD|VVFIN	_	_	_	_	0.967|0.032|0.000|0.000
+5	andere	andere	_	ADJA|PIS	_	_	_	_	0.662|0.338
+6	Person	Person	_	NN	_	_	_	_	_
+7	denselben	derselb	_	PDAT|PDS	_	_	_	_	0.795|0.205
+8	Benutzernamen	Benutzername	_	NN	_	_	_	_	_
+9	Zzippi	--	_	NN|NE|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.637|0.339|0.009|0.007|0.004|0.002
+10	wie	wie	_	KOKOM|KOUS|PWAV	_	_	_	_	0.663|0.336|0.001
+11	du	du	_	PPER	_	_	_	_	_
+12	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 809 809 812 827 829 834 838 844 854 858 864 884 893 898 900 906 910 914 919 923 930 941 955 961 962 969 979 981 985 989 993 999
+# end_offsets = 1000 811 827 828 833 837 843 853 857 863 883 892 898 899 905 909 913 918 922 929 940 954 961 962 968 979 980 984 988 992 999 1000
+1	Um	um	_	APPR|KOUI|PTKVZ|ADV	_	_	_	_	0.703|0.271|0.025|0.001
+2	sicherzustellen	sicherstellen	_	VVIZU	_	_	_	_	_
+3	,	,	_	$,	_	_	_	_	_
+4	dass	dass	_	KOUS	_	_	_	_	_
+5	ihr	ihr	_	PPOSAT|PPER	_	_	_	_	0.681|0.319
+6	beide	beide	_	PIAT|PIS	_	_	_	_	0.507|0.493
+7	weiterhin	weiterhin	_	ADV	_	_	_	_	_
+8	auf	auf	_	APPR|PTKVZ|ADV	_	_	_	_	0.946|0.054|0.000
+9	allen	alle	_	PIAT|PIS	_	_	_	_	0.869|0.131
+10	Wikimedia-Projekten	Wikimedia-Projekt	_	NN	_	_	_	_	_
+11	arbeiten	arbeiten	_	VVFIN|VVINF	_	_	_	_	0.553|0.447
+12	könnt	können	_	VMFIN	_	_	_	_	_
+13	,	,	_	$,	_	_	_	_	_
+14	haben	haben	_	VAFIN|VAINF	_	_	_	_	0.833|0.167
+15	wir	wir	_	PPER	_	_	_	_	_
+16	für	für	_	APPR	_	_	_	_	_
+17	dich	du	_	PPER	_	_	_	_	_
+18	das	die	_	ART|PDS|PRELS	_	_	_	_	0.720|0.175|0.106
+19	global	global	_	ADJD	_	_	_	_	_
+20	eindeutige	eindeutig	_	ADJA	_	_	_	_	_
+21	Benutzerkonto	Benutzerkonto	_	NN	_	_	_	_	_
+22	Zzippi	--	_	NN|NE|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.637|0.339|0.009|0.007|0.004|0.002
+23	~	~	_	XY	_	_	_	_	_
+24	dewiki	--	_	ADJA|VVFIN|ADJD|NN|NE|VVINF|VVPP|TRUNC|VVIMP|VVIZU	_	_	_	_	0.654|0.228|0.060|0.016|0.013|0.011|0.011|0.004|0.002|0.001
+25	reserviert	reservieren	_	VVPP|VVFIN|ADJD|VVIMP	_	_	_	_	0.782|0.132|0.086|0.000
+26	,	,	_	$,	_	_	_	_	_
+27	das	die	_	ART|PDS|PRELS	_	_	_	_	0.720|0.175|0.106
+28	nur	nur	_	ADV	_	_	_	_	_
+29	dir	du	_	PPER|PRF	_	_	_	_	0.555|0.445
+30	gehört	gehören	_	VVFIN|VVPP|ADJD|VVIMP	_	_	_	_	0.835|0.149|0.016|0.000
+31	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1001 1001 1008 1012 1019 1024 1032 1034 1040 1043 1049 1057 1066 1077
+# end_offsets = 1078 1007 1011 1018 1023 1032 1033 1039 1042 1048 1056 1065 1077 1078
+1	Sollte	sollen	_	VMFIN|VVFIN	_	_	_	_	1.000|0.000
+2	dir	du	_	PPER|PRF	_	_	_	_	0.555|0.445
+3	dieser	dies	_	PDAT|PDS	_	_	_	_	0.965|0.035
+4	Name	Name	_	NN	_	_	_	_	_
+5	gefallen	fallen|gefallen	_	VVPP|VVINF|VVFIN	_	_	_	_	0.809|0.180|0.011
+6	,	,	_	$,	_	_	_	_	_
+7	musst	müssen	_	VMFIN	_	_	_	_	_
+8	du	du	_	PPER	_	_	_	_	_
+9	keine	keine	_	PIAT|PIS	_	_	_	_	0.997|0.003
+10	weitere	weit	_	ADJA	_	_	_	_	_
+11	Änderung	Änderung	_	NN	_	_	_	_	_
+12	durchführen	durchfahren|durchführen	_	VVFIN	_	_	_	_	_
+13	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1079 1079 1084 1087 1094 1100 1108 1122 1130 1132 1139 1142 1146 1153 1159 1165 1171 1177 1183
+# end_offsets = 1184 1083 1086 1093 1099 1107 1121 1130 1131 1138 1141 1145 1152 1158 1164 1170 1176 1183 1184
+1	Wenn	wenn	_	KOUS	_	_	_	_	_
+2	du	du	_	PPER	_	_	_	_	_
+3	jedoch	jedoch	_	ADV|KON	_	_	_	_	0.956|0.044
+4	einen	eine	_	ART|PIS|ADJA|CARD|VVFIN|VVINF	_	_	_	_	0.961|0.024|0.012|0.001|0.001|0.001
+5	anderen	andere	_	ADJA|PIS	_	_	_	_	0.756|0.244
+6	Benutzernamen	Benutzername	_	NN	_	_	_	_	_
+7	wünschst	wünschen	_	VVFIN	_	_	_	_	_
+8	,	,	_	$,	_	_	_	_	_
+9	kannst	können	_	VMFIN	_	_	_	_	_
+10	du	du	_	PPER	_	_	_	_	_
+11	auf	auf	_	APPR|PTKVZ|ADV	_	_	_	_	0.946|0.054|0.000
+12	dieser	dies	_	PDAT|PDS	_	_	_	_	0.965|0.035
+13	Seite	Seite	_	NN	_	_	_	_	_
+14	einen	eine	_	ART|PIS|ADJA|CARD|VVFIN|VVINF	_	_	_	_	0.961|0.024|0.012|0.001|0.001|0.001
+15	neuen	neu	_	ADJA	_	_	_	_	_
+16	Namen	Name	_	NN	_	_	_	_	_
+17	wählen	wählen	_	VVINF|VVFIN	_	_	_	_	0.922|0.078
+18	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1185 1185 1190 1193 1199 1201 1206 1209 1217 1222 1237 1241 1248 1254 1262 1266 1272 1282 1300 1309 1313 1315 1323 1329 1333 1339 1346 1347 1376 1378 1381 1385 1397 1400 1407 1411 1416 1422 1437 1449 1452 1461 1463 1469 1474 1484 1495 1499
+# end_offsets = 1500 1189 1192 1199 1200 1205 1208 1216 1221 1236 1240 1247 1253 1261 1265 1271 1281 1299 1308 1313 1314 1322 1328 1332 1338 1346 1347 1376 1377 1380 1384 1396 1399 1406 1410 1415 1421 1436 1448 1451 1461 1462 1468 1473 1483 1494 1499 1500
+1	Wenn	wenn	_	KOUS	_	_	_	_	_
+2	du	du	_	PPER	_	_	_	_	_
+3	denkst	denken	_	VVFIN	_	_	_	_	_
+4	,	,	_	$,	_	_	_	_	_
+5	dass	dass	_	KOUS	_	_	_	_	_
+6	du	du	_	PPER	_	_	_	_	_
+7	bereits	bereits	_	ADV	_	_	_	_	_
+8	alle	alle	_	PIAT|PIS	_	_	_	_	0.769|0.231
+9	Benutzerkonten	Benutzerkonto	_	NN|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.975|0.009|0.006|0.004|0.002
+10	mit	mit	_	APPR|PTKVZ	_	_	_	_	0.979|0.021
+11	diesem	dies	_	PDAT|PDS	_	_	_	_	0.996|0.004
+12	Namen	Name	_	NN	_	_	_	_	_
+13	besitzt	besitzen	_	VVFIN|VVIMP	_	_	_	_	1.000|0.000
+14	und	und	_	KON	_	_	_	_	_
+15	diese	dies	_	PDAT|PDS	_	_	_	_	0.925|0.075
+16	Nachricht	Nachricht	_	NN	_	_	_	_	_
+17	fälschlicherweise	fälschlicherweise	_	ADV	_	_	_	_	_
+18	erhalten	erhalten	_	VVPP|VVINF|VVFIN|ADJD	_	_	_	_	0.409|0.393|0.193|0.005
+19	hast	haben	_	VAFIN	_	_	_	_	_
+20	,	,	_	$,	_	_	_	_	_
+21	besuche	besuchen	_	VVFIN	_	_	_	_	_
+22	bitte	bitte	_	ADV|PTKANT|VVFIN|VVIMP	_	_	_	_	0.250|0.250|0.250|0.250
+23	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+24	Seite	Seite	_	NN	_	_	_	_	_
+25	Spezial	Spezial	_	NN	_	_	_	_	_
+26	:	:	_	$.	_	_	_	_	_
+27	Benutzerkonten_zusammenführen	Benutzerkonten_zusammenführen	_	NN|ADJA|VVFIN|ADJD|NE|TRUNC|VVINF|VVPP|VVIMP	_	_	_	_	0.496|0.331|0.116|0.031|0.006|0.006|0.006|0.006|0.001
+28	,	,	_	$,	_	_	_	_	_
+29	um	um	_	APPR|KOUI|PTKVZ|ADV	_	_	_	_	0.703|0.271|0.025|0.001
+30	den	die	_	ART|PRELS|PDS	_	_	_	_	0.987|0.009|0.004
+31	Sachverhalt	Sachverhalt	_	NN	_	_	_	_	_
+32	zu	zu	_	PTKZU|APPR|PTKVZ|PTKA|ADV	_	_	_	_	0.580|0.341|0.045|0.032|0.002
+33	prüfen	prüfen	_	VVINF|VVFIN	_	_	_	_	0.595|0.405
+34	und	und	_	KON	_	_	_	_	_
+35	alle	alle	_	PIAT|PIS	_	_	_	_	0.769|0.231
+36	deine	dein	_	PPOSAT|PPOSS	_	_	_	_	0.997|0.003
+37	Benutzerkonten	Benutzerkonto	_	NN|TRUNC|ADJA|VVFIN|ADJD	_	_	_	_	0.975|0.009|0.006|0.004|0.002
+38	miteinander	miteinander	_	ADV	_	_	_	_	_
+39	zu	zu	_	PTKZU|APPR|PTKVZ|PTKA|ADV	_	_	_	_	0.580|0.341|0.045|0.032|0.002
+40	verbinden	verbinden	_	VVINF|VVFIN	_	_	_	_	0.563|0.437
+41	,	,	_	$,	_	_	_	_	_
+42	damit	damit	_	PAV|KOUS	_	_	_	_	0.903|0.097
+43	eine	eine	_	ART|PIS|CARD|VVFIN	_	_	_	_	0.967|0.032|0.000|0.000
+44	Umbennung	--	_	NN	_	_	_	_	_
+45	verhindert	verhindern	_	VVPP|VVFIN|ADJD|VVIMP	_	_	_	_	0.532|0.382|0.086|0.000
+46	wird	werden	_	VAFIN	_	_	_	_	_
+47	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1501 1501 1506 1512 1517 1527 1531 1539 1553 1557 1560 1566 1570 1578 1582 1589 1600 1614 1622 1628 1630 1637 1643 1646 1651 1657 1661 1667 1681 1691 1697
+# end_offsets = 1698 1505 1511 1516 1526 1530 1538 1552 1556 1559 1565 1569 1577 1581 1588 1599 1613 1621 1628 1629 1636 1642 1645 1650 1656 1660 1666 1680 1690 1697 1698
+1	Dein	dein	_	PPOSAT	_	_	_	_	_
+2	Konto	Konto	_	NN	_	_	_	_	_
+3	wird	werden	_	VAFIN	_	_	_	_	_
+4	weiterhin	weiterhin	_	ADV	_	_	_	_	_
+5	wie	wie	_	KOKOM|KOUS|PWAV	_	_	_	_	0.663|0.336|0.001
+6	gewohnt	gewohnt	_	VVPP|ADJD	_	_	_	_	0.965|0.035
+7	funktionieren	funktionieren	_	VVINF|VVFIN	_	_	_	_	0.845|0.155
+8	und	und	_	KON	_	_	_	_	_
+9	du	du	_	PPER	_	_	_	_	_
+10	wirst	werden	_	VAFIN	_	_	_	_	_
+11	als	als	_	KOKOM|KOUS|KON	_	_	_	_	0.842|0.132|0.026
+12	Urheber	Urheber	_	NN	_	_	_	_	_
+13	all	alle	_	PIAT|FM	_	_	_	_	0.819|0.181
+14	deiner	dein	_	PPOSAT|PPER|PPOSS	_	_	_	_	0.939|0.030|0.030
+15	bisherigen	bisherig	_	ADJA	_	_	_	_	_
+16	Bearbeitungen	Bearbeitung	_	NN	_	_	_	_	_
+17	genannt	nennen	_	VVPP	_	_	_	_	_
+18	werden	werden	_	VAINF|VAFIN	_	_	_	_	0.563|0.437
+19	,	,	_	$,	_	_	_	_	_
+20	jedoch	jedoch	_	ADV|KON	_	_	_	_	0.956|0.044
+21	wirst	werden	_	VAFIN	_	_	_	_	_
+22	du	du	_	PPER	_	_	_	_	_
+23	beim	bei+die	_	APPRART	_	_	_	_	_
+24	Login	Login	_	NN	_	_	_	_	_
+25	den	die	_	ART|PRELS|PDS	_	_	_	_	0.987|0.009|0.004
+26	neuen	neu	_	ADJA	_	_	_	_	_
+27	Benutzernamen	Benutzername	_	NN	_	_	_	_	_
+28	verwenden	verwenden	_	VVINF|VVFIN	_	_	_	_	0.845|0.155
+29	müssen	müssen	_	VMFIN|VMINF|VVFIN|VVINF	_	_	_	_	0.746|0.253|0.001|0.001
+30	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1699 1699 1705 1718 1722 1740
+# end_offsets = 1741 1704 1717 1721 1740 1741
+1	Bitte	bitte	_	NN|ADV|PTKANT|VVFIN|VVIMP	_	_	_	_	0.500|0.125|0.125|0.125|0.125
+2	entschuldige	entschuldigen	_	VVFIN	_	_	_	_	_
+3	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+4	Unannehmlichkeiten	Unannehmlichkeit	_	NN	_	_	_	_	_
+5	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1742 1742 1746 1753 1758 1768 1775 1778 1783 1788 1793 1796 1800 1807 1816 1825 1830 1834 1839 1845
+# end_offsets = 1846 1745 1752 1757 1767 1774 1777 1782 1787 1792 1795 1799 1806 1815 1824 1828 1833 1837 1845 1846
+1	Bei	bei	_	APPR|PTKVZ	_	_	_	_	0.988|0.012
+2	Fragen	Frage	_	NN	_	_	_	_	_
+3	oder	oder	_	KON	_	_	_	_	_
+4	Problemen	Problem	_	NN	_	_	_	_	_
+5	kannst	können	_	VMFIN	_	_	_	_	_
+6	du	du	_	PPER	_	_	_	_	_
+7	dich	du	_	PPER	_	_	_	_	_
+8	gern	gern	_	ADV	_	_	_	_	_
+9	auch	auch	_	ADV	_	_	_	_	_
+10	an	an	_	APPR|PTKVZ|APZR|ADV	_	_	_	_	0.786|0.160|0.051|0.003
+11	die	die	_	ART|PRELS|PDS	_	_	_	_	0.864|0.129|0.007
+12	beiden	beide	_	PIAT|PIS	_	_	_	_	0.962|0.038
+13	Stewards	Steward	_	NN	_	_	_	_	_
+14	DerHexer	--	_	ADJA|ADJD	_	_	_	_	0.941|0.057
+15	und	und	_	KON	_	_	_	_	_
+16	Hoo	--	_	NE|NN|ADJA|VVFIN|ADJD	_	_	_	_	0.767|0.216|0.007|0.004|0.002
+17	man	man	_	PIS	_	_	_	_	_
+18	wenden	wenden	_	VVINF|VVFIN	_	_	_	_	0.538|0.462
+19	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1847 1847 1853 1858 1860 1867 1877 1887 1894 1896 1906 1918 1920 1921 1923 1925 1929 1932
+# end_offsets = 1933 1852 1858 1859 1866 1876 1886 1894 1895 1905 1916 1920 1921 1923 1924 1928 1932 1933
+1	Viele	viele	_	PIAT|PIS	_	_	_	_	0.831|0.169
+2	Grüße	Gruß	_	NN	_	_	_	_	_
+3	,	,	_	$,	_	_	_	_	_
+4	Keegan	--	_	NE|NN|ADJA|VVFIN|ADJD	_	_	_	_	0.767|0.216|0.007|0.004|0.002
+5	Peterzell	--	_	NE	_	_	_	_	_
+6	Community	Community	_	NN	_	_	_	_	_
+7	Liaison	Liaison	_	NN	_	_	_	_	_
+8	,	,	_	$,	_	_	_	_	_
+9	Wikimedia	--	_	NN|NE	_	_	_	_	0.777|0.222
+10	Foundation	--	_	NN|ADJA|VVFIN|ADJD	_	_	_	_	0.984|0.006|0.004|0.002
+11	23	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+12	:	:	_	$.	_	_	_	_	_
+13	50	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+14	,	,	_	$,	_	_	_	_	_
+15	19.	@ord@	_	ADJA|ADV	_	_	_	_	0.966|0.034
+16	Mär	mären	_	VVIMP	_	_	_	_	_
+17	.	.	_	$.	_	_	_	_	_
+
+# start_offsets = 1934 1934 1939 1940 1943 1946 1957 1959 1964 1966 1970 1975 1980 1981 1985
+# end_offsets = 1986 1938 1940 1943 1944 1955 1958 1964 1965 1969 1974 1979 1981 1985 1986
+1	2015	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+2	(	(	_	$(	_	_	_	_	_
+3	CET	--	_	NE|NN	_	_	_	_	0.487|0.487
+4	)	)	_	$(	_	_	_	_	_
+5	Umbenannt	umbenennen	_	VVPP	_	_	_	_	_
+6	w	--	_	ADJA|VVFIN|ADJD|NN|NE|VVINF|VVPP|TRUNC|VVIMP|VVIZU	_	_	_	_	0.654|0.228|0.060|0.016|0.013|0.011|0.011|0.004|0.002|0.001
+7	12:05	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+8	,	,	_	$,	_	_	_	_	_
+9	22.	@ord@	_	ADJA|ADV	_	_	_	_	0.966|0.034
+10	Apr.	April	_	NN	_	_	_	_	_
+11	2015	@card@	_	CARD|ADJA|ADV	_	_	_	_	0.922|0.077|0.001
+12	(	(	_	$(	_	_	_	_	_
+13	CEST	--	_	NN|ADJA|VVFIN|ADJD	_	_	_	_	0.984|0.006|0.004|0.002
+14	)	)	_	$(	_	_	_	_	_
+
