@@ -183,12 +183,10 @@ You need to download the pre-trained OpenNLP models from the [OpenNLP model down
 
 ### Tag and lemmatize with TreeTagger
 
-This requires the [TreeTagger Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/CoNLL-U-Treetagger).
-Language models are downloaded automatically.
-
 ```shell script
-./build/bin/korapxmltool app/src/test/resources/wdf19.zip | docker run --rm -i korap/conllu2treetagger -l french | conllu2korapxml
+./build/bin/korapxmltool -A "docker run --rm -i korap/conllu-treetagger -l french" -t zip app/src/test/resources/wdf19.zip
 ```
+See [TreeTagger Docker Image with CoNLL-U Support](https://github.com/KorAP/conllu-treetagger-docker).
 
 ### Tag and lemmatize with spaCy directly to a new KorAP-XML ZIP file
 
