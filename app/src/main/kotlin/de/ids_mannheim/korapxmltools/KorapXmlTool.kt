@@ -273,7 +273,7 @@ class KorapXmlTool : Callable<Int> {
     @Option(
         names = ["-o", "--output"],
         paramLabel = "FILE",
-        description = ["Output file path (for CoNLL-U to ZIP conversion). Required when reading from stdin."]
+        description = ["Output file path. Default: <base input>.krill for krill format, <base input>.<foundry>.zip for KorAP-XML ZIP, and stdout for conllu, now and w2v format."]
     )
     var outputFile: String? = null
 
@@ -599,15 +599,31 @@ class KorapXmlTool : Callable<Int> {
 
         // For krill format, redirect logging to file before any logging occurs
         if (outputFormat == OutputFormat.KRILL) {
-            // Find the base ZIP (one without a foundry suffix)
-            val baseZip = zipFileNames!!.firstOrNull { zip ->
-                val name = File(zip).name
-                name.matches(Regex(".*\\.zip$")) && !name.matches(Regex(".*\\.[^/.]+\\.zip$"))
-            } ?: zipFileNames!![0]
+            // Determine output path for Krill format
+            krillOutputPath = if (outputFile != null) {
+                // Use explicit -o option
+                val finalOutputPath = if (outputDir != ".") {
+                    File(outputDir, File(outputFile!!).name).path
+                } else {
+                    outputFile!!
+                }
+                // Ensure .tar extension for Krill format
+                if (finalOutputPath.endsWith(".tar")) {
+                    finalOutputPath
+                } else {
+                    "$finalOutputPath.tar"
+                }
+            } else {
+                // Find the base ZIP (one without a foundry suffix)
+                val baseZip = zipFileNames!!.firstOrNull { zip ->
+                    val name = File(zip).name
+                    name.matches(Regex(".*\\.zip$")) && !name.matches(Regex(".*\\.[^/.]+\\.zip$"))
+                } ?: zipFileNames!![0]
 
-            val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
-            val krillOutputPath = File(outputDir, "$baseZipName.krill.tar").absolutePath
-            val logFilePath = krillOutputPath.replace(Regex("\\.tar$"), ".log")
+                val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
+                File(outputDir, "$baseZipName.krill.tar").absolutePath
+            }
+            val logFilePath = krillOutputPath!!.replace(Regex("\\.tar$"), ".log")
 
             // Set up file handler for logging
             val fileHandler = java.util.logging.FileHandler(logFilePath, true)
@@ -710,6 +726,24 @@ class KorapXmlTool : Callable<Int> {
     }
 
     private val LOGGER: Logger = Logger.getLogger(KorapXmlTool::class.java.name)
+
+    // Helper function to write output to file or stdout
+    private fun writeOutput(content: String) {
+        if (outputFile != null && (outputFormat == OutputFormat.CONLLU || outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW)) {
+            val finalOutputPath = if (outputDir != ".") {
+                File(outputDir, File(outputFile!!).name).path
+            } else {
+                outputFile!!
+            }
+            
+            // Create parent directories if they don't exist
+            File(finalOutputPath).parentFile?.mkdirs()
+            
+            File(finalOutputPath).writeText(content)
+        } else {
+            println(content)
+        }
+    }
 
     private var annotationWorkerPool : AnnotationWorkerPool? = null
 
@@ -857,6 +891,7 @@ class KorapXmlTool : Callable<Int> {
     var morphoZipOutputStream: ZipArchiveOutputStream? = null
     var krillTarOutputStream: TarArchiveOutputStream? = null
     var krillOutputFileName: String? = null
+    private var krillOutputPath: String? = null
 
     // Fast DocumentBuilderFactory without security features (safe for trusted input)
     private val fastDomFactory: DocumentBuilderFactory by lazy {
@@ -1024,7 +1059,7 @@ class KorapXmlTool : Callable<Int> {
             } ?: args[0]
 
             val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
-            krillOutputFileName = File(outputDir, "$baseZipName.krill.tar").absolutePath
+            krillOutputFileName = krillOutputPath ?: File(outputDir, "$baseZipName.krill.tar").absolutePath
             LOGGER.info("Initializing krill TAR output: $krillOutputFileName")
 
             if (File(krillOutputFileName!!).exists() && !overwrite) {
@@ -1531,7 +1566,7 @@ class KorapXmlTool : Callable<Int> {
             // Initialize progress bar now that we know the text count
             if (!quiet && allTextIds.size > 0) {
                 incrementalProgressBar = ProgressBarBuilder()
-                    .setTaskName("${File(zips[0]).nameWithoutExtension.substringBefore('.')}.krill.tar")
+                    .setTaskName(File(krillOutputFileName!!).name)
                     .setInitialMax(allTextIds.size.toLong())
                     .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
                     .setUpdateIntervalMillis(500)
@@ -2756,7 +2791,7 @@ class KorapXmlTool : Callable<Int> {
             output.setLength(0)
         } else if (outputFormat != OutputFormat.KORAP_XML) {
             synchronized(System.out) {
-                println(output.toString())
+                writeOutput(output.toString())
             }
             // Release internal char[] early
             output.setLength(0)
