@@ -308,6 +308,7 @@ class KorapXmlTool : Callable<Int> {
 
     private var taggerName: String? = null
     private var taggerModel: String? = null
+    private var dockerLogMessage: String? = null
     
     // Store model path resolutions for logging after logger initialization
     private val modelPathResolutions: MutableList<Pair<String, String>> = mutableListOf()
@@ -316,7 +317,13 @@ class KorapXmlTool : Callable<Int> {
     private val defaultTaggerModels = mapOf(
         "marmot" to "de.marmot",
         "opennlp" to "de-pos-maxent.bin",
-        "corenlp" to "german-fast.tagger"
+        "corenlp" to "german-fast.tagger",
+        "treetagger" to "german"
+    )
+
+    data class DockerTaggerConfig(val image: String, val defaultModel: String, val defaultArgs: String)
+    private val dockerTaggers = mapOf(
+        "treetagger" to DockerTaggerConfig("korap/conllu-treetagger", "german", "-p")
     )
 
     private val defaultParserModels = mapOf(
@@ -471,32 +478,76 @@ class KorapXmlTool : Callable<Int> {
                 String.format(Locale.ROOT, "Invalid value `%s' for option '--tag-with': "+
                     "value does not match the expected pattern ${taggerFoundries}[:<path/to/model>]", tagWith))
         } else {
+
             taggerName = matcher.group(1)
-            val originalModelPath = matcher.group(2) ?: defaultTaggerModels[taggerName]
-
-            if (originalModelPath == null) {
-                throw ParameterException(spec.commandLine(),
-                    String.format(Locale.ROOT, "No default model available for tagger '%s'", taggerName))
-            }
-
-            val resolvedModelPath = resolveModelPath(originalModelPath)
             
-            if (resolvedModelPath != null) {
-                taggerModel = resolvedModelPath
-                if (resolvedModelPath != originalModelPath) {
-                    // Store for logging after logger initialization
-                    modelPathResolutions.add(originalModelPath to resolvedModelPath)
+            if (dockerTaggers.containsKey(taggerName)) {
+                val config = dockerTaggers[taggerName]!!
+                val modelPart = matcher.group(2)
+                
+                var model = config.defaultModel
+                var args = config.defaultArgs
+                
+                if (modelPart != null) {
+                    // Split by first colon to separate model and args if present
+                    // Format could be: "model" or "model:args" or ":args" (if model is empty, but regex group 2 implies presence)
+                    // Actually regex is (foundry)(?::(.+))? so group 2 is everything after first colon
+                    // We want to support:
+                    // treetagger -> default model, default args
+                    // treetagger:german -> german model, default args
+                    // treetagger:german:-p -x -> german model, custom args
+                    
+                    val parts = modelPart.split(":", limit = 2)
+                    if (parts.isNotEmpty() && parts[0].isNotBlank()) {
+                        model = parts[0]
+                    }
+                    if (parts.size > 1) {
+                        val customArgs = parts[1]
+                        args = if (config.defaultArgs.isNotBlank()) {
+                            "${config.defaultArgs} $customArgs"
+                        } else {
+                            customArgs
+                        }
+                    }
                 }
+                
+                taggerModel = model // For logging
+                
+                // Construct Docker command
+                // We assume KORAPXMLTOOL_MODELS_PATH is set in the environment or we use a default?
+                // The user request said: "docker run -v $KORAPXMLTOOL_MODELS_PATH:/local/models ..."
+                // AnnotationWorkerPool uses /bin/sh -c, so environment variables should be expanded by the shell.
+                
+                annotateWith = "docker run -v \${KORAPXMLTOOL_MODELS_PATH:-.}:/local/models --rm -i ${config.image} $args -l $model"
+                dockerLogMessage = "Configured Docker tagger '$taggerName' with command: $annotateWith"
+                
             } else {
-                val defaultModelsPath = System.getenv("KORAPXMLTOOL_MODELS_PATH")
-                val searchInfo = if (defaultModelsPath != null) {
-                    " (searched in current directory and KORAPXMLTOOL_MODELS_PATH='$defaultModelsPath')"
-                } else {
-                    " (searched in current directory; KORAPXMLTOOL_MODELS_PATH defaults to ../lib/models relative to executable)"
+                val originalModelPath = matcher.group(2) ?: defaultTaggerModels[taggerName]
+    
+                if (originalModelPath == null) {
+                    throw ParameterException(spec.commandLine(),
+                        String.format(Locale.ROOT, "No default model available for tagger '%s'", taggerName))
                 }
-                throw ParameterException(spec.commandLine(),
-                    String.format(Locale.ROOT, "Invalid value for option '--tag-with': "+
-                        "model file '%s' does not exist%s", originalModelPath, searchInfo))
+    
+                val resolvedModelPath = resolveModelPath(originalModelPath)
+                
+                if (resolvedModelPath != null) {
+                    taggerModel = resolvedModelPath
+                    if (resolvedModelPath != originalModelPath) {
+                        // Store for logging after logger initialization
+                        modelPathResolutions.add(originalModelPath to resolvedModelPath)
+                    }
+                } else {
+                    val defaultModelsPath = System.getenv("KORAPXMLTOOL_MODELS_PATH")
+                    val searchInfo = if (defaultModelsPath != null) {
+                        " (searched in current directory and KORAPXMLTOOL_MODELS_PATH='$defaultModelsPath')"
+                    } else {
+                        " (searched in current directory; KORAPXMLTOOL_MODELS_PATH defaults to ../lib/models relative to executable)"
+                    }
+                    throw ParameterException(spec.commandLine(),
+                        String.format(Locale.ROOT, "Invalid value for option '--tag-with': "+
+                            "model file '%s' does not exist%s", originalModelPath, searchInfo))
+                }
             }
         }
     }
@@ -577,7 +628,7 @@ class KorapXmlTool : Callable<Int> {
         modelPathResolutions.forEach { (original, resolved) ->
             LOGGER.info("Resolved model path '$original' to '$resolved'")
         }
-
+        
         // Validate input files exist before doing any processing
         zipFileNames?.forEach { zipFile ->
             if (!File(zipFile).exists()) {
@@ -1195,6 +1246,10 @@ class KorapXmlTool : Callable<Int> {
                     null
                 }
                 annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, handler)
+            }
+            
+            if (dockerLogMessage != null) {
+                LOGGER.info(dockerLogMessage)
             }
         }
 
@@ -3746,12 +3801,12 @@ class KorapXmlTool : Callable<Int> {
                     }
                 }
                 line.startsWith("# start_offsets =") -> {
-                    val offsetsStr = line.substring("# start_offsets =".length).trim()
-                    val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
-                    sentenceStartOffset = allOffsets.firstOrNull()
-                    currentStartOffsets = if (allOffsets.size > 1) allOffsets.drop(1) else allOffsets
-                    tokenIndexInSentence = 0
-                }
+                val offsetsStr = line.substring("# start_offsets =".length).trim()
+                val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
+                sentenceStartOffset = allOffsets.firstOrNull()
+                currentStartOffsets = if (allOffsets.size > 1) allOffsets.drop(1) else allOffsets
+                tokenIndexInSentence = 0
+            }
                 line.startsWith("# end_offsets =") -> {
                     val offsetsStr = line.substring("# end_offsets =".length).trim()
                     val allOffsets = offsetsStr.split(Regex("\\s+")).mapNotNull { it.toIntOrNull() }
@@ -3782,17 +3837,17 @@ class KorapXmlTool : Callable<Int> {
                     val deps = if (fields.size > 8) fields[8] else "_"
                     val misc = if (fields.size > 9) fields[9] else "_"
 
-                    if (currentStartOffsets != null && currentEndOffsets != null &&
-                        tokenIndexInSentence < currentStartOffsets.size &&
-                        tokenIndexInSentence < currentEndOffsets.size) {
+                if (currentStartOffsets != null && currentEndOffsets != null &&
+                    tokenIndexInSentence < currentStartOffsets.size &&
+                    tokenIndexInSentence < currentEndOffsets.size) {
 
-                        val spanFrom = currentStartOffsets[tokenIndexInSentence]
-                        val spanTo = currentEndOffsets[tokenIndexInSentence]
-                        val spanKey = "$spanFrom-$spanTo"
+                    val spanFrom = currentStartOffsets[tokenIndexInSentence]
+                    val spanTo = currentEndOffsets[tokenIndexInSentence]
+                    val spanKey = "$spanFrom-$spanTo"
 
-                        morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
-                        tokenIndexInSentence++
-                    }
+                    morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
+                    tokenIndexInSentence++
+                }
                 }
             }
         }
