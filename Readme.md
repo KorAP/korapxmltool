@@ -2,8 +2,8 @@
 
 [![Project Status: Active – The project has reached a stable, usable state and is being actively developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/KorAP/korapxmltool)](https://github.com/KorAP/korapxmltool/releases)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/KorAP/korapxmltool/gradle.yml?branch=main)](https://github.com/KorAP/korapxmltool/actions)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/KorAP/korapxmltool?include_prereleases)](https://github.com/KorAP/korapxmltool/releases)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/KorAP/korapxmltool/ci.yml?branch=master)](https://github.com/KorAP/korapxmltool/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Last commit](https://img.shields.io/github/last-commit/KorAP/korapxmltool.svg)](https://github.com/KorAP/korapxmltool/commits)
 [![GitHub issues](https://img.shields.io/github/issues-raw/KorAP/korapxmltool.svg)](https://github.com/KorAP/korapxmltool/issues)
