@@ -1,0 +1,40 @@
+# Changelog
+
+## [v3.0.0] - 2025-11-27
+
+### Fixed
+- **CLI**: Fixed `-o <output-file>` option consistency ([#12](https://github.com/KorAP/korapxmltool/issues/12)).
+- **Badges**: Fixed release and build status badges in README.
+
+
+### Changed
+
+- **Annotation**: Multiple POS/lemma annotations are now sorted by probability in descending order.
+
+## [v3.00-rc3] - 2025-11-22
+
+### Added
+
+- **Annotation**: Support multiple POS/lemma annotations ([#9](https://github.com/KorAP/korapxmltool/issues/9)).
+- **CI/CD**: GitHub Actions for CI and Release workflows.
+- **Documentation**: Added project status, lifecycle, release, and build status badges to README.
+
+### Fixed
+- **Annotation**: Fixed `-A -t zip` not picking up multiple POS interpretations ([#11](https://github.com/KorAP/korapxmltool/issues/11)).
+
+
+## [v3.0-rc2] - 2025-11-21
+
+### Fixed
+- **Indexing/Krill**: Fixed emoji output for krill target ([#7](https://github.com/KorAP/korapxmltool/issues/7)).
+- **Annotation**: Fixed external tool annotations (`-t zip -A`) not respecting foundry ([#8](https://github.com/KorAP/korapxmltool/issues/8)).
+
+## [v3.0-rc1] - 2025-11-21
+
+### Changed
+- **CLI**: Standardized command line options:
+    - `-j` / `--jobs` / `--threads` now sets the number of threads (replaced `-T`).
+    - `-q` / `--quiet` suppresses progress output.
+- **Documentation**: Updated README.md with new usage instructions and examples.
+
+
