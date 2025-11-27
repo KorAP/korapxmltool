@@ -6,10 +6,13 @@
 - **CLI**: Fixed `-o <output-file>` option consistency ([#12](https://github.com/KorAP/korapxmltool/issues/12)).
 - **Badges**: Fixed release and build status badges in README.
 
-
 ### Changed
 
 - **Annotation**: Multiple POS/lemma annotations are now sorted by probability in descending order.
+
+### Updated
+
+- **Dependencies**
 
 ## [v3.00-rc3] - 2025-11-22
 
