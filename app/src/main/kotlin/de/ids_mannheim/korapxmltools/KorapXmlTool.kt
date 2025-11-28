@@ -1297,11 +1297,13 @@ class KorapXmlTool : Callable<Int> {
             // Close progress bar
             progressBar?.close()
 
-            // Check if all documents were written
-            val sent = docsSentToAnnotation.get()
-            val written = docsWrittenToZip.get()
-            if (sent != written) {
-                LOGGER.warning("Document count mismatch! Sent to annotation: $sent, Written to ZIP: $written (missing: ${sent - written})")
+            // Check if all documents were written (only relevant for ZIP output)
+            if (outputFormat == OutputFormat.KORAP_XML) {
+                val sent = docsSentToAnnotation.get()
+                val written = docsWrittenToZip.get()
+                if (sent != written) {
+                    LOGGER.warning("Document count mismatch! Sent to annotation: $sent, Written to ZIP: $written (missing: ${sent - written})")
+                }
             }
         } else {
             // No external worker: ensure progress bar is closed (e.g., internal tagger -t)
