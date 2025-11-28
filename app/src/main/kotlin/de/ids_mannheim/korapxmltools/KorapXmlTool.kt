@@ -719,6 +719,24 @@ class KorapXmlTool : Callable<Int> {
         }
 
         // Normal ZIP processing mode
+        if (outputFile != null && (outputFormat == OutputFormat.CONLLU || outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW)) {
+            val finalOutputPath = if (outputDir != ".") {
+                File(outputDir, File(outputFile!!).name).path
+            } else {
+                outputFile!!
+            }
+            val file = File(finalOutputPath)
+            if (file.exists()) {
+                if (!overwrite) {
+                    System.err.println("ERROR: Output file $finalOutputPath already exists. Use --force to overwrite.")
+                    return 1
+                }
+                file.delete()
+            }
+            // Create parent directories
+            file.parentFile?.mkdirs()
+        }
+
         LOGGER.info("Processing zip files: " + zipFileNames!!.joinToString(", "))
 
         korapxml2conllu(zipFileNames!!)
@@ -736,10 +754,7 @@ class KorapXmlTool : Callable<Int> {
                 outputFile!!
             }
             
-            // Create parent directories if they don't exist
-            File(finalOutputPath).parentFile?.mkdirs()
-            
-            File(finalOutputPath).writeText(content)
+            File(finalOutputPath).appendText(content)
         } else {
             println(content)
         }
@@ -1174,7 +1189,12 @@ class KorapXmlTool : Callable<Int> {
                      parseAndWriteAnnotatedConllu(annotatedConllu, task)
                 }, stderrLogPath = currentLog)
             } else {
-                annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, null)
+                val handler: ((String, AnnotationWorkerPool.AnnotationTask?) -> Unit)? = if (outputFile != null) {
+                    { output, _ -> writeOutput(output) }
+                } else {
+                    null
+                }
+                annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, handler)
             }
         }
 
