@@ -7,5 +7,10 @@ build
 .gitlab-ci-local/
 .gradle-user-home/
 .claude/
-index*/
+*index*/**
+app/tmp*
 corpora/
+app/bin
+*.md
+!Readme.md
+!ChangeLog.md
