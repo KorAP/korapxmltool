@@ -102,7 +102,7 @@ class AnnotationWorkerPool(
                                         }
                                         if (task.text == "#eof") {
                                             try {
-                                                outputStreamWriter.write("\n# eof\n") // Send EOF to process
+                                                outputStreamWriter.write("# eof\n") // Send EOF to process
                                                 outputStreamWriter.flush()
                                             } catch (e: IOException) {
                                                 // Log error, but proceed to close
@@ -115,7 +115,12 @@ class AnnotationWorkerPool(
                                         }
                                         pendingTasks.put(task)
                                         try {
-                                            val dataToSend = task.text + "\n# eot\n\n"
+                                            val trimmed = task.text.trimEnd()
+                                            val dataToSend = if (trimmed.isEmpty()) {
+                                                "# eot\n"
+                                            } else {
+                                                trimmed + "\n\n# eot\n"
+                                            }
                                             LOGGER.fine("Worker $workerIndex: Sending ${dataToSend.length} chars to external process")
                                             LOGGER.finer("Worker $workerIndex: First 500 chars of data to send:\n${dataToSend.take(500)}")
                                             outputStreamWriter.write(dataToSend)
@@ -228,10 +233,10 @@ class AnnotationWorkerPool(
                                                         lastLineWasEmpty = true
                                                     }
                                                 }
-                                                else -> {
-                                                    output.append(line).append('\n')
-                                                    lastLineWasEmpty = false
-                                                }
+                                                 else -> {
+                                                     output.append(line).append('\n')
+                                                     lastLineWasEmpty = false
+                                                 }
                                             }
                                         }
                                     }

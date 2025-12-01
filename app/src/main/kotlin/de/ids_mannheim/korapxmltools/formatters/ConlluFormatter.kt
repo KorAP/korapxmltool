@@ -99,7 +99,7 @@ object ConlluFormatter : OutputFormatter {
             var tokenText: String = if (textVal != null) {
                 val safeFrom = span.from.coerceIn(0, textVal.length)
                 val safeTo = span.to.coerceIn(safeFrom, textVal.length)
-                textVal.substring(safeFrom, safeTo)
+                textVal.substring(safeFrom, safeTo).replace(Regex("[\\t\\n\\r]"), " ")
             } else "_"
             
             if (tokenText.isBlank()) {
