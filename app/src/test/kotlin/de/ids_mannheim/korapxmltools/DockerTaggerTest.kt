@@ -2,10 +2,56 @@ package de.ids_mannheim.korapxmltools
 
 import org.junit.Test
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 
 class DockerTaggerTest {
 
+    @Test
+    fun testSpacyTaggerConfiguration() {
+        val tool = KorapXmlTool()
+        
+        // Test spaCy tagging (should add -d flag to disable parsing)
+        tool.setTagWith("spacy")
+        
+        val annotateWithField = KorapXmlTool::class.java.getDeclaredField("annotateWith")
+        annotateWithField.isAccessible = true
+        val annotateWith = annotateWithField.get(tool) as String
+        
+        assertTrue(annotateWith.contains("-d"), "spaCy tagger should contain -d flag to disable parsing. Output: $annotateWith")
+        assertTrue(annotateWith.contains("-m de_core_news_lg"), "Should contain default model")
+        assertTrue(annotateWith.contains("korap/conllu-spacy"), "Should use correct Docker image")
+    }
 
+    @Test
+    fun testSpacyParserConfiguration() {
+        val tool = KorapXmlTool()
+        
+        // Test spaCy parsing (should NOT add -d flag)
+        tool.setParseWith("spacy")
+        
+        val annotateWithField = KorapXmlTool::class.java.getDeclaredField("annotateWith")
+        annotateWithField.isAccessible = true
+        val annotateWith = annotateWithField.get(tool) as String
+        
+        assertFalse(annotateWith.contains("-d"), "spaCy parser should NOT contain -d flag. Output: $annotateWith")
+        assertTrue(annotateWith.contains("-m de_core_news_lg"), "Should contain default model")
+        assertTrue(annotateWith.contains("korap/conllu-spacy"), "Should use correct Docker image")
+    }
+
+    @Test
+    fun testSpacyCustomModel() {
+        val tool = KorapXmlTool()
+        
+        // Test spaCy with custom model
+        tool.setTagWith("spacy:de_core_news_sm")
+        
+        val annotateWithField = KorapXmlTool::class.java.getDeclaredField("annotateWith")
+        annotateWithField.isAccessible = true
+        val annotateWith = annotateWithField.get(tool) as String
+        
+        assertTrue(annotateWith.contains("-m de_core_news_sm"), "Should contain custom model. Output: $annotateWith")
+        assertTrue(annotateWith.contains("-d"), "Should still contain -d flag for tagging")
+    }
 
     @Test
     fun testTreeTaggerArgumentAppending() {

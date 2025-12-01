@@ -18,8 +18,8 @@ interface AnnotationToolBridge {
 
 class AnnotationToolBridgeFactory {
     companion object {
-        const val taggerFoundries = "marmot|opennlp|corenlp|treetagger"
-        const val parserFoundries = "malt|corenlp"
+        const val taggerFoundries = "marmot|opennlp|corenlp|treetagger|spacy"
+        const val parserFoundries = "malt|corenlp|spacy"
 
         fun getAnnotationToolBridge(foundry: String, model: String, LOGGER: Logger): AnnotationToolBridge? {
             when (foundry) {
@@ -28,6 +28,7 @@ class AnnotationToolBridgeFactory {
                 "malt" -> return MaltParserBridge(model, LOGGER)
                 "corenlp" -> return CoreNLPBridge(model, LOGGER)
                 "treetagger", "tree_tagger" -> return null
+                "spacy" -> return null
                 else -> LOGGER.severe("Unknown tagger/parser $foundry")
             }
             return null
@@ -40,6 +41,7 @@ class AnnotationToolBridgeFactory {
                 "opennlp" -> return OpenNlpBridge(model, LOGGER)
                 "corenlp" -> return CoreNLPTaggerBridge(model, LOGGER)
                 "treetagger", "tree_tagger" -> return null
+                "spacy" -> return null
                 else -> LOGGER.severe("Unknown tagger $foundry")
             }
             return null
@@ -50,6 +52,7 @@ class AnnotationToolBridgeFactory {
             when (foundry) {
                 "malt" -> return MaltParserBridge(model, LOGGER)
                 "corenlp" -> return CoreNLPBridge(model, LOGGER, taggerModel)
+                "spacy" -> return null
                 else -> LOGGER.severe("Unknown parser $foundry")
             }
             return null

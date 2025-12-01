@@ -92,7 +92,13 @@ val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
             "    ./build/bin/korapxmltool -t zip -T marmot:de.marmot -P malt:german.mco app/src/test/resources/goe.zip",
             "    # (uses KORAPXMLTOOL_MODELS_PATH if model not found in current directory)",
             "",
-            "  Use external spaCy annotation (without dependencies):",
+            "  Native Docker spaCy tagging (without dependencies):",
+            "    ./build/bin/korapxmltool -t zip -T spacy app/src/test/resources/goe.zip",
+            "",
+            "  Native Docker spaCy tagging and dependency parsing:",
+            "    ./build/bin/korapxmltool -t zip -P spacy app/src/test/resources/goe.zip",
+            "",
+            "  Use external spaCy annotation (legacy method):",
             "    ./build/bin/korapxmltool -j4 -A \"docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest\" -t zip ./app/src/test/resources/goe.zip",
             "",
             "  Generate Krill tar from wud24_sample with multiple annotation foundries:",
@@ -323,12 +329,14 @@ class KorapXmlTool : Callable<Int> {
 
     data class DockerTaggerConfig(val image: String, val defaultModel: String, val defaultArgs: String)
     private val dockerTaggers = mapOf(
-        "treetagger" to DockerTaggerConfig("korap/conllu-treetagger", "german", "-p")
+        "treetagger" to DockerTaggerConfig("korap/conllu-treetagger", "german", "-p"),
+        "spacy" to DockerTaggerConfig("korap/conllu-spacy", "de_core_news_lg", "")
     )
 
     private val defaultParserModels = mapOf(
         "malt" to "german.mco",
-        "corenlp" to "germanSR.ser.gz"
+        "corenlp" to "germanSR.ser.gz",
+        "spacy" to "de_core_news_lg"
     )
 
     // Calculate optimal thread count based on format, memory, and input characteristics
@@ -467,7 +475,7 @@ class KorapXmlTool : Callable<Int> {
         names = ["-T", "--tag-with"],
         paramLabel = "TAGGER[:MODEL]",
         description = ["Specify a tagger and optionally a model: ${taggerFoundries}[:<path/to/model>].",
-                      "If model is omitted, defaults are: marmot→de.marmot, opennlp→de-pos-maxent.bin, corenlp→german-fast.tagger"]
+                      "If model is omitted, defaults are: marmot→de.marmot, opennlp→de-pos-maxent.bin, corenlp→german-fast.tagger, treetagger→german, spacy→de_core_news_lg"]
     )
     fun setTagWith(tagWith: String) {
         // Pattern now makes the model part optional
@@ -518,7 +526,16 @@ class KorapXmlTool : Callable<Int> {
                 // The user request said: "docker run -v $KORAPXMLTOOL_MODELS_PATH:/local/models ..."
                 // AnnotationWorkerPool uses /bin/sh -c, so environment variables should be expanded by the shell.
                 
-                annotateWith = "docker run -v \${KORAPXMLTOOL_MODELS_PATH:-.}:/local/models --rm -i ${config.image} $args -l $model"
+                // Handle different Docker command formats
+                if (taggerName == "spacy") {
+                    // spaCy uses -m for model and -d to disable dependencies (tagging only)
+                    annotateWith = "docker run -v \${KORAPXMLTOOL_MODELS_PATH:-.}:/local/models --rm -i ${config.image} -m $model -d"
+                } else if (taggerName == "treetagger") {
+                    // TreeTagger uses -l for language/model and -p in args
+                    annotateWith = "docker run -v \${KORAPXMLTOOL_MODELS_PATH:-.}:/local/models --rm -i ${config.image} $args -l $model"
+                } else {
+                    annotateWith = "docker run -v \${KORAPXMLTOOL_MODELS_PATH:-.}:/local/models --rm -i ${config.image} $args $model"
+                }
                 dockerLogMessage = "Configured Docker tagger '$taggerName' with command: $annotateWith"
                 
             } else {
@@ -558,7 +575,7 @@ class KorapXmlTool : Callable<Int> {
         names = ["-P", "--parse-with"],
         paramLabel = "PARSER[:MODEL]",
         description = ["Specify a parser and optionally a model: ${parserFoundries}[:<path/to/model>].",
-                      "If model is omitted, defaults are: malt→german.mco, corenlp→germanSR.ser.gz"]
+                      "If model is omitted, defaults are: malt→german.mco, corenlp→germanSR.ser.gz, spacy→de_core_news_lg"]
     )
     fun setParseWith(parseWith: String) {
         // Pattern now makes the model part optional
@@ -570,31 +587,68 @@ class KorapXmlTool : Callable<Int> {
                         "value does not match the expected pattern ${parserFoundries}[:<path/to/model>]", parseWith))
         } else {
             parserName = matcher.group(1)
-            val originalModelPath = matcher.group(2) ?: defaultParserModels[parserName]
-
-            if (originalModelPath == null) {
-                throw ParameterException(spec.commandLine(),
-                    String.format(Locale.ROOT, "No default model available for parser '%s'", parserName))
-            }
-
-            val resolvedModelPath = resolveModelPath(originalModelPath)
             
-            if (resolvedModelPath != null) {
-                parserModel = resolvedModelPath
-                if (resolvedModelPath != originalModelPath) {
-                    // Store for logging after logger initialization
-                    modelPathResolutions.add(originalModelPath to resolvedModelPath)
+            // Handle Docker parsers (like spaCy)
+            if (dockerTaggers.containsKey(parserName)) {
+                val config = dockerTaggers[parserName]!!
+                val modelPart = matcher.group(2)
+                
+                var model = config.defaultModel
+                var args = config.defaultArgs
+                
+                if (modelPart != null) {
+                    val parts = modelPart.split(":", limit = 2)
+                    if (parts.isNotEmpty() && parts[0].isNotBlank()) {
+                        model = parts[0]
+                    }
+                    if (parts.size > 1) {
+                        val customArgs = parts[1]
+                        args = if (config.defaultArgs.isNotBlank()) {
+                            "${config.defaultArgs} $customArgs"
+                        } else {
+                            customArgs
+                        }
+                    }
                 }
-            } else {
-                val defaultModelsPath = System.getenv("KORAPXMLTOOL_MODELS_PATH")
-                val searchInfo = if (defaultModelsPath != null) {
-                    " (searched in current directory and KORAPXMLTOOL_MODELS_PATH='$defaultModelsPath')"
+                
+                parserModel = model // For logging
+                
+                // For spaCy parsing, do NOT add -d flag (parsing is enabled by default)
+                if (parserName == "spacy") {
+                    // spaCy uses -m for model, no -d flag for parsing mode
+                    annotateWith = "docker run -v \${KORAPXMLTOOL_MODELS_PATH:-.}:/local/models --rm -i ${config.image} -m $model"
                 } else {
-                    " (searched in current directory; KORAPXMLTOOL_MODELS_PATH defaults to ../lib/models relative to executable)"
+                    annotateWith = "docker run -v \${KORAPXMLTOOL_MODELS_PATH:-.}:/local/models --rm -i ${config.image} $args $model"
                 }
-                throw ParameterException(spec.commandLine(),
-                    String.format(Locale.ROOT, "Invalid value for option '--parse-with': "+
-                            "model file '%s' does not exist%s", originalModelPath, searchInfo))
+                dockerLogMessage = "Configured Docker parser '$parserName' with command: $annotateWith"
+                
+            } else {
+                val originalModelPath = matcher.group(2) ?: defaultParserModels[parserName]
+
+                if (originalModelPath == null) {
+                    throw ParameterException(spec.commandLine(),
+                        String.format(Locale.ROOT, "No default model available for parser '%s'", parserName))
+                }
+
+                val resolvedModelPath = resolveModelPath(originalModelPath)
+                
+                if (resolvedModelPath != null) {
+                    parserModel = resolvedModelPath
+                    if (resolvedModelPath != originalModelPath) {
+                        // Store for logging after logger initialization
+                        modelPathResolutions.add(originalModelPath to resolvedModelPath)
+                    }
+                } else {
+                    val defaultModelsPath = System.getenv("KORAPXMLTOOL_MODELS_PATH")
+                    val searchInfo = if (defaultModelsPath != null) {
+                        " (searched in current directory and KORAPXMLTOOL_MODELS_PATH='$defaultModelsPath')"
+                    } else {
+                        " (searched in current directory; KORAPXMLTOOL_MODELS_PATH defaults to ../lib/models relative to executable)"
+                    }
+                    throw ParameterException(spec.commandLine(),
+                        String.format(Locale.ROOT, "Invalid value for option '--parse-with': "+
+                                "model file '%s' does not exist%s", originalModelPath, searchInfo))
+                }
             }
         }
     }
