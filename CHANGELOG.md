@@ -1,5 +1,15 @@
 # Changelog
 
+## [v3.1.0-rc1] - 2025-12-01
+
+### Fixed
+
+- `-o` option for CoNLL-U  output
+
+### Added
+
+- integrated support for TreeTagger (`-T treetagger`) and spaCy (`-T spacy`) annotations
+
 ## [v3.0.0] - 2025-11-27
 
 ### Fixed

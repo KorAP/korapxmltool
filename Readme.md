@@ -41,9 +41,9 @@ After building, a fat jar file will be available at `./app/build/libs/korapxmlto
 the executable `korapxmltool`, as well as the symbolic link shortcuts `korapxml2conllu` and `korapxml2krill`, will
  be available at `./build/bin/`. 
 
-## Command Line Options (v3.0)
+## Command Line Options (v3.1)
 
-Key options for korapxmltool v3.0:
+Key options for korapxmltool v3.1:
 
 - `-t FORMAT`, `--to FORMAT`: Output format (`zip`, `conllu`, `w2v`, `now`, `krill`)
 - `-j N`, `--jobs N`, `--threads N`: Number of threads/jobs to use
@@ -181,25 +181,26 @@ You need to download the pre-trained OpenNLP models from the [OpenNLP model down
 ./build/bin/korapxmltool -t zip -T opennlp:/usr/local/kl/korap/Ingestion/lib/models/opennlp/de-pos-maxent.bin /tmp/zca24.zip
 ```
 
-### Tag and lemmatize with TreeTagger
+### Tag and lemmatize with integrated TreeTagger
+
+(Requires Docker)
 
 ```shell script
-./build/bin/korapxmltool -A "docker run --rm -i korap/conllu-treetagger -l french" -t zip app/src/test/resources/wdf19.zip
+./build/bin/korapxmltool -T treetagger:german -t zip app/src/test/resources/wdf19.zip
 ```
 See [TreeTagger Docker Image with CoNLL-U Support](https://github.com/KorAP/conllu-treetagger-docker).
 
-### Tag and lemmatize with spaCy directly to a new KorAP-XML ZIP file
+### Tag and lemmatize with integrated spaCy to CoNLL-U
 
-This requires the [spaCy Docker Image with CoNLL-U Support](https://gitlab.ids-mannheim.de/KorAP/sota-pos-lemmatizers) and is only available for German.
-
+(Requires Docker)
 ```shell script
-./build/bin/korapxmltool -j4 -A "docker run -e SPACY_USE_DEPENDENCIES=False --rm -i korap/conllu2spacy:latest" -t zip ./app/src/test/resources/goe.zip
+./build/bin/korapxmltool -j 1 -T spacy ./app/src/test/resources/goe.zip | less
 ```
 
 ### Tag, lemmatize and dependency parse with spaCy directly to a new KorAP-XML ZIP file
 
 ```shell script
-./build/bin/korapxmltool -j4 -A "docker run -e SPACY_USE_DEPENDENCIES=True --rm -i korap/conllu2spacy:latest" -t zip ./app/src/test/resources/goe.zip
+./build/bin/korapxmltool -P spacy -t zip ./app/src/test/resources/goe.zip
 ```
 
 ### Tag, lemmatize and constituency parse with CoreNLP (3.X) directly to a new KorAP-XML ZIP file
