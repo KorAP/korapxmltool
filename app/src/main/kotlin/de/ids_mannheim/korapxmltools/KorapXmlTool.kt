@@ -1227,7 +1227,7 @@ class KorapXmlTool : Callable<Int> {
 
         if (annotateWith.isNotEmpty()) {
             // Detect external foundry label once from annotateWith command
-            externalFoundry = detectFoundryFromAnnotateCmd(annotateWith)
+            externalFoundry = foundryOverride ?: detectFoundryFromAnnotateCmd(annotateWith)
             // Initialize ZIP output stream BEFORE creating worker pool, if needed
             if (outputFormat == OutputFormat.KORAP_XML) {
                 // Determine output filename - respect outputDir consistently
@@ -1943,15 +1943,17 @@ class KorapXmlTool : Callable<Int> {
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
 
-            // Respect outputDir option consistently
+            // Determine output filename - respect outputDir consistently
             val baseZipName = File(zipFilePath).name.replace(Regex("\\.zip$"), "")
-            val outputMorphoZipFileName = File(outputDir, "$baseZipName.$targetFoundry.zip").absolutePath
-            targetZipFileName = outputMorphoZipFileName
-            LOGGER.info("Output ZIP file: $outputMorphoZipFileName")
+            val autoOutputFileName = File(outputDir, "$baseZipName.$targetFoundry.zip").absolutePath
+            val finalOutputFileName = outputFile ?: autoOutputFileName
+            targetZipFileName = finalOutputFileName
+            val outputMorphoZipFileName = finalOutputFileName
+            LOGGER.info("Output ZIP file: $targetZipFileName")
 
             // Check for existing output file BEFORE redirecting logging, so user sees the message
-            if (File(outputMorphoZipFileName).exists() && !overwrite) {
-                val errorMsg = "Output file $outputMorphoZipFileName already exists. Use --force to overwrite."
+            if (File(targetZipFileName).exists() && !overwrite) {
+                val errorMsg = "Output file $targetZipFileName already exists. Use --force to overwrite."
                 System.err.println("ERROR: $errorMsg")
                 LOGGER.severe(errorMsg)
                 exitProcess(1)
@@ -3949,7 +3951,9 @@ class KorapXmlTool : Callable<Int> {
         }
 
         // Use extracted foundry from CoNLL-U output if available
-        val actualFoundry = if (extractedFoundry != null) {
+        val actualFoundry = if (foundryOverride != null) {
+            foundryOverride!!
+        } else if (extractedFoundry != null) {
             LOGGER.info("Using foundry from CoNLL-U output: $extractedFoundry (was: $foundry)")
             // Update the global externalFoundry variable for consistent naming
             externalFoundry = extractedFoundry
