@@ -6,6 +6,8 @@
 
 - `-o` option for CoNLL-U  output
 
+- missing newlines in file output for now, w2v, conllu target formats when using `-o` option
+
 ### Added
 
 - integrated support for TreeTagger (`-T treetagger`) and spaCy (`-T spacy`) annotations

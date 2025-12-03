@@ -860,14 +860,9 @@ class KorapXmlTool : Callable<Int> {
 
     // Helper function to write output to file or stdout
     private fun writeOutput(content: String) {
-        if (outputFile != null && (outputFormat == OutputFormat.CONLLU || outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW)) {
-            val finalOutputPath = if (outputDir != ".") {
-                File(outputDir, File(outputFile!!).name).path
-            } else {
-                outputFile!!
-            }
-            
-            File(finalOutputPath).appendText(content)
+        if (textOutputWriter != null) {
+            textOutputWriter!!.write(content)
+            textOutputWriter!!.newLine()  // Add newline to match println() behavior
         } else {
             println(content)
         }
