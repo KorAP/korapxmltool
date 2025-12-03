@@ -1348,6 +1348,36 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
+        // For text output formats with file output, initialize progress bar based on total zip size
+        // This avoids the overhead of pre-scanning all zips to count documents
+        if (outputFile != null && !quiet && (outputFormat == OutputFormat.CONLLU || 
+                                              outputFormat == OutputFormat.WORD2VEC || 
+                                              outputFormat == OutputFormat.NOW)) {
+            val totalBytes = zipSizes.values.sum()
+            if (totalBytes > 0) {
+                val taskName = when (outputFormat) {
+                    OutputFormat.CONLLU -> "Converting to CoNLL-U"
+                    OutputFormat.WORD2VEC -> "Extracting Word2Vec"
+                    OutputFormat.NOW -> "Extracting NOW format"
+                    else -> "Processing"
+                }
+                
+                // Initialize progress bar with total MB (convert bytes to MB, keep as double for precision)
+                // We'll update it as each zip is completed using processedZipBytes
+                val totalMB = totalBytes / (1024.0 * 1024.0)
+                progressBar = ProgressBarBuilder()
+                    .setTaskName(taskName)
+                    .setInitialMax((totalMB * 100).toLong())  // Multiply by 100 to preserve 2 decimal places
+                    .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
+                    .setUpdateIntervalMillis(500)
+                    .showSpeed()
+                    .setUnit(" MB", 100)  // Divide by 100 when displaying
+                    .build()
+                    
+                LOGGER.info("Initialized progress tracking for ${zips.size} zip(s), total size: ${humanBytes(totalBytes)}")
+            }
+        }
+
         if (maxThreads > 1) {
             val foundry = getFoundryFromZipFileNames(zips)
             val parallelism = maxThreads.coerceAtLeast(1)
@@ -2102,9 +2132,18 @@ class KorapXmlTool : Callable<Int> {
             val etaStr = if (etaSeconds >= 0) formatDuration(etaSeconds) else "unknown"
             LOGGER.info(
                 "Finished zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} " +
-                        "(${humanBytes(size)}). Progress: ${String.format(Locale.ROOT, "%.1f", pct)}%%, " +
+                        "(${humanBytes(size)}). Progress: ${String.format(Locale.ROOT, "%.1f", pct)}%, " +
                         "ETA ${etaStr} at ${humanSpeed}"
             )
+            
+            // Update progress bar for text output formats (size-based progress in MB)
+            if (!quiet && progressBar != null && 
+                (outputFormat == OutputFormat.CONLLU || 
+                 outputFormat == OutputFormat.WORD2VEC || 
+                 outputFormat == OutputFormat.NOW)) {
+                val doneMB = done / (1024.0 * 1024.0)
+                progressBar?.stepTo((doneMB * 100).toLong())  // Multiply by 100 to match initialization
+            }
         } catch (e: Exception) {
             LOGGER.fine("Failed to log zip progress for $zipFilePath: ${e.message}")
         }
@@ -2155,15 +2194,18 @@ class KorapXmlTool : Callable<Int> {
             documentCount = entries.count { it.name.contains("tokens.xml") }
         }
 
-        // Update total document count and start timer if this is the first ZIP with external annotation
-        // Initialize progress bar either for external annotation (-A) or internal tagging (-t)
-        if ((annotationWorkerPool != null || taggerName != null) && documentCount > 0) {
-             val newTotal = totalDocsInInput.addAndGet(documentCount)
+        // Update total document count and start timer for external annotation or internal tagging
+        // (Text output formats use size-based progress initialized upfront)
+        val shouldShowProgress = (annotationWorkerPool != null || taggerName != null)
+        
+        if (shouldShowProgress && documentCount > 0) {
+             // Only for annotation/tagging scenarios
              if (annotationStartTime.get() == 0L) {
+                 val newTotal = totalDocsInInput.addAndGet(documentCount)
                 annotationStartTime.set(System.currentTimeMillis())
                 LOGGER.info("Starting annotation of $newTotal document(s)")
                 if (!quiet) {
-                     // Initialize progress bar for external annotation with ZIP output
+                     // Initialize progress bar for annotation
                      progressBar = ProgressBarBuilder()
                          .setTaskName(targetZipFileName ?: "Annotating")
                          .setInitialMax(newTotal.toLong())
@@ -2174,7 +2216,7 @@ class KorapXmlTool : Callable<Int> {
                 }
             } else if (!quiet) {
                 // Increase the total as we discover more documents in later zips
-                progressBar?.maxHint(newTotal.toLong())
+                progressBar?.maxHint(totalDocsInInput.addAndGet(documentCount).toLong())
             }
          }
 
@@ -2926,6 +2968,8 @@ class KorapXmlTool : Callable<Int> {
             synchronized(System.out) {
                 writeOutput(output.toString())
             }
+            // Note: For text output formats, progress is now tracked by zip size in logZipProgress,
+            // not by individual documents, so we don't step the progress bar here
             // Release internal char[] early
             output.setLength(0)
         } else {
