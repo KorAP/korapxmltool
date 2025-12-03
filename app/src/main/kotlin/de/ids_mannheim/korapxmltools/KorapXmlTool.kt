@@ -840,6 +840,14 @@ class KorapXmlTool : Callable<Int> {
             }
             // Create parent directories
             file.parentFile?.mkdirs()
+            
+            // Initialize output writer with optional gzip compression
+            val outputStream = FileOutputStream(file)
+            textOutputWriter = if (finalOutputPath.endsWith(".gz")) {
+                BufferedWriter(OutputStreamWriter(GZIPOutputStream(outputStream), StandardCharsets.UTF_8))
+            } else {
+                BufferedWriter(OutputStreamWriter(outputStream, StandardCharsets.UTF_8))
+            }
         }
 
         LOGGER.info("Processing zip files: " + zipFileNames!!.joinToString(", "))
@@ -1012,6 +1020,7 @@ class KorapXmlTool : Callable<Int> {
     var krillTarOutputStream: TarArchiveOutputStream? = null
     var krillOutputFileName: String? = null
     private var krillOutputPath: String? = null
+    private var textOutputWriter: BufferedWriter? = null
 
     // Fast DocumentBuilderFactory without security features (safe for trusted input)
     private val fastDomFactory: DocumentBuilderFactory by lazy {
@@ -1468,6 +1477,10 @@ class KorapXmlTool : Callable<Int> {
             // No external worker: ensure progress bar is closed (e.g., internal tagger -t)
             progressBar?.close()
         }
+        
+        // Close text output writer if it was used
+        textOutputWriter?.close()
+        
         // Shutdown entry executor
         entryExecutor?.shutdown()
 

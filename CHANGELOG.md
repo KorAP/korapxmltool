@@ -9,6 +9,7 @@
 ### Added
 
 - integrated support for TreeTagger (`-T treetagger`) and spaCy (`-T spacy`) annotations
+- automatically gzip output for now, w2v, conllu target formats if output file (`-o` option) ends with `.gz`
 
 ## [v3.0.0] - 2025-11-27
 
