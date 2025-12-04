@@ -99,7 +99,7 @@ class FoundryOverrideTest {
         }
     }
 
-    @Ignore("This test is ignored until -o is fixed")
+    @Test
     fun testOutputOptionHasPriority() {
         val outputDir = File.createTempFile("output_option_test", "").apply {
             delete()

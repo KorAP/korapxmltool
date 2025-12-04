@@ -4,8 +4,7 @@
 
 ### Fixed
 
-- `-o` option for CoNLL-U  output
-
+- `-o <outputfile>` option, now has the highest priority for specifying the output file path
 - missing newlines in file output for now, w2v, conllu target formats when using `-o` option
 
 ### Added

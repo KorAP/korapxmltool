@@ -710,12 +710,8 @@ class KorapXmlTool : Callable<Int> {
         if (outputFormat == OutputFormat.KRILL) {
             // Determine output path for Krill format
             krillOutputPath = if (outputFile != null) {
-                // Use explicit -o option
-                val finalOutputPath = if (outputDir != ".") {
-                    File(outputDir, File(outputFile!!).name).path
-                } else {
-                    outputFile!!
-                }
+                // Use explicit -o option - has highest priority, use as-is
+                val finalOutputPath = outputFile!!
                 // Ensure .tar extension for Krill format
                 if (finalOutputPath.endsWith(".tar")) {
                     finalOutputPath
@@ -779,11 +775,8 @@ class KorapXmlTool : Callable<Int> {
                         throw ParameterException(spec.commandLine(),
                             "Reading from stdin requires -o/--output to specify output file path")
                     }
-                    val finalOutputPath = if (outputDir != ".") {
-                        File(outputDir, File(outputFile!!).name).path
-                    } else {
-                        outputFile!!
-                    }
+                    // -o has highest priority - use it as-is (absolute or relative to CWD)
+                    val finalOutputPath = outputFile!!
                     LOGGER.info("Converting CoNLL-U from stdin to: $finalOutputPath")
                     convertConlluToZip(System.`in`, finalOutputPath)
                     return 0
@@ -794,12 +787,8 @@ class KorapXmlTool : Callable<Int> {
                     zipFileNames!!.forEach { conlluFile ->
                         val outputPath = when {
                             outputFile != null -> {
-                                // Explicit -o specified: use outputDir if specified
-                                if (outputDir != ".") {
-                                    File(outputDir, File(outputFile!!).name).path
-                                } else {
-                                    outputFile!!
-                                }
+                                // -o has highest priority - use it as-is (absolute or relative to CWD)
+                                outputFile!!
                             }
                             else -> {
                                 // Auto-infer from input filename
@@ -829,11 +818,8 @@ class KorapXmlTool : Callable<Int> {
 
         // Normal ZIP processing mode
         if (outputFile != null && (outputFormat == OutputFormat.CONLLU || outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW)) {
-            val finalOutputPath = if (outputDir != ".") {
-                File(outputDir, File(outputFile!!).name).path
-            } else {
-                outputFile!!
-            }
+            // -o has highest priority - use it as-is (absolute or relative to CWD)
+            val finalOutputPath = outputFile!!
             val file = File(finalOutputPath)
             if (file.exists()) {
                 if (!overwrite) {
@@ -1244,7 +1230,8 @@ class KorapXmlTool : Callable<Int> {
                 val targetFoundry = externalFoundry ?: "annotated"
 
                 val baseZipName = File(inputZipPath).name.replace(Regex("\\.zip$"), "")
-                val outputMorphoZipFileName = File(outputDir, "$baseZipName.$targetFoundry.zip").absolutePath
+                val autoOutputFileName = File(outputDir, "$baseZipName.$targetFoundry.zip").absolutePath
+                val outputMorphoZipFileName = outputFile ?: autoOutputFileName
                 targetZipFileName = outputMorphoZipFileName
 
                 // Check for existing output file BEFORE redirecting logging, so user sees the message
