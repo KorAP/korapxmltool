@@ -47,13 +47,17 @@ class FoundryOverrideTest {
             false
         }
     }
-    
-    @Test
-    fun testFoundryOverrideWithTagger() {
-        val isRunningInDocker = File("/.dockerenv").exists() || 
+
+    private fun skipIfDockerUnavailable() {
+        val isRunningInDocker = File("/.dockerenv").exists() ||
             (File("/proc/1/cgroup").exists() && File("/proc/1/cgroup").readText().contains("docker"))
         org.junit.Assume.assumeFalse("Skipping Docker test inside Docker container", isRunningInDocker)
         org.junit.Assume.assumeTrue("Docker is not available", isDockerAvailable())
+    }
+
+    @Test
+    fun testFoundryOverrideWithTagger() {
+        skipIfDockerUnavailable()
 
         val outputDir = File.createTempFile("foundry_override_test", "").apply {
             delete()
@@ -101,6 +105,8 @@ class FoundryOverrideTest {
 
     @Test
     fun testOutputOptionHasPriority() {
+        skipIfDockerUnavailable()
+
         val outputDir = File.createTempFile("output_option_test", "").apply {
             delete()
             mkdirs()
