@@ -51,7 +51,9 @@ class FoundryOverrideTest {
     private fun skipIfDockerUnavailable() {
         val isRunningInDocker = File("/.dockerenv").exists() ||
             (File("/proc/1/cgroup").exists() && File("/proc/1/cgroup").readText().contains("docker"))
+        val isGitHubActions = System.getenv("GITHUB_ACTIONS") == "true"
         org.junit.Assume.assumeFalse("Skipping Docker test inside Docker container", isRunningInDocker)
+        org.junit.Assume.assumeFalse("Skipping Docker test in GitHub Actions CI", isGitHubActions)
         org.junit.Assume.assumeTrue("Docker is not available", isDockerAvailable())
     }
 
