@@ -1955,23 +1955,29 @@ class KorapXmlTool : Callable<Int> {
             // Determine output zip label. Prefer combined label if both tagger and parser are active
             var targetFoundry = "base"
             val labelParts = mutableListOf<String>()
-            if (taggerName != null) {
-                val tagger = AnnotationToolBridgeFactory.getTagger(taggerName!!, taggerModel!!, LOGGER)
-                if (tagger != null) {
-                    labelParts.add(tagger.foundry)
+            
+            // Check if foundry override is set - if so, use it directly
+            if (foundryOverride != null) {
+                targetFoundry = foundryOverride!!
+            } else {
+                if (taggerName != null) {
+                    val tagger = AnnotationToolBridgeFactory.getTagger(taggerName!!, taggerModel!!, LOGGER)
+                    if (tagger != null) {
+                        labelParts.add(tagger.foundry)
+                    }
                 }
-            }
-            if (parserName != null) {
-                // Only add parser foundry if it's different from tagger foundry
-                if (taggerName == null || taggerName != parserName) {
-                    labelParts.add(parserName!!)
+                if (parserName != null) {
+                    // Only add parser foundry if it's different from tagger foundry
+                    if (taggerName == null || taggerName != parserName) {
+                        labelParts.add(parserName!!)
+                    }
                 }
-            }
-            if (labelParts.isNotEmpty()) {
-                targetFoundry = labelParts.joinToString("-")
-            } else if (annotateWith.isNotEmpty()) {
-                targetFoundry = externalFoundry ?: detectFoundryFromAnnotateCmd(annotateWith)
-                LOGGER.info("Detected foundry '$targetFoundry' from annotation command: $annotateWith")
+                if (labelParts.isNotEmpty()) {
+                    targetFoundry = labelParts.joinToString("-")
+                } else if (annotateWith.isNotEmpty()) {
+                    targetFoundry = externalFoundry ?: detectFoundryFromAnnotateCmd(annotateWith)
+                    LOGGER.info("Detected foundry '$targetFoundry' from annotation command: $annotateWith")
+                }
             }
             dbFactory = DocumentBuilderFactory.newInstance()
             dBuilder = dbFactory!!.newDocumentBuilder()
@@ -2977,8 +2983,8 @@ class KorapXmlTool : Callable<Int> {
             output.setLength(0)
         } else {
             // Direct ZIP output without external annotation: write morpho.xml and, if parser is active, dependency.xml
-            val morphoDir = taggerToolBridges[Thread.currentThread().threadId()]?.foundry ?: morphoFoundry
-            val depDir = parserName ?: morphoDir
+            val morphoDir = foundryOverride ?: (taggerToolBridges[Thread.currentThread().threadId()]?.foundry ?: morphoFoundry)
+            val depDir = foundryOverride ?: (parserName ?: morphoDir)
              var wroteOne = false
              // Always write morpho.xml if we have morpho annotations (tagger or from input)
              if (morpho[docId] != null && morpho[docId]!!.isNotEmpty()) {
