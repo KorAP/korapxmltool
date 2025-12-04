@@ -19,6 +19,7 @@ test {
     
     // Enable parallel test execution for faster builds
     maxParallelForks = Runtime.runtime.availableProcessors().intdiv(2) ?: 1
+    systemProperty 'korapxmltool.test', 'true'
 }
 
 dependencies {

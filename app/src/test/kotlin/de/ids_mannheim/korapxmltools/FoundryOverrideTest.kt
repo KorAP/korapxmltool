@@ -38,6 +38,10 @@ class FoundryOverrideTest {
 
     @Test
     fun testFoundryOverrideWithTagger() {
+        val isRunningInDocker = File("/.dockerenv").exists() || 
+            (File("/proc/1/cgroup").exists() && File("/proc/1/cgroup").readText().contains("docker"))
+        org.junit.Assume.assumeFalse("Skipping Docker test inside Docker container", isRunningInDocker)
+
         val outputDir = File.createTempFile("foundry_override_test", "").apply {
             delete()
             mkdirs()

@@ -659,6 +659,10 @@ class KorapXmlTool : Callable<Int> {
         LogManager.getLogManager().reset()
         handler.formatter = ColoredFormatter()
 
+        if (System.getProperty("korapxmltool.test") == "true") {
+            quiet = true
+        }
+
         for (handler in LOGGER.handlers) {
             LOGGER.removeHandler(handler)
         }
@@ -1155,6 +1159,7 @@ class KorapXmlTool : Callable<Int> {
             }
         )
         // For Krill output, use work-stealing scheduler for optimal core utilization
+        try {
         if (outputFormat == OutputFormat.KRILL) {
             workStealingSchedulerActive = true
             allFoundriesSubmitted = false
@@ -1394,6 +1399,7 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
+        } finally {
         // Signal work-stealing scheduler that all foundries have been submitted
         if (workStealingSchedulerActive) {
             allFoundriesSubmitted = true
@@ -1402,6 +1408,7 @@ class KorapXmlTool : Callable<Int> {
 
         // Shutdown entry executor BEFORE closing worker pool to ensure no more tasks enqueue output after EOF
         entryExecutor?.shutdown()
+        compressionExecutor?.shutdownNow()
         try {
             if (entryExecutor != null) {
                 val terminated = entryExecutor!!.awaitTermination(7, java.util.concurrent.TimeUnit.DAYS)
@@ -1601,6 +1608,7 @@ class KorapXmlTool : Callable<Int> {
                 e.printStackTrace()
             }
         }
+    }
     }
 
     private fun processZipsWithQueue(zips: Array<String>, foundry: String, parallelism: Int) {
