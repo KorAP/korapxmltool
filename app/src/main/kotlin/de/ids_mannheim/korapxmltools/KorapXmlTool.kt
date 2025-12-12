@@ -1262,6 +1262,7 @@ class KorapXmlTool : Callable<Int> {
 
                 dbFactory = DocumentBuilderFactory.newInstance()
                 dBuilder = dbFactory!!.newDocumentBuilder()
+                File(outputMorphoZipFileName).parentFile?.mkdirs()
                 val fileOutputStream = FileOutputStream(outputMorphoZipFileName)
                 morphoZipOutputStream = ZipArchiveOutputStream(fileOutputStream).apply {
                     setUseZip64(Zip64Mode.Always)
@@ -1422,7 +1423,7 @@ class KorapXmlTool : Callable<Int> {
                     LOGGER.info("Closed output ZIP file after annotation processing")
 
                     // Rename ZIP file if foundry was detected from CoNLL-U output
-                    if (targetZipFileName != null && externalFoundry != null) {
+                    if (targetZipFileName != null && externalFoundry != null && outputFile == null) {
                         val currentFile = File(targetZipFileName!!)
                         val baseZipName = File(args[0]).name.replace(Regex("\\.zip$"), "")
                         val newFileName = File(outputDir, "$baseZipName.$externalFoundry.zip").absolutePath
