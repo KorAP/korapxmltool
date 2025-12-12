@@ -1245,8 +1245,25 @@ class KorapXmlTool : Callable<Int> {
                 LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
                 // Prepare per-output log file
                 val logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
+                if (File(logFilePath).parentFile?.exists() == false) {
+                     System.err.println("Error: Output directory '${File(logFilePath).parentFile}' does not exist.")
+                     exitProcess(1)
+                }
                 val fileHandler = java.util.logging.FileHandler(logFilePath, true)
                 fileHandler.formatter = ColoredFormatter()
+                
+                // Remove existing console handlers so logs only go to file
+                for (logHandler in LOGGER.handlers.toList()) {
+                    LOGGER.removeHandler(logHandler)
+                }
+                
+                val rootLogger = java.util.logging.Logger.getLogger("")
+                for (handler in rootLogger.handlers) {
+                    if (handler is java.util.logging.ConsoleHandler) {
+                        rootLogger.removeHandler(handler)
+                    }
+                }
+                
                 LOGGER.addHandler(fileHandler)
                 LOGGER.info("Logging redirected to: $logFilePath")
                 // Mirror System.err to the same log file for the duration
@@ -1287,6 +1304,40 @@ class KorapXmlTool : Callable<Int> {
                 val baseZipName = File(args[0]).name.replace(Regex("\\.zip$"), "")
                 val currentZipPath = File(outputDir, "$baseZipName." + (externalFoundry ?: "annotated") + ".zip").absolutePath
                 val currentLog = currentZipPath.replace(Regex("\\.zip$"), ".log")
+
+                // Redirect logging to file
+                if (File(currentLog).parentFile?.exists() == false) {
+                     System.err.println("Error: Output directory '${File(currentLog).parentFile}' does not exist.")
+                     exitProcess(1)
+                }
+                val fileHandler = java.util.logging.FileHandler(currentLog, true)
+                fileHandler.formatter = ColoredFormatter()
+                
+                // Access root logger to remove ConsoleHandler
+                val rootLogger = java.util.logging.Logger.getLogger("")
+                for (handler in rootLogger.handlers) {
+                    if (handler is java.util.logging.ConsoleHandler) {
+                        rootLogger.removeHandler(handler)
+                    }
+                }
+                
+                // Clear own handlers and add file handler
+                for (handler in LOGGER.handlers) {
+                    LOGGER.removeHandler(handler)
+                }
+                LOGGER.addHandler(fileHandler)
+                LOGGER.info("Logging redirected to: $currentLog")
+                
+                // Redirect System.err
+                val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(currentLog, true)), true)
+                val oldErr = System.err
+                System.setErr(errPs)
+                
+                Runtime.getRuntime().addShutdownHook(Thread {
+                    try { LOGGER.removeHandler(fileHandler); fileHandler.close() } catch(_:Exception){}
+                    try { System.setErr(oldErr) } catch(_:Exception){}
+                })
+
                 annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, { annotatedConllu, task ->
                      parseAndWriteAnnotatedConllu(annotatedConllu, task)
                 }, stderrLogPath = currentLog)
@@ -2001,12 +2052,23 @@ class KorapXmlTool : Callable<Int> {
 
             // Set up logging to file (like krill format does)
             val logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
+            if (File(logFilePath).parentFile?.exists() == false) {
+                 System.err.println("Error: Output directory '${File(logFilePath).parentFile}' does not exist.")
+                 exitProcess(1)
+            }
             val fileHandler = java.util.logging.FileHandler(logFilePath, true)
             fileHandler.formatter = ColoredFormatter()
 
             // Remove existing console handlers so logs only go to file
             for (logHandler in LOGGER.handlers.toList()) {
                 LOGGER.removeHandler(logHandler)
+            }
+            
+            val rootLogger = java.util.logging.Logger.getLogger("")
+            for (handler in rootLogger.handlers) {
+                if (handler is java.util.logging.ConsoleHandler) {
+                    rootLogger.removeHandler(handler)
+                }
             }
             LOGGER.addHandler(fileHandler)
             LOGGER.info("Logging redirected to: $logFilePath")
