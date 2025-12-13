@@ -1223,6 +1223,10 @@ class KorapXmlTool : Callable<Int> {
         if (annotateWith.isNotEmpty()) {
             // Detect external foundry label once from annotateWith command
             externalFoundry = foundryOverride ?: detectFoundryFromAnnotateCmd(annotateWith)
+            
+            // Declare logFilePath outside the block so it's accessible later
+            var logFilePath: String? = null
+            
             // Initialize ZIP output stream BEFORE creating worker pool, if needed
             if (outputFormat == OutputFormat.KORAP_XML) {
                 // Determine output filename - respect outputDir consistently
@@ -1244,7 +1248,7 @@ class KorapXmlTool : Callable<Int> {
 
                 LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
                 // Prepare per-output log file
-                val logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
+                logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
                 if (File(logFilePath).parentFile?.exists() == false) {
                      System.err.println("Error: Output directory '${File(logFilePath).parentFile}' does not exist.")
                      exitProcess(1)
@@ -1299,48 +1303,9 @@ class KorapXmlTool : Callable<Int> {
             }
 
             if (outputFormat == OutputFormat.KORAP_XML) {
-                // For ZIP output with external annotation, we need a custom handler
-                // Use outputDir consistently, not input file's directory
-                val baseZipName = File(args[0]).name.replace(Regex("\\.zip$"), "")
-                val currentZipPath = File(outputDir, "$baseZipName." + (externalFoundry ?: "annotated") + ".zip").absolutePath
-                val currentLog = currentZipPath.replace(Regex("\\.zip$"), ".log")
-
-                // Redirect logging to file
-                if (File(currentLog).parentFile?.exists() == false) {
-                     System.err.println("Error: Output directory '${File(currentLog).parentFile}' does not exist.")
-                     exitProcess(1)
-                }
-                val fileHandler = java.util.logging.FileHandler(currentLog, true)
-                fileHandler.formatter = ColoredFormatter()
-                
-                // Access root logger to remove ConsoleHandler
-                val rootLogger = java.util.logging.Logger.getLogger("")
-                for (handler in rootLogger.handlers) {
-                    if (handler is java.util.logging.ConsoleHandler) {
-                        rootLogger.removeHandler(handler)
-                    }
-                }
-                
-                // Clear own handlers and add file handler
-                for (handler in LOGGER.handlers) {
-                    LOGGER.removeHandler(handler)
-                }
-                LOGGER.addHandler(fileHandler)
-                LOGGER.info("Logging redirected to: $currentLog")
-                
-                // Redirect System.err
-                val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(currentLog, true)), true)
-                val oldErr = System.err
-                System.setErr(errPs)
-                
-                Runtime.getRuntime().addShutdownHook(Thread {
-                    try { LOGGER.removeHandler(fileHandler); fileHandler.close() } catch(_:Exception){}
-                    try { System.setErr(oldErr) } catch(_:Exception){}
-                })
-
                 annotationWorkerPool = AnnotationWorkerPool(annotateWith, maxThreads, LOGGER, { annotatedConllu, task ->
                      parseAndWriteAnnotatedConllu(annotatedConllu, task)
-                }, stderrLogPath = currentLog)
+                }, stderrLogPath = logFilePath)
             } else {
                 val handler: ((String, AnnotationWorkerPool.AnnotationTask?) -> Unit)? = if (outputFile != null) {
                     { output, _ -> writeOutput(output) }
