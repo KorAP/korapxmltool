@@ -21,7 +21,7 @@ jobs:
       - name: Run tests
         run: ./gradlew test --no-daemon
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: korapxmltool-jar
           path: app/build/libs/*.jar

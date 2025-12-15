@@ -13,6 +13,10 @@
 - `-o` option for `-T` with docker taggers
 - Log to log files only
 
+### Updated
+
+- opennlp-tools from 2.5.6.1 to 2.5.7
+
 ## [v3.1.0] - 2025-12-04
 
 ### Fixed

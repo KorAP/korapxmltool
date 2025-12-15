@@ -12,7 +12,7 @@
 
 Converts between KorAP-XML ZIP format and formats like CoNLL-U, Krill, word2vec, NOW and annotates KorAP XML ZIPs with various taggers and parsers.
 
-Drop-in replacement for korapxml2conllu, conllu2korapxml (see [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U)) and korapxml2krill (see [KorAP-XML-Krill](httpss://github.com/KorAP/KorAP-XML-Krill)), but still in the experimental stage. This concerns in particular the command line options, which might not yet be fully tested in all combinations.
+Drop-in replacement for korapxml2conllu, conllu2korapxml (see [KorAP-XML-CoNLL-U](https://github.com/KorAP/KorAP-XML-CoNLL-U)) and korapxml2krill (see [KorAP-XML-Krill](https://github.com/KorAP/KorAP-XML-Krill)), but still in the experimental stage. This concerns in particular the command line options, which might not yet be fully tested in all combinations.
 
 
 ## Prerequisites
