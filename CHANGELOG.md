@@ -1,5 +1,18 @@
 # Changelog
 
+## [v3.1.1] - 2025-12-17
+
+### Fixed
+
+- Compiler warnings about conditions that are always 'true' in metadata inheritance logic
+- Missing metadata inherited from corpus and document headers
+- Missing paragraph spans in Krill output
+- Duplicate log files issue
+- `-o` option failure with relative paths
+- `-F` and `-T` option combination not working correctly
+- `-o` option for `-T` with docker taggers
+- Log to log files only
+
 ## [v3.1.0] - 2025-12-04
 
 ### Fixed
@@ -51,5 +64,3 @@
     - `-j` / `--jobs` / `--threads` now sets the number of threads (replaced `-T`).
     - `-q` / `--quiet` suppresses progress output.
 - **Documentation**: Updated README.md with new usage instructions and examples.
-
-
