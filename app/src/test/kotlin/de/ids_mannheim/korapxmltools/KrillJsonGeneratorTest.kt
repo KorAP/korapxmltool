@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 
 /**
  * Tests for Krill JSON format output (-t krill)
@@ -698,6 +699,72 @@ class KrillJsonGeneratorTest {
             extractDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun testKrillMetadataInheritance() {
+        // Test for GitHub issue #22: Ensure all metadata fields are correctly extracted and inherited
+        val ndySample = loadResource("ndy_sample.zip").path
+        
+        val generatedTar = ensureKrillTar("ndy_metadata_test", "ndy_sample.krill.tar") { outputDir ->
+            arrayOf(
+                "-t", "krill",
+                "-q",
+                "-D", outputDir.path,
+                ndySample
+            )
+        }
+
+        val kotlinJsons = readKrillJson(generatedTar)
+        assertTrue(kotlinJsons.isNotEmpty(), "Should have generated Krill JSON files from NDY sample")
+
+        // Test specific metadata fields that were previously missing (GitHub issue #22)
+        val requiredFields = mapOf(
+            "corpusTitle" to "Nottinghamer Korpus Deutscher YouTube-Sprache",
+            "docTitle" to "Info Video",
+            "docAuthor" to "User_A",  // Anonymized
+            "distributor" to "Institut für Deutsche Sprache",
+            "pubPlace" to "San Bruno, California",
+            "textExternalLinks" to "youtube.googleapis.com",  // Partial match for URL
+            "tokenSource" to "base#tokens"
+        )
+
+        // Test on one of the documents (NDY/115/005255)
+        val testDocId = "NDY-115-005255.json"
+        assertTrue(kotlinJsons.containsKey(testDocId), "Should have JSON for test document $testDocId")
+        
+        val testJson = kotlinJsons.getValue(testDocId)
+        
+        requiredFields.forEach { (fieldName, expectedValue) ->
+            assertTrue(
+                testJson.contains("\"$fieldName\""),
+                "JSON should contain field: $fieldName"
+            )
+            assertTrue(
+                testJson.contains(expectedValue),
+                "Field $fieldName should contain value: $expectedValue"
+            )
+        }
+
+        // Verify corpus-level metadata inheritance works
+        // pubPlace should be inherited from corpus level (not empty from text level)
+        val pubPlaceMatch = Regex(""""key"\s*:\s*"pubPlace".*?"value"\s*:\s*"([^"]+)"""").find(testJson)
+        assertNotNull(pubPlaceMatch, "Should find pubPlace field")
+        assertEquals(
+            "San Bruno, California",
+            pubPlaceMatch.groupValues[1],
+            "pubPlace should be inherited from corpus level"
+        )
+
+        // Verify tokenSource is dynamically extracted from tokens.xml path
+        val tokenSourceMatch = Regex(""""key"\s*:\s*"tokenSource".*?"value"\s*:\s*"([^"]+)"""").find(testJson)
+        assertNotNull(tokenSourceMatch, "Should find tokenSource field")
+        assertEquals(
+            "base#tokens",
+            tokenSourceMatch.groupValues[1],
+            "tokenSource should be extracted from foundry path"
+        )
+    }
+
     /**
      * Regression test for GitHub issue #21: Missing base/s:p paragraph spans
      * 

@@ -100,17 +100,39 @@ object KrillJsonGenerator {
         val corpusSigle = textIdWithSlashes.split("/")[0]
         val docSigle = textIdWithSlashes.split("/").take(2).joinToString("/")
 
-        // First apply corpus-level metadata (lowest priority)
+        // First apply corpus-level metadata (lowest priority) - only if not already set with non-empty value
         corpusMetadata[corpusSigle]?.forEach { (key, value) ->
-            if (!textData.headerMetadata.containsKey(key)) {
-                textData.headerMetadata[key] = value
+            val currentValue = textData.headerMetadata[key]
+            val shouldInherit = when (currentValue) {
+                null -> true
+                is String -> currentValue.isBlank()
+                else -> false
+            }
+            if (shouldInherit && value != null) {
+                when (value) {
+                    is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
+                    is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                    is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                    else -> textData.headerMetadata[key] = value
+                }
             }
         }
 
-        // Then apply doc-level metadata (medium priority)
+        // Then apply doc-level metadata (medium priority) - only if not already set with non-empty value
         docMetadata[docSigle]?.forEach { (key, value) ->
-            if (!textData.headerMetadata.containsKey(key)) {
-                textData.headerMetadata[key] = value
+            val currentValue = textData.headerMetadata[key]
+            val shouldInherit = when (currentValue) {
+                null -> true
+                is String -> currentValue.isBlank()
+                else -> false
+            }
+            if (shouldInherit && value != null) {
+                when (value) {
+                    is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
+                    is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                    is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                    else -> textData.headerMetadata[key] = value
+                }
             }
         }
 
@@ -122,7 +144,8 @@ object KrillJsonGenerator {
             "creationDate", "pubDate", "textClass", "award", "availability", "language",
             "ISBN", "URN", "pubPlace", "pubPlaceKey",
             "textType", "textTypeArt", "textTypeRef", "textDomain", "textColumn",
-            "author", "title", "subTitle", "corpusTitle", "corpusSubTitle", "docTitle"
+            "author", "title", "subTitle", "corpusTitle", "corpusSubTitle", "docTitle", "docAuthor",
+            "textExternalLinks", "tokenSource"
         )
 
         fieldOrder.forEach { key ->
@@ -179,7 +202,7 @@ object KrillJsonGenerator {
                         "type:attachement" to jsonString("data:,${value.toString()}")
                     }
                 }
-                "author", "title", "subTitle", "corpusTitle", "corpusSubTitle", "docTitle" -> {
+                "author", "title", "subTitle", "corpusTitle", "corpusSubTitle", "docTitle", "docAuthor" -> {
                     "type:text" to jsonString(value.toString())
                 }
                 "externalLink" -> {
@@ -188,6 +211,16 @@ object KrillJsonGenerator {
                     val title = textData.headerMetadata["publisher"]?.toString() ?: "Link"
                     val encodedUrl = url.replace(":", "%3A").replace("/", "%2F")
                     "type:attachement" to jsonString("data:application/x.korap-link;title=$title,$encodedUrl")
+                }
+                "textExternalLinks" -> {
+                    val url = value.toString()
+                    val title = textData.headerMetadata["publisher"]?.toString() ?: "Link"
+                    val encodedUrl = url.replace(":", "%3A").replace("/", "%2F")
+                    "type:attachement" to jsonString("data:application/x.korap-link;title=$title,$encodedUrl")
+                }
+                "tokenSource" -> {
+                    // tokenSource is a string foundry reference like "base#tokens"
+                    "type:string" to jsonString(value.toString())
                 }
                 else -> {
                     // corpusEditor, distributor, editor, reference - all ATTACHMENT

@@ -1778,6 +1778,42 @@ class KorapXmlTool : Callable<Int> {
                 expectedFoundriesPerText[textId] = foundriesForThisText
             }
             
+            // CRITICAL: Process all headers FIRST to populate corpus/doc/text metadata
+            // Headers must be processed before text entries so metadata is available for inheritance
+            LOGGER.info("Processing headers for metadata collection...")
+            foundryDataList.forEach { foundryData ->
+                val allEntries = foundryData.entriesByTextId.values.flatten()
+                val headerEntries = allEntries.filter { it.name.contains("header.xml") }
+                
+                headerEntries.forEach { headerEntry ->
+                    try {
+                        val headerBytes = foundryData.zipFile.getInputStream(headerEntry).readBytes()
+                        val headerDoc = safeDomFactory.newDocumentBuilder().parse(ByteArrayInputStream(headerBytes))
+                        val headerRoot = headerDoc.documentElement
+                        headerRoot.normalize()
+
+                        val textSigle = headerRoot.firstText("textSigle")
+                        val docSigle = headerRoot.firstText("dokumentSigle")
+                        val corpusSigle = headerRoot.firstText("korpusSigle")
+                        val docId = textSigle?.replace('/', '_')
+
+                        // Call appropriate metadata collection function based on what the header contains
+                        if (corpusSigle != null) {
+                            collectCorpusMetadata(corpusSigle, headerRoot)
+                        }
+                        if (docSigle != null) {
+                            collectDocMetadata(docSigle, headerRoot)
+                        }
+                        if (docId != null) {
+                            collectKrillMetadata(docId, headerRoot)
+                        }
+                    } catch (e: Exception) {
+                        LOGGER.warning("Error processing header ${headerEntry.name}: ${e.message}")
+                    }
+                }
+            }
+            LOGGER.info("Completed header processing for metadata")
+            
             // Submit tasks in text-ID order, cycling through all foundries for each text
             allTextIds.forEach { textId ->
                 foundryDataList.forEach { foundryData ->
@@ -2559,6 +2595,16 @@ class KorapXmlTool : Callable<Int> {
                     }
 
                     "tokens.xml" -> {
+                        // For krill format, set tokenSource based on the foundry containing the tokens
+                        if (outputFormat == OutputFormat.KRILL && foundry == "base") {
+                            val textData = krillData.getOrPut(docId) { 
+                                KrillJsonGenerator.KrillTextData(textId = docId) 
+                            }
+                            // Extract foundry from path like "CORPUS/DOC/TEXT/base/tokens.xml" -> "base"
+                            val pathParts = zipEntry.name.split('/')
+                            val tokensFoundry = pathParts.getOrNull(pathParts.size - 2) ?: "base"
+                            textData.headerMetadata["tokenSource"] = "${tokensFoundry}#tokens"
+                        }           
                         if (!fnames.contains(docId)) {
                             fnames[docId] = zipEntry.name
                         }
@@ -2723,12 +2769,17 @@ class KorapXmlTool : Callable<Int> {
 
                 val docId = textSigle?.replace('/', '_')
                 LOGGER.fine("Processing header file: " + zipEntry.name + " docId: " + docId + " corpusSigle: " + corpusSigle + " docSigle: " + docSigle)
-
                 if (outputFormat == OutputFormat.KRILL) {
-                    when {
-                        corpusSigle != null -> collectCorpusMetadata(corpusSigle, headerRoot)
-                        docSigle != null -> collectDocMetadata(docSigle, headerRoot)
-                        docId != null -> collectKrillMetadata(docId, headerRoot)
+                    // Collect metadata at the appropriate level(s)
+                    // Note: corpus, doc, and text headers each have their own sigle fields
+                    if (corpusSigle != null) {
+                        collectCorpusMetadata(corpusSigle, headerRoot)
+                    }
+                    if (docSigle != null) {
+                        collectDocMetadata(docSigle, headerRoot)
+                    }
+                    if (docId != null) {
+                        collectKrillMetadata(docId, headerRoot)
                     }
                 }
 
@@ -2807,6 +2858,15 @@ class KorapXmlTool : Callable<Int> {
                     if (!fnames.contains(docId)) fnames[docId] = zipEntry.name
                     tokens[docId] = extractSpansStax(reader, docId)
                     if (outputFormat == OutputFormat.KRILL && foundry == "base") {
+                        // Set tokenSource based on the foundry containing the tokens
+                        // Extract foundry from path like "CORPUS/DOC/TEXT/base/tokens.xml" -> "base"
+                        val textData = krillData.getOrPut(docId) { 
+                            KrillJsonGenerator.KrillTextData(textId = docId) 
+                        }
+                        val pathParts = zipEntry.name.split('/')
+                        val tokensFoundry = pathParts.getOrNull(pathParts.size - 2) ?: "base"
+                        textData.headerMetadata["tokenSource"] = "${tokensFoundry}#tokens"
+                        
                         collectKrillBaseData(docId)
                     }
                 }
@@ -4805,6 +4865,13 @@ class KorapXmlTool : Callable<Int> {
             headerRoot.firstElement("ref") { it.getAttribute("type") == "page_url" }
                 ?.getAttribute("target")?.takeIf { it.isNotBlank() }?.let { metadata["externalLink"] = it }
 
+            // Extract textExternalLinks from biblNote[@n='url']
+            val biblNoteUrl = analytic.firstElement("biblNote") { it.getAttribute("n") == "url" }
+                ?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+                ?: monogr.firstElement("biblNote") { it.getAttribute("n") == "url" }
+                    ?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+            metadata.putIfNotBlank("textExternalLinks", biblNoteUrl)
+
             if (!metadata.containsKey("language")) {
                 metadata["language"] = "de"
             }
@@ -4834,7 +4901,9 @@ class KorapXmlTool : Callable<Int> {
             metadata.putIfNotBlank("corpusEditor", headerRoot.firstElement("monogr").firstText("editor"))
             metadata.putIfNotBlank("publisher", headerRoot.firstText("publisher"))
             metadata.putIfNotBlank("distributor", headerRoot.firstText("distributor"))
+            metadata.putIfNotBlank("pubPlace", headerRoot.firstText("pubPlace"))
             metadata.putIfNotBlank("textType", headerRoot.firstElement("textDesc").firstText("textType"))
+            
             LOGGER.fine("Collected ${metadata.size} corpus-level metadata fields for $corpusSigle")
         }
     }
@@ -5161,17 +5230,43 @@ class KorapXmlTool : Callable<Int> {
                 val corpusSigle = textId.substringBefore('_')
                 val docSigle = textId.substringBeforeLast('.')
 
-                // Apply corpus-level metadata
+                // Apply corpus-level metadata (only if not already set with a non-empty value)
                 corpusMetadata[corpusSigle]?.forEach { (key, value) ->
-                    if (!textData.headerMetadata.containsKey(key)) {
-                        textData.headerMetadata[key] = value
+                    val currentValue = textData.headerMetadata[key]
+                    // Inherit if: key doesn't exist, OR current value is empty/blank
+                    val shouldInherit = when (currentValue) {
+                        null -> true
+                        is String -> currentValue.isBlank()
+                        else -> false
+                    }
+                    if (shouldInherit && value != null) {
+                        // Only set non-empty values
+                        when (value) {
+                            is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
+                            is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                            is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                            else -> textData.headerMetadata[key] = value
+                        }
                     }
                 }
 
-                // Apply doc-level metadata
+                // Apply doc-level metadata (only if not already set with a non-empty value)
                 docMetadata[docSigle]?.forEach { (key, value) ->
-                    if (!textData.headerMetadata.containsKey(key)) {
-                        textData.headerMetadata[key] = value
+                    val currentValue = textData.headerMetadata[key]
+                    // Inherit if: key doesn't exist, OR current value is empty/blank
+                    val shouldInherit = when (currentValue) {
+                        null -> true
+                        is String -> currentValue.isBlank()
+                        else -> false
+                    }
+                    if (shouldInherit && value != null) {
+                        // Only set non-empty values
+                        when (value) {
+                            is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
+                            is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                            is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                            else -> textData.headerMetadata[key] = value
+                        }
                     }
                 }
 
