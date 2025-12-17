@@ -5259,7 +5259,7 @@ class KorapXmlTool : Callable<Int> {
                         is String -> currentValue.isBlank()
                         else -> false
                     }
-                    if (shouldInherit && value != null) {
+                    if (shouldInherit) {
                         // Only set non-empty values
                         when (value) {
                             is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value

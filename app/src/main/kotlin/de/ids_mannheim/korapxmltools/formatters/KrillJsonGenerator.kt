@@ -108,7 +108,7 @@ object KrillJsonGenerator {
                 is String -> currentValue.isBlank()
                 else -> false
             }
-            if (shouldInherit && value != null) {
+            if (shouldInherit) {
                 when (value) {
                     is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
                     is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
@@ -126,7 +126,7 @@ object KrillJsonGenerator {
                 is String -> currentValue.isBlank()
                 else -> false
             }
-            if (shouldInherit && value != null) {
+            if (shouldInherit) {
                 when (value) {
                     is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
                     is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
