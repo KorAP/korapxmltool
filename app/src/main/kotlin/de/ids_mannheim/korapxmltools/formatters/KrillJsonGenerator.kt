@@ -415,18 +415,37 @@ object KrillJsonGenerator {
         // Add base structure spans (sentences, paragraphs, text)
         val baseStructureSpans = mutableListOf<StructureSpan>()
 
+        // Determine the actual end of text from raw tokens (before filtering)
+        // This ensures base spans cover the full text including punctuation
+        val textEnd = if (rawTokens.isNotEmpty()) rawTokens.last().to else 0
+
         // Add text span covering entire document (from start of text to end, tokenTo is exclusive)
         if (tokens.isNotEmpty()) {
             baseStructureSpans.add(StructureSpan(
                 layer = "base/s:t",
                 from = 0,  // Start at beginning of text
-                to = tokens.last().to,
+                to = textEnd,  // Use raw tokens to include all punctuation
                 tokenFrom = 0,
                 tokenTo = tokens.size,  // Exclusive end: one past last token index
                 depth = 0,
                 attributes = emptyMap()
             ))
         }
+
+        // Create base/s:p spans that mirror dereko/s:p elements
+        // For each dereko/s:p, create a corresponding base/s:p at depth 1
+        textData.structureSpans.filter { it.layer.endsWith(":p") }.forEach { derekoP ->
+            baseStructureSpans.add(StructureSpan(
+                layer = "base/s:p",
+                from = derekoP.from,
+                to = derekoP.to,
+                tokenFrom = -1,  // Will be resolved later
+                tokenTo = -1,
+                depth = 1,
+                attributes = emptyMap()
+            ))
+        }
+
 
         // Build token-to-sentence map for ROOT edge generation
         data class SentenceInfo(val from: Int, val to: Int, val tokenFrom: Int, val tokenTo: Int)
@@ -498,8 +517,9 @@ object KrillJsonGenerator {
             spansByToken.getOrPut(span.tokenFrom) { mutableListOf() }.add(span)
         }
 
-        // Count paragraph spans (name="p")
-        val paragraphCount = allStructureSpans.count { it.layer.endsWith(":p") }
+        // Count paragraph spans (name="p") from original document structure only
+        // Don't count the base/s:p wrapper we added programmatically
+        val paragraphCount = textData.structureSpans.count { it.layer.endsWith(":p") }
         val sentenceCountsByFoundry = resolvedStructureSpans.sentenceCountsByFoundry()
         val externalSentenceCounts = sentenceCountsByFoundry.entries
             .filter { (foundry, _) -> foundry !in BASE_STRUCTURE_FOUNDRIES }

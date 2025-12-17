@@ -698,4 +698,71 @@ class KrillJsonGeneratorTest {
             extractDir.deleteRecursively()
         }
     }
+    /**
+     * Regression test for GitHub issue #21: Missing base/s:p paragraph spans
+     * 
+     * Ensures that for each dereko/s:p element in the input structure.xml,
+     * a corresponding base/s:p span is generated in the Krill JSON output.
+     */
+    @Test
+    fun testBaseParagraphSpansPresent() {
+        val ndySample = loadResource("ndy_sample.zip").path
+        
+        val generatedTar = ensureKrillTar("ndy_base_paragraph_test", "ndy_sample.krill.tar") { outputDir ->
+            arrayOf(
+                "-t", "krill",
+                "-q",
+                "-D", outputDir.path,
+                ndySample
+            )
+        }
+
+        val kotlinJsons = readKrillJson(generatedTar)
+        assertTrue(kotlinJsons.isNotEmpty(), "Should have generated Krill JSON files from NDY sample")
+
+        // Test NDY/266/006701 - a document that should have base/s:p spans
+        val testDoc266 = "NDY-266-006701.json"
+        assertTrue(kotlinJsons.containsKey(testDoc266), "Should have JSON for test document $testDoc266")
+        
+        val testJson266 = kotlinJsons.getValue(testDoc266)
+        
+        // Verify the specific base/s:p span from issue #21 is present
+        // "<>:base/s:p$<b>64<i>0<i>1<i>1<b>1"
+        assertTrue(
+            testJson266.contains("<>:base/s:p\$"),
+            "JSON should contain base/s:p span marker"
+        )
+        assertTrue(
+            testJson266.contains("<>:base/s:p\$<b>64<i>0<i>1<i>1<b>1"),
+            "NDY-266-006701 should contain the specific base/s:p span from issue #21: '<>:base/s:p\$<b>64<i>0<i>1<i>1<b>1'"
+        )
+
+        // Test NDY/115/005255 - another document with paragraphs
+        val testDoc115 = "NDY-115-005255.json"
+        assertTrue(kotlinJsons.containsKey(testDoc115), "Should have JSON for test document $testDoc115")
+        
+        val testJson115 = kotlinJsons.getValue(testDoc115)
+        assertTrue(
+            testJson115.contains("<>:base/s:p\$"),
+            "NDY-115-005255 should also contain base/s:p spans"
+        )
+
+        // Verify paragraph count metadata matches the number of base/s:p spans
+        kotlinJsons.forEach { (docId, json) ->
+            // Extract paragraph count from metadata
+            val paragraphCountMatch = Regex("""-:base/paragraphs\$<i>(\d+)""").find(json)
+            if (paragraphCountMatch != null) {
+                val paragraphCount = paragraphCountMatch.groupValues[1].toInt()
+                
+                // Count base/s:p spans in the stream
+                val basePCount = Regex("""<>:base/s:p\$""").findAll(json).count()
+                
+                assertEquals(
+                    paragraphCount,
+                    basePCount,
+                    "Document $docId: Number of base/s:p spans ($basePCount) should match paragraph count metadata ($paragraphCount)"
+                )
+            }
+        }
+    }
 }

@@ -4433,11 +4433,15 @@ class KorapXmlTool : Callable<Int> {
         }
 
         synchronized(textData) {
-            // Only collect if not already collected (avoid duplicates from multiple ZIP processing)
-            if (textData.structureSpans.isNotEmpty()) {
-                LOGGER.fine("Structure spans already collected for $docId, skipping")
-                return
+            // Only clear dereko structure spans when re-collecting (preserve external foundry spans)
+            // This allows multiple ZIPs to be processed without losing annotation layer structure
+            val nonDerekoSpans = textData.structureSpans.filter { !it.layer.startsWith("dereko/") }
+            if (textData.structureSpans.size > nonDerekoSpans.size) {
+                LOGGER.fine("Clearing ${textData.structureSpans.size - nonDerekoSpans.size} dereko structure spans for $docId before re-collecting")
+                textData.structureSpans.clear()
+                textData.structureSpans.addAll(nonDerekoSpans)
             }
+            
             for (i in 0 until spans.length) {
                 val span = spans.item(i) as? Element ?: continue
 
