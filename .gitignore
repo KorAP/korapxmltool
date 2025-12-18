@@ -14,3 +14,4 @@ app/bin
 *.md
 !Readme.md
 !ChangeLog.md
+!CHANGELOG.md

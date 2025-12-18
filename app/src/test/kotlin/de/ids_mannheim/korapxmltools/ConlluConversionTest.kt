@@ -416,4 +416,46 @@ class ConlluConversionTest {
             "Filename should match pattern '*/spacy/morpho.xml', but was: $filenameLine"
         )
     }
+    @Test
+    fun sparseAnnotationRespectsTokenIds() {
+        val outputDir = createTempDir("conllu_sparse")
+        try {
+            // Create CoNLL-U with sparse annotation (only for token 7)
+            val sparseConllu = File(outputDir, "sparse.conllu")
+            sparseConllu.writeText("""
+                # foundry = cmc
+                # filename = NDY/115/005255/base/tokens.xml
+                # text_id = NDY_115.005255
+                # start_offsets = 0 0 4 11 18 22 27 32 35 41 46 50 56 64
+                # end_offsets = 65 3 10 17 21 26 31 34 40 45 49 55 64 65
+                7	:)	_	_	EMOASC	_	_	_	_	_
+                
+            """.trimIndent())
+            
+            val outputZip = File(outputDir, "output.zip")
+            val args = arrayOf(
+                "-t", "zip",
+                "-o", outputZip.path,
+                sparseConllu.path
+            )
+            val exitCode = debug(args)
+            assertEquals(0, exitCode, "Sparse conversion should succeed")
+            
+            // Extract morpho.xml
+            val morphoXml = extractFileFromZip(outputZip, "NDY/115/005255/cmc/morpho.xml")
+            
+            // Verify that the annotation is on the correct span (32-34)
+            // Offset for ID 7 is start=32 (index 7), end=34 (index 7)
+            // Note: Attribute order is not guaranteed, so check for attributes individually
+            assertTrue(
+                morphoXml.contains("""from="32"""") && morphoXml.contains("""to="34""""),
+                "Annotation should be on span 32-34 (ID 7), but morpho.xml content was:\n$morphoXml"
+            )
+            
+            // Verify the content of the annotation
+            assertTrue(morphoXml.contains(">EMOASC<"), "Should contain the annotation EMOASC")
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
 }

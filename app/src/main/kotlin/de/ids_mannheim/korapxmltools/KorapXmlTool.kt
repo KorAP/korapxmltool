@@ -1001,7 +1001,8 @@ class KorapXmlTool : Callable<Int> {
 
     var dbFactory: DocumentBuilderFactory? = null
     var dBuilder: DocumentBuilder? = null
-    var morphoZipOutputStream: ZipArchiveOutputStream? = null
+    // Output stream for the "morpho" layer ZIP entries
+    internal var morphoZipOutputStream: ZipArchiveOutputStream? = null
     var krillTarOutputStream: TarArchiveOutputStream? = null
     var krillOutputFileName: String? = null
     private var krillOutputPath: String? = null
@@ -3965,7 +3966,7 @@ class KorapXmlTool : Callable<Int> {
         var misc: String? = "_"
     )
 
-    private fun parseAndWriteAnnotatedConllu(annotatedConllu: String, task: AnnotationWorkerPool.AnnotationTask?) {
+    internal fun parseAndWriteAnnotatedConllu(annotatedConllu: String, task: AnnotationWorkerPool.AnnotationTask?) {
         LOGGER.fine("parseAndWriteAnnotatedConllu called with ${annotatedConllu.length} chars, task=$task")
 
         val docId = task?.docId
@@ -4025,6 +4026,9 @@ class KorapXmlTool : Callable<Int> {
                     val fields = line.split("\t")
                     if (fields.size < 10) continue
 
+                    val idStr = fields[0]
+                    val id = idStr.toIntOrNull()
+
                     val lemma = if (fields.size > 2) fields[2] else "_"
                     val upos = if (fields.size > 3) fields[3] else "_"
                     val xpos = if (fields.size > 4) fields[4] else "_"
@@ -4034,17 +4038,21 @@ class KorapXmlTool : Callable<Int> {
                     val deps = if (fields.size > 8) fields[8] else "_"
                     val misc = if (fields.size > 9) fields[9] else "_"
 
-                if (currentStartOffsets != null && currentEndOffsets != null &&
-                    tokenIndexInSentence < currentStartOffsets.size &&
-                    tokenIndexInSentence < currentEndOffsets.size) {
-
-                    val spanFrom = currentStartOffsets[tokenIndexInSentence]
-                    val spanTo = currentEndOffsets[tokenIndexInSentence]
-                    val spanKey = "$spanFrom-$spanTo"
-
-                    morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
-                    tokenIndexInSentence++
-                }
+                    if (id != null) {
+                        val tokenIndex = id - 1
+                        
+                        if (currentStartOffsets != null && currentEndOffsets != null &&
+                            tokenIndex >= 0 &&
+                            tokenIndex < currentStartOffsets.size &&
+                            tokenIndex < currentEndOffsets.size) {
+        
+                            val spanFrom = currentStartOffsets[tokenIndex]
+                            val spanTo = currentEndOffsets[tokenIndex]
+                            val spanKey = "$spanFrom-$spanTo"
+        
+                            morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
+                        }
+                    }
                 }
             }
         }
@@ -4325,29 +4333,45 @@ class KorapXmlTool : Callable<Int> {
                             val fields = line.split("\t")
                             if (fields.size < 10) continue
 
-                            val lemma = if (fields.size > 2) fields[2] else "_"
-                            val upos = if (fields.size > 3) fields[3] else "_"
-                            val xpos = if (fields.size > 4) fields[4] else "_"
-                            val feats = if (fields.size > 5) fields[5] else "_"
-                            val head = if (fields.size > 6) fields[6] else "_"
-                            val deprel = if (fields.size > 7) fields[7] else "_"
-                            val deps = if (fields.size > 8) fields[8] else "_"
-                            val misc = if (fields.size > 9) fields[9] else "_"
+                            val idStr = fields[0]
+                            val rangeMatch = Regex("^([0-9]+)-([0-9]+)$").find(idStr)
+                            
+                            // If it's a range (e.g. 1-2), we might want to skip it if it's just surface form 
+                            // coverage for following tokens, OR process it if we want to annotate the MWT.
+                            // However, the internal logic expects 1-to-1 mapping with offsets list for tokens.
+                            // For now, only process single integer IDs.
+                            // (If we support MWT annotations, we'd need to map range to start of first and end of last coverage?)
+                            
+                            val id = idStr.toIntOrNull()
+                            
+                            if (id != null) {
+                                // CoNLL-U IDs are 1-based, offsets lists are 0-based relative to tokens
+                                val tokenIndex = id - 1
+                                
+                                val lemma = if (fields.size > 2) fields[2] else "_"
+                                val upos = if (fields.size > 3) fields[3] else "_"
+                                val xpos = if (fields.size > 4) fields[4] else "_"
+                                val feats = if (fields.size > 5) fields[5] else "_"
+                                val head = if (fields.size > 6) fields[6] else "_"
+                                val deprel = if (fields.size > 7) fields[7] else "_"
+                                val deps = if (fields.size > 8) fields[8] else "_"
+                                val misc = if (fields.size > 9) fields[9] else "_"
 
-                            if (currentStartOffsets == null || currentEndOffsets == null) {
-                                LOGGER.severe("Token found before offset comments in text ${doc.textId}")
-                                throw IllegalArgumentException("CoNLL-U format error: tokens found before offset comments in text ${doc.textId}")
-                            }
+                                if (currentStartOffsets == null || currentEndOffsets == null) {
+                                    LOGGER.severe("Token found before offset comments in text ${doc.textId}")
+                                    throw IllegalArgumentException("CoNLL-U format error: tokens found before offset comments in text ${doc.textId}")
+                                }
 
-                            if (tokenIndexInSentence < currentStartOffsets.size &&
-                                tokenIndexInSentence < currentEndOffsets.size) {
+                                if (tokenIndex >= 0 && 
+                                    tokenIndex < currentStartOffsets.size &&
+                                    tokenIndex < currentEndOffsets.size) {
 
-                                val spanFrom = currentStartOffsets[tokenIndexInSentence]
-                                val spanTo = currentEndOffsets[tokenIndexInSentence]
-                                val spanKey = "$spanFrom-$spanTo"
+                                    val spanFrom = currentStartOffsets[tokenIndex]
+                                    val spanTo = currentEndOffsets[tokenIndex]
+                                    val spanKey = "$spanFrom-$spanTo"
 
-                                morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
-                                tokenIndexInSentence++
+                                    morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
+                                }
                             }
                         }
                     }
