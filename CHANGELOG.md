@@ -1,9 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [v3.1.2] - 2025-12-18
 
 ### Fixed
-- `conllu2korapxml`: Fixed sparse annotations being assigned to wrong tokens by correctly handling the CoNLL-U ID column ([#23](https://github.com/KorAP/korapxmltool/issues/23))
+
+- Fixed sparse annotations being assigned to wrong tokens by correctly handling the CoNLL-U ID column ([#23](https://github.com/KorAP/korapxmltool/issues/23))
 
 ## [v3.1.1] - 2025-12-17
 
