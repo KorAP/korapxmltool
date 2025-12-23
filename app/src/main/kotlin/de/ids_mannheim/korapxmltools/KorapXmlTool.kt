@@ -214,8 +214,12 @@ class KorapXmlTool : Callable<Int> {
     )
     var useLz4: Boolean = false
 
-    @Option(names = ["--offsets"], description = ["Not yet implemented: offsets"])
-    var offsets: Boolean = false
+    @Option(
+        names = ["--log-dir", "-L"],
+        paramLabel = "DIR",
+        description = ["Directory for the log file (default: same as output file)"]
+    )
+    var logDir: File? = null
 
     @Option(names = ["--comments", "-C"], description = ["Not yet implemented: comments"])
     var comments: Boolean = false
@@ -422,7 +426,7 @@ class KorapXmlTool : Callable<Int> {
         val memoryPerThreadGB = when {
             parserName != null -> 1.5  // 1.5GB per parser thread
             taggerName != null -> 0.8  // 0.8GB per tagger thread  
-            else -> 0.5                // 0.5GB for other annotation
+            else -> 0.5                // 0.5GB per thread for other operations
         }
         
         val memoryBasedThreads = maxOf(1, ((memoryGB * 0.8) / memoryPerThreadGB).toInt())
@@ -728,11 +732,19 @@ class KorapXmlTool : Callable<Int> {
                 val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
                 File(outputDir, "$baseZipName.krill.tar").absolutePath
             }
-            val logFilePath = krillOutputPath!!.replace(Regex("\\.tar$"), ".log")
+            var logFilePath = krillOutputPath!!.replace(Regex("\\.tar$"), ".log")
+            
+            if (logDir != null) {
+                if (!logDir!!.exists()) {
+                     logDir!!.mkdirs()
+                }
+                logFilePath = File(logDir, File(logFilePath).name).absolutePath
+            }
 
             // Set up file handler for logging
             val fileHandler = java.util.logging.FileHandler(logFilePath, true)
             fileHandler.formatter = ColoredFormatter()
+
 
             // Remove existing console handlers so logs only go to file
             for (logHandler in LOGGER.handlers.toList()) {
@@ -1250,6 +1262,14 @@ class KorapXmlTool : Callable<Int> {
                 LOGGER.info("Initializing output ZIP: $outputMorphoZipFileName (from input: $inputZipPath, foundry: $targetFoundry)")
                 // Prepare per-output log file
                 logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
+                
+                if (logDir != null) {
+                    if (!logDir!!.exists()) {
+                         logDir!!.mkdirs()
+                    }
+                    logFilePath = File(logDir, File(logFilePath).name).absolutePath
+                }
+
                 if (File(logFilePath).parentFile?.exists() == false) {
                      System.err.println("Error: Output directory '${File(logFilePath).parentFile}' does not exist.")
                      exitProcess(1)
@@ -1451,8 +1471,14 @@ class KorapXmlTool : Callable<Int> {
                                 LOGGER.info("Renamed output ZIP from ${currentFile.name} to ${newFile.name} based on detected foundry")
                                 
                                 // Also rename the log file
-                                val oldLogFile = File(targetZipFileName!!.replace(Regex("\\.zip$"), ".log"))
-                                val newLogFile = File(newFileName.replace(Regex("\\.zip$"), ".log"))
+                                var oldLogFile = File(targetZipFileName!!.replace(Regex("\\.zip$"), ".log"))
+                                var newLogFile = File(newFileName.replace(Regex("\\.zip$"), ".log"))
+                                
+                                if (logDir != null) {
+                                    oldLogFile = File(logDir, oldLogFile.name)
+                                    newLogFile = File(logDir, newLogFile.name)
+                                }
+                                
                                 if (oldLogFile.exists() && oldLogFile.renameTo(newLogFile)) {
                                     LOGGER.info("Renamed log file from ${oldLogFile.name} to ${newLogFile.name}")
                                 }
