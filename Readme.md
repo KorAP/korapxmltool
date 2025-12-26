@@ -41,9 +41,9 @@ After building, a fat jar file will be available at `./app/build/libs/korapxmlto
 the executable `korapxmltool`, as well as the symbolic link shortcuts `korapxml2conllu` and `korapxml2krill`, will
  be available at `./build/bin/`. 
 
-## Command Line Options (v3.1)
+## Command Line Options
 
-Key options for korapxmltool v3.1:
+Key options for korapxmltool (>= v3.1):
 
 - `-t FORMAT`, `--to FORMAT`: Output format (`zip`, `conllu`, `w2v`, `now`, `krill`)
 - `-j N`, `--jobs N`, `--threads N`: Number of threads/jobs to use
@@ -52,6 +52,7 @@ Key options for korapxmltool v3.1:
 - `-f`, `--force`: Overwrite existing output files
 - `-q`, `--quiet`: Suppress progress output
 - `-D DIR`, `--output-dir DIR`: Output directory
+- `-L DIR`, `--log-dir DIR`: Log directory
 - `--lemma`: Use lemmas instead of surface forms (when available)
 - `--lemma-only`: Skip loading base tokens, output only lemmas
 
