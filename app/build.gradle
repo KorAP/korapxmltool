@@ -57,7 +57,7 @@ dependencies {
     implementation 'org.apache.ant:ant:1.10.15'
     implementation 'org.apache.commons:commons-compress:1.28.0'
     implementation 'me.tongfei:progressbar:0.10.1'
-    implementation 'org.lz4:lz4-java:1.8.0'
+    implementation 'org.lz4:lz4-java:1.8.1'
 
     // Fix XML APIs conflict - force resolution to the non-relocated version
     implementation('xml-apis:xml-apis:2.0.2') {
