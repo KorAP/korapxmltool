@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.1.3] - unreleased
+
+### Fixed
+
+- Fixed `-L` (log directory) option being ignored when using internal taggers (`-T opennlp`, `-T marmot`, etc.)
+
 ## [v3.1.2] - 2025-12-18
 
 ### Fixed

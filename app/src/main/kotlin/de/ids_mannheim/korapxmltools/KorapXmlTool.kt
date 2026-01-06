@@ -2079,7 +2079,14 @@ class KorapXmlTool : Callable<Int> {
             }
 
             // Set up logging to file (like krill format does)
-            val logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
+            var logFilePath = outputMorphoZipFileName.replace(Regex("\\.zip$"), ".log")
+            
+            if (logDir != null) {
+                if (!logDir!!.exists()) {
+                     logDir!!.mkdirs()
+                }
+                logFilePath = File(logDir, File(logFilePath).name).absolutePath
+            }
             if (File(logFilePath).parentFile?.exists() == false) {
                  System.err.println("Error: Output directory '${File(logFilePath).parentFile}' does not exist.")
                  exitProcess(1)
