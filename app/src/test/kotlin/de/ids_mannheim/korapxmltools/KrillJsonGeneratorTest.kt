@@ -724,7 +724,7 @@ class KrillJsonGeneratorTest {
             "docAuthor" to "User_A",  // Anonymized
             "distributor" to "Institut für Deutsche Sprache",
             "pubPlace" to "San Bruno, California",
-            "textExternalLinks" to "youtube.googleapis.com",  // Partial match for URL
+            "textExternalLink" to "youtube.googleapis.com",  // Partial match for URL
             "tokenSource" to "base#tokens"
         )
 

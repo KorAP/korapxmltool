@@ -4922,12 +4922,12 @@ class KorapXmlTool : Callable<Int> {
             headerRoot.firstElement("ref") { it.getAttribute("type") == "page_url" }
                 ?.getAttribute("target")?.takeIf { it.isNotBlank() }?.let { metadata["externalLink"] = it }
 
-            // Extract textExternalLinks from biblNote[@n='url']
+            // Extract textExternalLink from biblNote[@n='url']
             val biblNoteUrl = analytic.firstElement("biblNote") { it.getAttribute("n") == "url" }
                 ?.textContent?.trim()?.takeIf { it.isNotEmpty() }
                 ?: monogr.firstElement("biblNote") { it.getAttribute("n") == "url" }
                     ?.textContent?.trim()?.takeIf { it.isNotEmpty() }
-            metadata.putIfNotBlank("textExternalLinks", biblNoteUrl)
+            metadata.putIfNotBlank("textExternalLink", biblNoteUrl)
 
             if (!metadata.containsKey("language")) {
                 metadata["language"] = "de"

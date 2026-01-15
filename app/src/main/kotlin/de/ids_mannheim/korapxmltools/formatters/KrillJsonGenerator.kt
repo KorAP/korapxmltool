@@ -145,7 +145,7 @@ object KrillJsonGenerator {
             "ISBN", "URN", "pubPlace", "pubPlaceKey",
             "textType", "textTypeArt", "textTypeRef", "textDomain", "textColumn",
             "author", "title", "subTitle", "corpusTitle", "corpusSubTitle", "docTitle", "docAuthor",
-            "textExternalLinks", "tokenSource"
+            "textExternalLink", "tokenSource"
         )
 
         fieldOrder.forEach { key ->
@@ -212,7 +212,7 @@ object KrillJsonGenerator {
                     val encodedUrl = url.replace(":", "%3A").replace("/", "%2F")
                     "type:attachement" to jsonString("data:application/x.korap-link;title=$title,$encodedUrl")
                 }
-                "textExternalLinks" -> {
+                "textExternalLink" -> {
                     val url = value.toString()
                     val title = textData.headerMetadata["publisher"]?.toString() ?: "Link"
                     val encodedUrl = url.replace(":", "%3A").replace("/", "%2F")
