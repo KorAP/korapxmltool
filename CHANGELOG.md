@@ -1,11 +1,11 @@
 # Changelog
 
-## [v3.1.3] - unreleased
+## [v3.1.3] - 2025-01-15
 
 ### Fixed
 
 - Fixed `-L` (log directory) option being ignored when using internal taggers (`-T opennlp`, `-T marmot`, etc.)
-- Renamed `textExternalLinks` metadata field to `textExternalLink` (singular) (https://github.com/KorAP/korapxmltool/issues/26)
+- Renamed `textExternalLinks` metadata field to `textExternalLink` (singular) ([#26](https://github.com/KorAP/korapxmltool/issues/26))
 
 ## [v3.1.2] - 2025-12-18
 
