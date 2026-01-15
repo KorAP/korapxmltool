@@ -4923,11 +4923,15 @@ class KorapXmlTool : Callable<Int> {
                 ?.getAttribute("target")?.takeIf { it.isNotBlank() }?.let { metadata["externalLink"] = it }
 
             // Extract textExternalLink from biblNote[@n='url']
-            val biblNoteUrl = analytic.firstElement("biblNote") { it.getAttribute("n") == "url" }
-                ?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+            val biblNoteElement = analytic.firstElement("biblNote") { it.getAttribute("n") == "url" }
                 ?: monogr.firstElement("biblNote") { it.getAttribute("n") == "url" }
-                    ?.textContent?.trim()?.takeIf { it.isNotEmpty() }
-            metadata.putIfNotBlank("textExternalLink", biblNoteUrl)
+            biblNoteElement?.let {
+                val url = it.textContent?.trim()?.takeIf { it.isNotEmpty() }
+                metadata.putIfNotBlank("textExternalLink", url)
+                // Extract rend attribute as title
+                val rendAttr = it.getAttribute("rend")?.trim()?.takeIf { it.isNotBlank() }
+                metadata.putIfNotBlank("textExternalLinkTitle", rendAttr)
+            }
 
             if (!metadata.containsKey("language")) {
                 metadata["language"] = "de"
