@@ -119,11 +119,26 @@ if ! $has_xmx; then
     fi
     
     # Detect annotation workloads (memory-intensive)
+    has_krill=false
     for arg in "$@"; do
       case "$arg" in
         -T|--tag-with|-P|--parse-with) has_annotation=true ;;
         *) ;;
       esac
+    done
+    # Also treat invocation as korapxml2krill as a krill workload
+    [[ "$(basename "$0")" == *krill* ]] && has_krill=true
+    # Detect -f krill / -t krill / --format krill / --output-format krill flag+value pairs
+    # and bare "krill" as a positional argument (shouldn't normally appear, but be safe)
+    prev_arg=""
+    for arg in "$@"; do
+      case "$arg" in
+        krill) has_krill=true ;;
+      esac
+      if [[ ( "$prev_arg" == "-f" || "$prev_arg" == "-t" || "$prev_arg" == "--output-format" || "$prev_arg" == "--format" ) && "$arg" == "krill" ]]; then
+        has_krill=true
+      fi
+      prev_arg="$arg"
     done
     
     # Calculate memory based on workload
@@ -141,6 +156,14 @@ if ! $has_xmx; then
         (( xmx_mb > 65536 )) && xmx_mb=65536
       fi
       workload_type="annotation"
+    elif [[ "$has_krill" == true ]]; then
+      # Krill JSON generation: holds morphological data for all in-flight texts in memory
+      # while merging multiple annotation ZIPs. Use 80% of available RAM with no
+      # artificial upper bound – on large-memory machines (e.g. 1.5 TB) the job
+      # genuinely needs a large heap and should not be silently capped at 32 GB.
+      xmx_mb=$(( mem_mb * 80 / 100 ))
+      (( xmx_mb < 4096 )) && xmx_mb=4096
+      workload_type="krill"
     elif [[ "$large_corpus" == true ]]; then
       # Large corpus without annotation: use 80% memory, min 4GB, max 96GB
       xmx_mb=$(( mem_mb * 80 / 100 ))

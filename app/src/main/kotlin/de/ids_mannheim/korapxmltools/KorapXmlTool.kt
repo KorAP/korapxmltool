@@ -1533,13 +1533,17 @@ class KorapXmlTool : Callable<Int> {
 
                 // Continue using the same progress bar for remaining texts (no separate bar)
                 // Output remaining texts (these weren't output incrementally, possibly incomplete)
-                // Copy keys to avoid ConcurrentModificationException if scanner is still running
-                val remainingKeys = krillData.keys.sortedWith(this::compareTextIds)
+                // Copy keys to avoid ConcurrentModificationException if scanner is still running.
+                // NOTE: after compressKrillText() removes from krillData, a completed-but-not-yet-
+                // written text lives only in krillCompressedData, so we must merge both key sets.
+                val remainingRawKeys = krillData.keys.toSet()
+                val remainingCompressedKeys = krillCompressedData.keys.toSet()
+                val remainingKeys = (remainingRawKeys + remainingCompressedKeys).sortedWith(this::compareTextIds)
                 
-                // Phase 1: Submit all remaining texts for parallel compression
+                // Phase 1: Submit all remaining RAW texts for parallel compression
                 if (compressionExecutor != null && !compressionExecutor!!.isShutdown) {
-                    LOGGER.info("Submitting ${remainingKeys.size} remaining texts for parallel compression")
-                    remainingKeys.forEach { textId ->
+                    LOGGER.info("Submitting ${remainingRawKeys.size} remaining texts for parallel compression")
+                    remainingRawKeys.forEach { textId ->
                         val textData = krillData[textId]
                         if (textData != null && !krillCompressedData.containsKey(textId)) {
                             compressionExecutor!!.submit {
@@ -1566,23 +1570,24 @@ class KorapXmlTool : Callable<Int> {
                 
                 // Phase 2: Write compressed data to TAR sequentially
                 remainingKeys.forEach { textId ->
-                    val textData = krillData.remove(textId) ?: return@forEach  // Skip if already removed
+                    // textData may be null if compressKrillText already removed it from krillData
+                    val textData = krillData.remove(textId)
                     val compressedData = krillCompressedData.remove(textId)
                     
                     if (compressedData != null) {
                         // Already compressed - just write to TAR
-                        val textFoundries = textData.morphoByFoundry.keys.toSet() + setOf("base")
-                        val expectedForThisText = zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
-                            .flatMap { zipPath ->
-                                val foundry = getFoundryFromZipFileName(File(zipPath).name)
-                                if (foundry.contains("-")) foundry.split("-") else listOf(foundry)
+                        if (textData != null) {
+                            val textFoundries = textData.morphoByFoundry.keys.toSet() + setOf("base")
+                            val expectedForThisText = zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
+                                .flatMap { zipPath ->
+                                    val foundry = getFoundryFromZipFileName(File(zipPath).name)
+                                    if (foundry.contains("-")) foundry.split("-") else listOf(foundry)
+                                }
+                                .toSet()
+                            if (!textFoundries.containsAll(expectedForThisText)) {
+                                LOGGER.warning("Outputting incomplete text $textId with foundries ${textFoundries.sorted()} (expected: ${expectedForThisText.sorted()})")
                             }
-                            .toSet()
-
-                        if (!textFoundries.containsAll(expectedForThisText)) {
-                            LOGGER.warning("Outputting incomplete text $textId with foundries ${textFoundries.sorted()} (expected: ${expectedForThisText.sorted()})")
                         }
-                        
                         // Write pre-compressed data directly to TAR
                         try {
                             synchronized(krillTarOutputStream!!) {
@@ -1598,7 +1603,7 @@ class KorapXmlTool : Callable<Int> {
                             LOGGER.severe("ERROR writing $textId to TAR: ${e.message}")
                             e.printStackTrace()
                         }
-                    } else {
+                    } else if (textData != null) {
                         // Fallback: compress inline if not in compressed cache (shouldn't happen)
                         LOGGER.warning("Text $textId not in compressed cache, compressing inline")
                         val textFoundries = textData.morphoByFoundry.keys.toSet() + setOf("base")
@@ -1615,6 +1620,9 @@ class KorapXmlTool : Callable<Int> {
                         
                         outputKrillText(textId, textData)
                         incrementalProgressBar?.step()
+                    } else {
+                        // Both null: text was already written by the incremental writer - skip
+                        LOGGER.fine("Text $textId already written incrementally, skipping in finalization")
                     }
                 }
 
@@ -5362,7 +5370,12 @@ class KorapXmlTool : Callable<Int> {
 
             // Store compressed data for sequential TAR writing
             krillCompressedData[textId] = CompressedKrillData(textId, jsonFileName, compressedData)
-            LOGGER.finer("Compressed text $textId (${compressedData.size} bytes)")
+            // Free the raw KrillTextData immediately - we no longer need it now that
+            // the JSON is serialised and compressed. This is the main memory saver for
+            // large corpora: without this, raw data and compressed bytes both sit in
+            // memory simultaneously until the incremental writer catches up.
+            krillData.remove(textId)
+            LOGGER.finer("Compressed text $textId (${compressedData.size} bytes), released raw data")
         } catch (e: Exception) {
             LOGGER.severe("ERROR compressing $textId: ${e.message}")
             e.printStackTrace()
