@@ -252,6 +252,9 @@ object KrillJsonGenerator {
         if (textData.sentences != null) {
             layerInfos.add("dereko/s=spans")
         }
+        if (includeNonWordTokens) {
+            layerInfos.add("base/p=tokens")
+        }
         externalSentenceFoundries.forEach { layerInfos.add("$it/s=spans") }
         externalConstitFoundries.forEach { layerInfos.add("$it/c=spans") }
 
@@ -633,6 +636,11 @@ object KrillJsonGenerator {
             // Add i: annotation (lowercase surface form)
             if (surfaceForm.isNotEmpty()) {
                 tokenAnnotations.add(jsonString("i:${surfaceForm.lowercase().escapeKrillValue()}"))
+            }
+
+            // Mark non-word tokens (punctuation, symbols, etc.) with a base-layer flag
+            if (!shouldKeepTokenForKrill(text, token)) {
+                tokenAnnotations.add(jsonString("base/p:_"))
             }
 
             // Add inverse dependency annotations (<:) for dependents pointing to this token as head

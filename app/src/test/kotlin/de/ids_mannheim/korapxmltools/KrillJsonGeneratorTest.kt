@@ -313,6 +313,8 @@ class KrillJsonGeneratorTest {
         assertTrue(defaultJsons.isNotEmpty())
         assertTrue(defaultJsons.all { !it.contains("\"s:,\"") })
         assertTrue(defaultJsons.all { !it.contains("\"s:!\"") })
+        assertTrue(defaultJsons.all { !it.contains("\"base/p:_\"") }, "Default output should not have base/p:_ marker")
+        assertTrue(defaultJsons.all { !it.contains("base/p=tokens") }, "Default output should not declare base/p=tokens layer")
 
         val flagTar = ensureKrillTar("wud24_default_corenlp_nwt") { outputDir ->
             arrayOf("-t", "krill", "-q", "--non-word-tokens", "-D", outputDir.path, baseZip, spacyZip, wud24Corenlp)
@@ -323,6 +325,8 @@ class KrillJsonGeneratorTest {
         assertTrue(flagJsons.isNotEmpty())
         assertTrue(flagJsons.any { it.contains("\"s:,\"") })
         assertTrue(flagJsons.any { it.contains("\"s:!\"") })
+        assertTrue(flagJsons.any { it.contains("\"base/p:_\"") }, "NWT output should mark non-word tokens with base/p:_")
+        assertTrue(flagJsons.all { it.contains("base/p=tokens") }, "NWT output should declare base/p=tokens in layerInfos")
     }
 
     @Test
