@@ -157,13 +157,32 @@ if ! $has_xmx; then
       fi
       workload_type="annotation"
     elif [[ "$has_krill" == true ]]; then
-      # Krill JSON generation: holds morphological data for all in-flight texts in memory
-      # while merging multiple annotation ZIPs. Use 80% of available RAM with no
-      # artificial upper bound – on large-memory machines (e.g. 1.5 TB) the job
-      # genuinely needs a large heap and should not be silently capped at 32 GB.
-      xmx_mb=$(( mem_mb * 80 / 100 ))
-      (( xmx_mb < 4096 )) && xmx_mb=4096
+      # Krill merges multiple annotation ZIPs while holding uncompressed, deserialized
+      # data in memory. KorAP-XML decompresses to roughly 10-20x its on-disk size, so
+      # we target 20x the compressed input size to give enough heap without hogging
+      # the whole machine (which would prevent running parallel krill jobs).
+      # Falls back to 80% of RAM when no input size can be determined.
+      # Floor: 4 GB. Ceiling: 90% of available RAM.
+      # Use ParallelGC to avoid GCLocker contention ("Retried waiting for GCLocker too
+      # often") that plagues G1GC under JNI critical sections.
       workload_type="krill"
+      if (( total_input_size > 0 )); then
+        xmx_mb=$(( total_input_size * 22 / 1024 / 1024 ))
+        workload_type="krill_input_based"
+      else
+        xmx_mb=$(( mem_mb * 80 / 100 ))
+      fi
+      (( xmx_mb < 4096 )) && xmx_mb=4096
+      max_krill_mb=$(( mem_mb * 90 / 100 ))
+      (( xmx_mb > max_krill_mb )) && xmx_mb=$max_krill_mb
+      EXTRA_OPTS+=("-XX:+UseParallelGC" "-XX:-UseGCOverheadLimit")
+      # ParallelGC is stop-the-world and therefore immune to the GCLocker contention
+      # ("Retried waiting for GCLocker too often") that plagues G1GC when JNI critical
+      # sections are active. It is available in every JDK 21 distribution and requires
+      # no extra vm.max_map_count allowance, unlike ZGC.
+      # -UseGCOverheadLimit disables the "GC overhead limit exceeded" safety valve that
+      # fires when >98% of CPU time is spent in GC; without it, the JVM throws an error
+      # instead of continuing to collect, which is counterproductive for large krill jobs.
     elif [[ "$large_corpus" == true ]]; then
       # Large corpus without annotation: use 80% memory, min 4GB, max 96GB
       xmx_mb=$(( mem_mb * 80 / 100 ))
