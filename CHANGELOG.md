@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.2.0] - 2026-03-14
+
+### Fixed
+
+- Fixed heap issues with krill conversion
+- For krill output and morpho.xml files, bypass XMLCommentFilterReader
+
+### Added
+
+- Calculate heap demand for krill conversion
+- Mark non-word tokens for index (necessary for distance operator compatibility with COSMAS II)
+
 ## [v3.1.3] - 2025-01-15
 
 ### Fixed
