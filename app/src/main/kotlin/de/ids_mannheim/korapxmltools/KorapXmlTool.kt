@@ -2865,12 +2865,18 @@ class KorapXmlTool : Callable<Int> {
         LOGGER.finer("Processing entry (StAX): ${zipEntry.name}, foundry=$foundry")
         val factory = xmlInputFactory.get()
         val inputStream = zipFile.getInputStream(zipEntry)
-        val filterReader = XMLCommentFilterReader(inputStream, "UTF-8")
+        val entryFileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
+        // For krill output and morpho.xml files, bypass XMLCommentFilterReader: large files (80+ MB)
+        // cause Xerces to fall back to the single-char read() which throws UnsupportedOperationException
+        val filterReader = if (outputFormat != OutputFormat.KRILL && entryFileName != "morpho.xml") {
+            XMLCommentFilterReader(inputStream, "UTF-8")
+        } else null
         val reader = try {
-            factory.createXMLStreamReader(filterReader)
+            if (filterReader != null) factory.createXMLStreamReader(filterReader)
+            else factory.createXMLStreamReader(inputStream, "UTF-8")
         } catch (e: Exception) {
             LOGGER.warning("Error creating StAX reader: " + zipEntry.name + " " + e.message)
-            filterReader.close()
+            filterReader?.close() ?: inputStream.close()
             return
         }
 
@@ -2887,7 +2893,7 @@ class KorapXmlTool : Callable<Int> {
             if (docId == null) return
             if (siglePattern != null && !Regex(siglePattern!!).containsMatchIn(docId)) return
 
-            val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
+            val fileName = entryFileName
             
             when (fileName) {
                 "data.xml" -> {
@@ -3005,7 +3011,8 @@ class KorapXmlTool : Callable<Int> {
             e.printStackTrace()
         } finally {
             try { reader.close() } catch (_: Exception) {}
-            try { filterReader.close() } catch (_: Exception) {}
+            // closing filterReader also closes the underlying inputStream
+            try { filterReader?.close() ?: inputStream.close() } catch (_: Exception) {}
         }
     }
 

@@ -6,6 +6,7 @@
 
 - Fixed `-L` (log directory) option being ignored when using internal taggers (`-T opennlp`, `-T marmot`, etc.)
 - Renamed `textExternalLinks` metadata field to `textExternalLink` (singular) ([#26](https://github.com/KorAP/korapxmltool/issues/26))
+- Use `rend` attribute as external link title, if available ([#27](https://github.com/KorAP/korapxmltool/issues/27))
 
 ## [v3.1.2] - 2025-12-18
 
