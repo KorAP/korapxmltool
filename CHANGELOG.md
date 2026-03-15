@@ -1,11 +1,12 @@
 # Changelog
 
-## [v3.2.0] - 2026-03-14
+## [v3.2.0] - 2026-03-15
 
 ### Fixed
 
 - Fixed heap issues with krill conversion
 - For krill output and morpho.xml files, bypass XMLCommentFilterReader
+- Fixed progress bar showing the full path of the file instead of the file name ([#17](https://github.com/KorAP/korapxmltool/issues/17))
 
 ### Added
 

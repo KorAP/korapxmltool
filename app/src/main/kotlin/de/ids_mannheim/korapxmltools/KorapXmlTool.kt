@@ -2322,7 +2322,7 @@ class KorapXmlTool : Callable<Int> {
                 if (!quiet) {
                      // Initialize progress bar for annotation
                      progressBar = ProgressBarBuilder()
-                         .setTaskName(targetZipFileName ?: "Annotating")
+                         .setTaskName(if (targetZipFileName != null) File(targetZipFileName!!).name else "Annotating")
                          .setInitialMax(newTotal.toLong())
                          .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
                          .setUpdateIntervalMillis(500)
