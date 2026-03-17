@@ -3144,13 +3144,12 @@ class KorapXmlTool : Callable<Int> {
                     compatibilityMode = COMPATIBILITY_MODE,
                     tokenSeparator = tokenSeparator
                 )
-                val morphoXml = KorapXmlFormatter.formatMorpho(context, dBuilder!!).toString()
                 val morphoPath = docId.replace(Regex("[_.]"), "/") + "/$morphoDir/morpho.xml"
                  val morphoEntry = ZipArchiveEntry(morphoPath)
                  morphoEntry.unixMode = ZIP_ENTRY_UNIX_MODE
                  synchronized(morphoZipOutputStream!!) {
                      morphoZipOutputStream!!.putArchiveEntry(morphoEntry)
-                     morphoZipOutputStream!!.write(morphoXml.toByteArray())
+                     KorapXmlFormatter.formatMorphoToStream(context, dBuilder!!, morphoZipOutputStream!!)
                      morphoZipOutputStream!!.closeArchiveEntry()
                  }
                  wroteOne = true
@@ -3176,13 +3175,12 @@ class KorapXmlTool : Callable<Int> {
                     compatibilityMode = COMPATIBILITY_MODE,
                     tokenSeparator = tokenSeparator
                 )
-                val depXml = KorapXmlFormatter.formatDependency(context, dBuilder!!).toString()
                 val depPath = docId.replace(Regex("[_.]"), "/") + "/$depDir/dependency.xml"
                  val depEntry = ZipArchiveEntry(depPath)
                  depEntry.unixMode = ZIP_ENTRY_UNIX_MODE
                  synchronized(morphoZipOutputStream!!) {
                      morphoZipOutputStream!!.putArchiveEntry(depEntry)
-                     morphoZipOutputStream!!.write(depXml.toByteArray())
+                     KorapXmlFormatter.formatDependencyToStream(context, dBuilder!!, morphoZipOutputStream!!)
                      morphoZipOutputStream!!.closeArchiveEntry()
                  }
                  wroteOne = true
@@ -3209,13 +3207,12 @@ class KorapXmlTool : Callable<Int> {
                     compatibilityMode = COMPATIBILITY_MODE,
                     tokenSeparator = tokenSeparator
                 )
-                val constXml = KorapXmlFormatter.formatConstituency(context, dBuilder!!).toString()
                 val constPath = docId.replace(Regex("[_.]"), "/") + "/$constDir/constituency.xml"
                  val constEntry = ZipArchiveEntry(constPath)
                  constEntry.unixMode = ZIP_ENTRY_UNIX_MODE
                  synchronized(morphoZipOutputStream!!) {
                      morphoZipOutputStream!!.putArchiveEntry(constEntry)
-                     morphoZipOutputStream!!.write(constXml.toByteArray())
+                     KorapXmlFormatter.formatConstituencyToStream(context, dBuilder!!, morphoZipOutputStream!!)
                      morphoZipOutputStream!!.closeArchiveEntry()
                  }
                  wroteOne = true
@@ -4161,7 +4158,7 @@ class KorapXmlTool : Callable<Int> {
 
         try {
             val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
-                docId = tempDocId,
+                docId = docId,
                 foundry = actualFoundry,
                 tokens = tokens[tempDocId],
                 sentences = sentences[tempDocId],
@@ -4179,11 +4176,6 @@ class KorapXmlTool : Callable<Int> {
                 compatibilityMode = COMPATIBILITY_MODE,
                 tokenSeparator = tokenSeparator
             )
-            val morphoXmlOutput = KorapXmlFormatter.formatMorpho(context, dBuilder!!)
-            val fixedMorphoXml = morphoXmlOutput.toString().replace(
-                "docid=\"$tempDocId\"",
-                "docid=\"$docId\""
-            )
 
             val morphoEntryPath = docId.replace(Regex("[_.]"), "/") + "/$actualFoundry/morpho.xml"
 
@@ -4191,7 +4183,7 @@ class KorapXmlTool : Callable<Int> {
             morphoZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
             synchronized(morphoZipOutputStream!!) {
                 morphoZipOutputStream!!.putArchiveEntry(morphoZipEntry)
-                morphoZipOutputStream!!.write(fixedMorphoXml.toByteArray())
+                KorapXmlFormatter.formatMorphoToStream(context, dBuilder!!, morphoZipOutputStream!!)
                 morphoZipOutputStream!!.closeArchiveEntry()
             }
             val written = docsWrittenToZip.incrementAndGet()
@@ -4204,7 +4196,7 @@ class KorapXmlTool : Callable<Int> {
         if (morpho[tempDocId]?.values?.any { it.head != null && it.head != "_" && it.deprel != null && it.deprel != "_" } == true) {
             try {
                 val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
-                    docId = tempDocId,
+                    docId = docId,
                     foundry = actualFoundry,
                     tokens = tokens[tempDocId],
                     sentences = sentences[tempDocId],
@@ -4222,11 +4214,6 @@ class KorapXmlTool : Callable<Int> {
                     compatibilityMode = COMPATIBILITY_MODE,
                     tokenSeparator = tokenSeparator
                 )
-                val dependencyXmlOutput = KorapXmlFormatter.formatDependency(context, dBuilder!!)
-                val fixedDependencyXml = dependencyXmlOutput.toString().replace(
-                    "docid=\"$tempDocId\"",
-                    "docid=\"$docId\""
-                )
 
                 val dependencyEntryPath = docId.replace(Regex("[_.]"), "/") + "/$actualFoundry/dependency.xml"
 
@@ -4234,7 +4221,7 @@ class KorapXmlTool : Callable<Int> {
                 dependencyZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
                 synchronized(morphoZipOutputStream!!) {
                     morphoZipOutputStream!!.putArchiveEntry(dependencyZipEntry)
-                    morphoZipOutputStream!!.write(fixedDependencyXml.toByteArray())
+                    KorapXmlFormatter.formatDependencyToStream(context, dBuilder!!, morphoZipOutputStream!!)
                     morphoZipOutputStream!!.closeArchiveEntry()
                 }
             } catch (e: Exception) {
@@ -4462,7 +4449,7 @@ class KorapXmlTool : Callable<Int> {
                     val morphoPath = "$basePath/$morphoFoundry/morpho.xml"
 
                     val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
-                        docId = tempDocId,
+                        docId = doc.textId,
                         foundry = morphoFoundry,
                         tokens = getTokenSpansFromMorho(morphoSpans),
                         sentences = sentences[tempDocId],
@@ -4481,19 +4468,13 @@ class KorapXmlTool : Callable<Int> {
                         tokenSeparator = tokenSeparator
                     )
 
-                    val morphoXmlOutput = KorapXmlFormatter.formatMorpho(context, dBuilder!!)
-                    val fixedMorphoXml = morphoXmlOutput.toString().replace(
-                        "docid=\"$tempDocId\"",
-                        "docid=\"${doc.textId}\""
-                    )
-
                     val morphoZipEntry = ZipArchiveEntry(morphoPath)
                     morphoZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
                     zipOutputStream.putArchiveEntry(morphoZipEntry)
-                    zipOutputStream.write(fixedMorphoXml.toByteArray())
+                    KorapXmlFormatter.formatMorphoToStream(context, dBuilder!!, zipOutputStream)
                     zipOutputStream.closeArchiveEntry()
 
-                    LOGGER.fine("Wrote $morphoPath (${fixedMorphoXml.length} bytes)")
+                    LOGGER.fine("Wrote $morphoPath")
                 } catch (e: Exception) {
                     LOGGER.severe("ERROR generating morpho.xml for ${doc.textId}: ${e.message}")
                     throw e
@@ -4506,7 +4487,7 @@ class KorapXmlTool : Callable<Int> {
                         val dependencyPath = "$basePath/$dependencyFoundry/dependency.xml"
 
                         val context = de.ids_mannheim.korapxmltools.formatters.OutputContext(
-                            docId = tempDocId,
+                            docId = doc.textId,
                             foundry = dependencyFoundry,
                             tokens = getTokenSpansFromMorho(morphoSpans),
                             sentences = sentences[tempDocId],
@@ -4525,19 +4506,13 @@ class KorapXmlTool : Callable<Int> {
                             tokenSeparator = tokenSeparator
                         )
 
-                        val dependencyXmlOutput = KorapXmlFormatter.formatDependency(context, dBuilder!!)
-                        val fixedDependencyXml = dependencyXmlOutput.toString().replace(
-                            "docid=\"$tempDocId\"",
-                            "docid=\"${doc.textId}\""
-                        )
-
                         val dependencyZipEntry = ZipArchiveEntry(dependencyPath)
                         dependencyZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
                         zipOutputStream.putArchiveEntry(dependencyZipEntry)
-                        zipOutputStream.write(fixedDependencyXml.toByteArray())
+                        KorapXmlFormatter.formatDependencyToStream(context, dBuilder!!, zipOutputStream)
                         zipOutputStream.closeArchiveEntry()
 
-                        LOGGER.fine("Wrote $dependencyPath (${fixedDependencyXml.length} bytes)")
+                        LOGGER.fine("Wrote $dependencyPath")
                     } catch (e: Exception) {
                         LOGGER.severe("ERROR generating dependency.xml for ${doc.textId}: ${e.message}")
                         throw e

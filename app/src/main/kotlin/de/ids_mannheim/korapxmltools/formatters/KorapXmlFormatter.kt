@@ -2,6 +2,7 @@ package de.ids_mannheim.korapxmltools.formatters
 
 import de.ids_mannheim.korapxmltools.ConstituencyParserBridge
 import org.w3c.dom.Document
+import java.io.OutputStream
 import java.io.StringWriter
 import java.util.logging.Logger
 import javax.xml.parsers.DocumentBuilder
@@ -35,9 +36,9 @@ object KorapXmlFormatter : OutputFormatter {
     }
 
     /**
-     * Format morphological annotations as KorAP-XML.
+     * Build the morpho DOM document from the given context.
      */
-    fun formatMorpho(context: OutputContext, dBuilder: DocumentBuilder): StringBuilder {
+    private fun buildMorphoDocument(context: OutputContext, dBuilder: DocumentBuilder): Document {
         val doc: Document = dBuilder.newDocument()
 
         // Root element
@@ -117,13 +118,29 @@ object KorapXmlFormatter : OutputFormatter {
             spanList.appendChild(spanNode)
         }
         
-        return transformToString(doc)
+        return doc
     }
 
     /**
-     * Format dependency annotations as KorAP-XML.
+     * Format morphological annotations as KorAP-XML.
      */
-    fun formatDependency(context: OutputContext, dBuilder: DocumentBuilder): StringBuilder {
+    fun formatMorpho(context: OutputContext, dBuilder: DocumentBuilder): StringBuilder {
+        return transformToString(buildMorphoDocument(context, dBuilder))
+    }
+
+    /**
+     * Stream morphological annotations as KorAP-XML directly to an OutputStream.
+     * Avoids materializing the entire XML as a String, which can exceed the JVM's
+     * 2 GB per-array limit for very long texts (e.g. novels).
+     */
+    fun formatMorphoToStream(context: OutputContext, dBuilder: DocumentBuilder, out: OutputStream) {
+        transformToStream(buildMorphoDocument(context, dBuilder), out)
+    }
+
+    /**
+     * Build the dependency DOM document from the given context.
+     */
+    private fun buildDependencyDocument(context: OutputContext, dBuilder: DocumentBuilder): Document {
         val doc: Document = dBuilder.newDocument()
 
         // Root element
@@ -188,13 +205,27 @@ object KorapXmlFormatter : OutputFormatter {
             spanList.appendChild(spanNode)
         }
         
-        return transformToString(doc)
+        return doc
     }
 
     /**
-     * Format constituency annotations as KorAP-XML.
+     * Format dependency annotations as KorAP-XML.
      */
-    fun formatConstituency(context: OutputContext, dBuilder: DocumentBuilder): StringBuilder {
+    fun formatDependency(context: OutputContext, dBuilder: DocumentBuilder): StringBuilder {
+        return transformToString(buildDependencyDocument(context, dBuilder))
+    }
+
+    /**
+     * Stream dependency annotations as KorAP-XML directly to an OutputStream.
+     */
+    fun formatDependencyToStream(context: OutputContext, dBuilder: DocumentBuilder, out: OutputStream) {
+        transformToStream(buildDependencyDocument(context, dBuilder), out)
+    }
+
+    /**
+     * Build the constituency DOM document from the given context.
+     */
+    private fun buildConstituencyDocument(context: OutputContext, dBuilder: DocumentBuilder): Document {
         val doc: Document = dBuilder.newDocument()
 
         // Root element
@@ -210,7 +241,7 @@ object KorapXmlFormatter : OutputFormatter {
         val trees = context.constituencyTrees
         if (trees == null || trees.isEmpty()) {
             LOGGER.warning("No constituency trees found for ${context.docId}")
-            return StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+            return doc
         }
 
         // Process each tree
@@ -255,7 +286,32 @@ object KorapXmlFormatter : OutputFormatter {
             }
         }
 
+        return doc
+    }
+
+    /**
+     * Format constituency annotations as KorAP-XML.
+     */
+    fun formatConstituency(context: OutputContext, dBuilder: DocumentBuilder): StringBuilder {
+        val doc = buildConstituencyDocument(context, dBuilder)
+        // Check for empty trees case
+        val trees = context.constituencyTrees
+        if (trees == null || trees.isEmpty()) {
+            return StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        }
         return transformToString(doc, indentAmount = "3")
+    }
+
+    /**
+     * Stream constituency annotations as KorAP-XML directly to an OutputStream.
+     */
+    fun formatConstituencyToStream(context: OutputContext, dBuilder: DocumentBuilder, out: OutputStream) {
+        val trees = context.constituencyTrees
+        if (trees == null || trees.isEmpty()) {
+            out.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n".toByteArray())
+            return
+        }
+        transformToStream(buildConstituencyDocument(context, dBuilder), out, indentAmount = "3")
     }
 
     /**
@@ -272,5 +328,20 @@ object KorapXmlFormatter : OutputFormatter {
         transformer.transform(domSource, streamResult)
 
         return StringBuilder(streamResult.writer.toString())
+    }
+
+    /**
+     * Transform DOM document directly to an OutputStream, avoiding String materialization.
+     * This prevents java.lang.OutOfMemoryError for very large documents that would
+     * exceed the JVM's ~2 GB per-array limit when serialized as a String.
+     */
+    private fun transformToStream(doc: Document, out: OutputStream, indentAmount: String = "1") {
+        val transformerFactory = TransformerFactory.newInstance()
+        val transformer = transformerFactory.newTransformer()
+        transformer.setOutputProperty(OutputKeys.INDENT, "yes")
+        transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no")
+        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", indentAmount)
+        val domSource = DOMSource(doc)
+        transformer.transform(domSource, StreamResult(out))
     }
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.2.1] - unreleased
+
+### Fixed
+
+- Fixed OutOfMemoryError when annotating very long texts (novels) with ZIP output by streaming XML directly to output instead of materializing as String
+
 ## [v3.2.0] - 2026-03-15
 
 ### Fixed
@@ -7,6 +13,7 @@
 - Fixed heap issues with krill conversion
 - For krill output and morpho.xml files, bypass XMLCommentFilterReader
 - Fixed progress bar showing the full path of the file instead of the file name ([#17](https://github.com/KorAP/korapxmltool/issues/17))
+- Fixed OutOfMemoryError when annotating very long texts (novels) with ZIP output by streaming XML directly to output instead of materializing as String
 
 ### Added
 
