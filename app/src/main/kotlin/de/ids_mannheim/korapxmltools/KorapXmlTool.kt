@@ -4015,7 +4015,7 @@ class KorapXmlTool : Callable<Int> {
         LOGGER.fine("parseAndWriteAnnotatedConllu called with ${annotatedConllu.length} chars, task=$task")
 
         val docId = task?.docId
-        val entryPathAndFoundry = task?.entryPath?.split("|") ?: listOf(null, null)
+        val entryPathAndFoundry = task?.entryPath?.split('|', limit = 2) ?: listOf(null, null)
         val entryPath = entryPathAndFoundry.getOrNull(0)
         val foundry = entryPathAndFoundry.getOrNull(1) ?: "base"
 
@@ -4025,7 +4025,6 @@ class KorapXmlTool : Callable<Int> {
         }
 
         val morphoSpans = mutableMapOf<String, MorphoSpan>()
-        val lines = annotatedConllu.lines()
         var currentStartOffsets: List<Int>? = null
         var currentEndOffsets: List<Int>? = null
         var tokenIndexInSentence = 0
@@ -4034,7 +4033,7 @@ class KorapXmlTool : Callable<Int> {
         var sentenceEndOffset: Int? = null
         var extractedFoundry: String? = null
 
-        for (line in lines) {
+        for (line in annotatedConllu.lineSequence()) {
             when {
                 line.startsWith("# foundry =") -> {
                     val foundryStr = line.substring("# foundry =".length).trim()
@@ -5846,4 +5845,3 @@ fun debug(args: Array<String>): Int {
     try { Locale.setDefault(Locale.ROOT) } catch (_: Exception) {}
     return CommandLine(KorapXmlTool()).execute(*args)
 }
-

@@ -6,21 +6,77 @@ import java.lang.Thread.currentThread
 import java.lang.Thread.sleep
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.logging.Logger
 
 private const val BUFFER_SIZE = 10000000
 private const val HIGH_WATERMARK = 1000000
+private const val DEFAULT_BUFFER_HEAP_DIVISOR = 16L
+private const val MIN_BUFFER_BYTES = 256L * 1024 * 1024
+private const val MAX_BUFFER_BYTES = 8L * 1024 * 1024 * 1024
+private const val APPROX_BYTES_PER_BUFFER_UNIT = 2L * HIGH_WATERMARK
+
+internal fun parseKorapXmlToolXmxToBytes(spec: String?): Long? {
+    if (spec.isNullOrBlank()) return null
+    val trimmed = spec.trim()
+    val match = Regex("""^(\d+)([kKmMgGtT]?)$""").matchEntire(trimmed) ?: return null
+    val amount = match.groupValues[1].toLongOrNull() ?: return null
+    return when (match.groupValues[2].lowercase()) {
+        "" -> amount * 1024 * 1024
+        "k" -> amount * 1024
+        "m" -> amount * 1024 * 1024
+        "g" -> amount * 1024 * 1024 * 1024
+        "t" -> amount * 1024 * 1024 * 1024 * 1024
+        else -> null
+    }
+}
+
+internal fun annotationWorkerHeapBudgetBytes(
+    env: Map<String, String> = System.getenv(),
+    runtimeMaxBytes: Long = Runtime.getRuntime().maxMemory()
+): Long {
+    val envXmxBytes = parseKorapXmlToolXmxToBytes(env["KORAPXMLTOOL_XMX"])
+    val positiveRuntimeMaxBytes = runtimeMaxBytes.takeIf { it > 0 } ?: (4L * 1024 * 1024 * 1024)
+    return envXmxBytes?.coerceAtMost(positiveRuntimeMaxBytes) ?: positiveRuntimeMaxBytes
+}
+
+internal fun defaultBufferedTaskUnits(
+    numWorkers: Int,
+    env: Map<String, String> = System.getenv(),
+    runtimeMaxBytes: Long = Runtime.getRuntime().maxMemory()
+): Int {
+    val heapBudgetBytes = annotationWorkerHeapBudgetBytes(env, runtimeMaxBytes)
+    val targetBufferBytes = (heapBudgetBytes / DEFAULT_BUFFER_HEAP_DIVISOR)
+        .coerceIn(MIN_BUFFER_BYTES, MAX_BUFFER_BYTES)
+    val heapBasedUnits = (targetBufferBytes / APPROX_BYTES_PER_BUFFER_UNIT).toInt().coerceAtLeast(1)
+    return maxOf(heapBasedUnits, maxOf(numWorkers * 32, 128))
+}
+
+internal fun defaultQueuedTasks(numWorkers: Int, maxBufferedTaskUnits: Int): Int {
+    return maxOf(numWorkers * 64, minOf(maxBufferedTaskUnits * 2, 4096), 256)
+}
 
 class AnnotationWorkerPool(
     private val command: String,
     private val numWorkers: Int,
     private val LOGGER: Logger,
     private val outputHandler: ((String, AnnotationTask?) -> Unit)? = null,
-    private val stderrLogPath: String? = null
+    private val stderrLogPath: String? = null,
+    // Bound buffered task text globally by approximate character count, not by document count.
+    // Size the budget from KORAPXMLTOOL_XMX or the JVM max heap so large heaps can keep more
+    // annotation workers busy without returning to unbounded buffering.
+    private val maxBufferedTaskUnits: Int = defaultBufferedTaskUnits(numWorkers),
+    private val maxQueuedTasks: Int = defaultQueuedTasks(numWorkers, maxBufferedTaskUnits)
 ) {
-    private val queue: BlockingQueue<AnnotationTask> = LinkedBlockingQueue()
+    init {
+        require(maxQueuedTasks > 0) { "maxQueuedTasks must be at least 1" }
+        require(maxBufferedTaskUnits > 0) { "maxBufferedTaskUnits must be at least 1" }
+    }
+
+    private val queue: BlockingQueue<AnnotationTask> = LinkedBlockingQueue(maxQueuedTasks)
+    private val bufferedTaskPermits = Semaphore(maxBufferedTaskUnits, true)
     private val threads = mutableListOf<Thread>()
     private val threadCount = AtomicInteger(0)
     private val threadsLock = Any()
@@ -34,11 +90,39 @@ class AnnotationWorkerPool(
         null
     }
 
-    data class AnnotationTask(val text: String, val docId: String?, val entryPath: String?)
+    data class AnnotationTask(
+        val text: String,
+        val docId: String?,
+        val entryPath: String?,
+        val bufferedUnits: Int = 0
+    )
 
     init {
         openWorkerPool()
-        LOGGER.info("Annotation worker pool with ${numWorkers} threads opened")
+        LOGGER.info(
+            "Annotation worker pool with ${numWorkers} threads opened " +
+                "(queueCapacity=$maxQueuedTasks, bufferedTaskUnits=$maxBufferedTaskUnits, " +
+                "heapBudgetMB=${annotationWorkerHeapBudgetBytes() / (1024 * 1024)})"
+        )
+    }
+
+    private fun unitsForText(text: String): Int {
+        if (text == "#eof") return 0
+        return maxOf(1, (text.length + HIGH_WATERMARK - 1) / HIGH_WATERMARK)
+    }
+
+    private fun newTask(text: String, docId: String?, entryPath: String?): AnnotationTask {
+        val bufferedUnits = unitsForText(text)
+        if (bufferedUnits > 0) {
+            bufferedTaskPermits.acquire(bufferedUnits)
+        }
+        return AnnotationTask(text, docId, entryPath, bufferedUnits)
+    }
+
+    private fun releaseTaskBuffer(task: AnnotationTask?) {
+        if (task != null && task.bufferedUnits > 0) {
+            bufferedTaskPermits.release(task.bufferedUnits)
+        }
     }
 
     private fun openWorkerPool() {
@@ -76,7 +160,7 @@ class AnnotationWorkerPool(
                         return@Thread // Exits thread, finally block will run
                     }
 
-                    // Declare pendingTasks here so it's accessible after process exits
+                    // pendingTasks tracks tasks already sent to the external process and awaiting output
                     val pendingTasks: BlockingQueue<AnnotationTask> = LinkedBlockingQueue()
 
                     // Using try-with-resources for streams to ensure they are closed
@@ -113,17 +197,18 @@ class AnnotationWorkerPool(
                                             LOGGER.info("Worker $workerIndex (thread ${self.threadId()}) sent EOF to process and writer is stopping.")
                                             break // Exit while loop
                                         }
-                                        pendingTasks.put(task)
                                         try {
-                                            val trimmed = task.text.trimEnd()
-                                            val dataToSend = if (trimmed.isEmpty()) {
-                                                "# eot\n"
-                                            } else {
-                                                trimmed + "\n\n# eot\n"
+                                            pendingTasks.put(task)
+                                            LOGGER.fine("Worker $workerIndex: Sending ${task.text.length} chars to external process")
+                                            LOGGER.finer("Worker $workerIndex: First 500 chars of data to send:\n${task.text.take(500)}")
+                                            if (task.text.isNotEmpty()) {
+                                                outputStreamWriter.write(task.text)
+                                                if (!task.text.endsWith('\n')) {
+                                                    outputStreamWriter.write('\n'.code)
+                                                }
+                                                outputStreamWriter.write('\n'.code)
                                             }
-                                            LOGGER.fine("Worker $workerIndex: Sending ${dataToSend.length} chars to external process")
-                                            LOGGER.finer("Worker $workerIndex: First 500 chars of data to send:\n${dataToSend.take(500)}")
-                                            outputStreamWriter.write(dataToSend)
+                                            outputStreamWriter.write("# eot\n")
                                             outputStreamWriter.flush()
                                             LOGGER.fine("Worker $workerIndex: Data sent and flushed")
                                         } catch (e: IOException) {
@@ -176,9 +261,11 @@ class AnnotationWorkerPool(
                                                                 outputHandler.invoke(output.toString(), task)
                                                             } finally {
                                                                 pendingOutputHandlers.decrementAndGet()
+                                                                releaseTaskBuffer(task)
                                                             }
                                                         } else {
                                                             printOutput(output.toString())
+                                                            releaseTaskBuffer(task)
                                                         }
                                                         output.clear()
                                                     }
@@ -196,10 +283,12 @@ class AnnotationWorkerPool(
                                                             outputHandler.invoke(output.toString(), task)
                                                         } finally {
                                                             pendingOutputHandlers.decrementAndGet()
+                                                            releaseTaskBuffer(task)
                                                         }
                                                     } else {
                                                         LOGGER.fine("Worker $workerIndex: Printing output (${output.length} chars)")
                                                         printOutput(output.toString())
+                                                        releaseTaskBuffer(task)
                                                     }
                                                     output.clear()
                                                     lastLineWasEmpty = false
@@ -220,6 +309,7 @@ class AnnotationWorkerPool(
                                                                 outputHandler.invoke(output.toString(), task)
                                                             } finally {
                                                                 pendingOutputHandlers.decrementAndGet()
+                                                                releaseTaskBuffer(task)
                                                             }
                                                             output.clear()
                                                             lastLineWasEmpty = false
@@ -252,9 +342,11 @@ class AnnotationWorkerPool(
                                                 outputHandler.invoke(output.toString(), task)
                                             } finally {
                                                 pendingOutputHandlers.decrementAndGet()
+                                                releaseTaskBuffer(task)
                                             }
                                         } else {
                                             printOutput(output.toString())
+                                            releaseTaskBuffer(task)
                                         }
                                     }
                                 } catch (e: Exception) {
@@ -375,21 +467,30 @@ class AnnotationWorkerPool(
     }
 
     fun pushToQueue(text: String, docId: String? = null, entryPath: String? = null) {
+        var task: AnnotationTask? = null
         try {
-            LOGGER.fine("pushToQueue called: text length=${text.length}, docId=$docId, entryPath=$entryPath")
-            queue.put(AnnotationTask(text, docId, entryPath))
+            task = newTask(text, docId, entryPath)
+            LOGGER.fine(
+                "pushToQueue called: text length=${text.length}, docId=$docId, entryPath=$entryPath, " +
+                    "queueSize=${queue.size}/$maxQueuedTasks, buffered=${maxBufferedTaskUnits - bufferedTaskPermits.availablePermits()}/$maxBufferedTaskUnits"
+            )
+            queue.put(task)
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
+            releaseTaskBuffer(task)
             LOGGER.warning("Interrupted while trying to push text to queue.")
         }
     }
 
     fun pushToQueue(texts: List<String>) {
         texts.forEach { text ->
+            var task: AnnotationTask? = null
             try {
-                queue.put(AnnotationTask(text, null, null))
+                task = newTask(text, null, null)
+                queue.put(task)
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
+                releaseTaskBuffer(task)
                 LOGGER.warning("Interrupted while trying to push texts to queue. Some texts may not have been added.")
                 return // Exit early if interrupted
             }
@@ -405,7 +506,7 @@ class AnnotationWorkerPool(
         // to ensure we send enough EOF markers even if some threads haven't started yet
         for (i in 0 until numWorkers) {
             try {
-                queue.put(AnnotationTask("#eof", null, null))
+                queue.put(AnnotationTask("#eof", null, null, 0))
                 LOGGER.info("Sent EOF marker ${i+1}/$numWorkers to queue")
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
