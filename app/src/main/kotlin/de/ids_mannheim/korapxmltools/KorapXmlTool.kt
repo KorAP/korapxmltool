@@ -1385,8 +1385,17 @@ class KorapXmlTool : Callable<Int> {
                 }
                 LOGGER.info("Initialized morphoZipOutputStream for external annotation to: $outputMorphoZipFileName")
 
-                // Ensure we restore System.err and remove file handler at the end of processing (shutdown hook)
+                // Ensure we restore System.err and remove file handler at the end of processing (shutdown hook).
+                // Also finalize the annotation ZIP so its central directory is written even on SIGTERM/Ctrl-C.
                 Runtime.getRuntime().addShutdownHook(Thread {
+                    try {
+                        val zipOut = morphoZipOutputStream
+                        if (zipOut != null) {
+                            LOGGER.warning("Shutdown hook: finalizing annotation output ZIP")
+                            try { synchronized(zipOut) { zipOut.finish() } } catch (_: Exception) {}
+                            try { zipOut.close() } catch (_: Exception) {}
+                        }
+                    } catch (_: Exception) {}
                     try {
                         LOGGER.info("Shutting down; closing per-zip log handler")
                         LOGGER.removeHandler(fileHandler)
@@ -2207,8 +2216,17 @@ class KorapXmlTool : Callable<Int> {
             }
             LOGGER.info("Initialized morphoZipOutputStream for $outputMorphoZipFileName")
 
-            // Restore System.err and remove file handler on shutdown
+            // Restore System.err and remove file handler on shutdown.
+            // Also finalize the annotation ZIP so its central directory is written even on SIGTERM/Ctrl-C.
             Runtime.getRuntime().addShutdownHook(Thread {
+                try {
+                    val zipOut = morphoZipOutputStream
+                    if (zipOut != null) {
+                        LOGGER.warning("Shutdown hook: finalizing annotation output ZIP")
+                        try { synchronized(zipOut) { zipOut.finish() } } catch (_: Exception) {}
+                        try { zipOut.close() } catch (_: Exception) {}
+                    }
+                } catch (_: Exception) {}
                 try {
                     LOGGER.info("Shutting down; closing ZIP log handler")
                     LOGGER.removeHandler(fileHandler)
@@ -4221,7 +4239,9 @@ class KorapXmlTool : Callable<Int> {
         val actualFoundry = if (foundryOverride != null) {
             foundryOverride!!
         } else if (extractedFoundry != null) {
-            LOGGER.info("Using foundry from CoNLL-U output: $extractedFoundry (was: $foundry)")
+            if (extractedFoundry != foundry) {
+                LOGGER.info("Using foundry from CoNLL-U output: $extractedFoundry (was: $foundry)")
+            }
             // Update the global externalFoundry variable for consistent naming
             externalFoundry = extractedFoundry
             extractedFoundry
@@ -4256,8 +4276,11 @@ class KorapXmlTool : Callable<Int> {
             morphoZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
             synchronized(morphoZipOutputStream!!) {
                 morphoZipOutputStream!!.putArchiveEntry(morphoZipEntry)
-                KorapXmlFormatter.formatMorphoToStream(context, dBuilder!!, morphoZipOutputStream!!)
-                morphoZipOutputStream!!.closeArchiveEntry()
+                try {
+                    KorapXmlFormatter.formatMorphoToStream(context, dBuilder!!, morphoZipOutputStream!!)
+                } finally {
+                    morphoZipOutputStream!!.closeArchiveEntry()
+                }
             }
             val written = docsWrittenToZip.incrementAndGet()
             if (!quiet) progressBar?.step()
@@ -4294,8 +4317,11 @@ class KorapXmlTool : Callable<Int> {
                 dependencyZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
                 synchronized(morphoZipOutputStream!!) {
                     morphoZipOutputStream!!.putArchiveEntry(dependencyZipEntry)
-                    KorapXmlFormatter.formatDependencyToStream(context, dBuilder!!, morphoZipOutputStream!!)
-                    morphoZipOutputStream!!.closeArchiveEntry()
+                    try {
+                        KorapXmlFormatter.formatDependencyToStream(context, dBuilder!!, morphoZipOutputStream!!)
+                    } finally {
+                        morphoZipOutputStream!!.closeArchiveEntry()
+                    }
                 }
             } catch (e: Exception) {
                 LOGGER.severe("ERROR generating/writing dependency.xml: ${e.message}")
