@@ -658,6 +658,74 @@ class KorapXmlTool : Callable<Int> {
     }
 
 
+    private fun logCallOptionsAndEnvironment() {
+        val sb = StringBuilder()
+        sb.appendLine("=== korapxmltool invocation summary ===")
+
+        // Input files
+        sb.append("  Input:        ")
+        if (zipFileNames.isNullOrEmpty()) sb.appendLine("(stdin)") else sb.appendLine(zipFileNames!!.joinToString(", "))
+
+        // Core options
+        sb.appendLine("  Output format:  $outputFormat")
+        if (outputFile != null)       sb.appendLine("  Output file:    $outputFile")
+        if (outputDir != ".")         sb.appendLine("  Output dir:     $outputDir")
+        sb.appendLine("  Threads:        $maxThreads")
+        sb.appendLine("  Log level:      $logLevel")
+
+        // Annotation options
+        if (taggerName != null)       sb.appendLine("  Tagger:         $taggerName  model: $taggerModel")
+        if (parserName != null)       sb.appendLine("  Parser:         $parserName  model: $parserModel")
+        if (annotateWith.isNotBlank()) sb.appendLine("  Annotate-with:  $annotateWith")
+        if (foundryOverride != null)  sb.appendLine("  Foundry:        $foundryOverride")
+
+        // Filter / extraction options
+        if (siglePattern != null)              sb.appendLine("  Sigle pattern:  $siglePattern")
+        if (extractAttributesRegex.isNotBlank()) sb.appendLine("  Extract attrs:  $extractAttributesRegex")
+        if (extractMetadataRegex.isNotEmpty()) sb.appendLine("  Extract meta:   ${extractMetadataRegex.joinToString(", ")}")
+        if (excludeZipGlobs.isNotEmpty())      sb.appendLine("  Exclude globs:  ${excludeZipGlobs.joinToString(", ")}")
+
+        // Flags (only when non-default)
+        if (quiet)                sb.appendLine("  --quiet")
+        if (overwrite)            sb.appendLine("  --force")
+        if (useLemma)             sb.appendLine("  --lemma")
+        if (lemmaOnly)            sb.appendLine("  --lemma-only")
+        if (useLz4)               sb.appendLine("  --lz4")
+        if (includeNonWordTokens) sb.appendLine("  --non-word-tokens")
+        if (sequentialInZip)      sb.appendLine("  --sequential")
+        if (COMPATIBILITY_MODE)   sb.appendLine("  COMPATIBILITY_MODE=true")
+
+        // Relevant environment variables
+        sb.appendLine("  --- environment ---")
+        listOf(
+            "KORAPXMLTOOL_MODELS_PATH",
+            "KORAPXMLTOOL_XMX",
+            "KORAPXMLTOOL_JAVA_OPTS",
+            "COMPATIBILITY_MODE",
+            "SPACY_USE_DEPENDENCIES",
+            "JAVA_TOOL_OPTIONS"
+        ).forEach { name ->
+            val value = System.getenv(name)
+            if (value != null) sb.appendLine("  $name=$value")
+        }
+        sb.append("=== end of invocation summary ===")
+        val summary = sb.toString()
+
+        // Always write directly to any file-based log handlers (e.g. Krill log file),
+        // bypassing the logger's own level filter.
+        val record = java.util.logging.LogRecord(Level.INFO, summary)
+        record.loggerName = LOGGER.name
+        LOGGER.handlers.forEach { h ->
+            if (h is java.util.logging.FileHandler) {
+                h.publish(record)
+                h.flush()
+            }
+        }
+        // Also emit via the normal logging path so non-file handlers (console/stderr)
+        // receive it when INFO level is enabled.
+        LOGGER.info(summary)
+    }
+
     override fun call(): Int {
         val handler = ConsoleHandler()
         LogManager.getLogManager().reset()
@@ -768,6 +836,12 @@ class KorapXmlTool : Callable<Int> {
                 try { errPs.close() } catch (_: Exception) {}
             })
         }
+
+        // Log invocation options and environment after all log handlers are set up.
+        // File handlers (e.g. the Krill log) always receive the summary regardless of
+        // the configured log level; non-file output (console/stderr) only shows it
+        // when the INFO level is active.
+        logCallOptionsAndEnvironment()
 
         // CoNLL-U to KorAP XML ZIP conversion mode
         val isConlluInput = zipFileNames == null || zipFileNames!!.isEmpty() || 
