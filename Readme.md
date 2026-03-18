@@ -56,6 +56,14 @@ Key options for korapxmltool (>= v3.1):
 - `--lemma`: Use lemmas instead of surface forms (when available)
 - `--lemma-only`: Skip loading base tokens, output only lemmas
 
+## Environment Variables
+
+For the wrapper scripts in `build/bin/`, you can configure the JVM and model paths via environment variables:
+
+- `KORAPXMLTOOL_MODELS_PATH`: Directory where tagger and parser models are searched if not found locally. (Default: `../lib/models` relative to the wrapper script's directory)
+- `KORAPXMLTOOL_XMX`: Maximum Java heap memory size (e.g., `16g`, `500g`). (Default: auto-detected based on available system memory, input size, and workload type)
+- `KORAPXMLTOOL_JAVA_OPTS`: Additional Java options (e.g., `-XX:+UseG1GC`).
+
 ## Conversion to [CoNLL-U format](https://universaldependencies.org/format.html)
 
 ```shell script
