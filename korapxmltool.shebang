@@ -197,7 +197,7 @@ if ! $has_xmx; then
       workload_type="default"
     fi
     
-    echo "Auto-detected: workload=$workload_type, input=${total_input_gb_precise}GB, memory=${xmx_mb}MB" >&2
+    export KORAPXMLTOOL_AUTO_DETECT_MSG="Auto-detected: workload=$workload_type, input=${total_input_gb_precise}GB, memory=${xmx_mb}MB"
   fi
   EXTRA_OPTS+=("-Xmx${xmx_mb}m")
 fi

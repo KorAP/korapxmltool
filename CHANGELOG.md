@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Invocation summary (call options, environment) is no longer printed to stderr; it is written only to the log file
+- Shell wrapper auto-detection message (memory/workload) is no longer echoed to stderr; passed via environment variable and included in the log file instead
+- Fixed `java.util.logging.ErrorManager` NPE on JVM shutdown caused by `LOGGER` calls inside shutdown hooks executing after `LogManager.reset()` had already closed file handlers
+- For annotation and krill output modes, console logging is suppressed entirely (everything goes to the log file at the requested level)
+
 ## [v3.2.1] - 2026-03-17
 
 ### Fixed

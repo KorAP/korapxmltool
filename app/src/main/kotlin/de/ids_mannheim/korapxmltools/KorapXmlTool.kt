@@ -322,6 +322,9 @@ class KorapXmlTool : Callable<Int> {
     
     // Store model path resolutions for logging after logger initialization
     private val modelPathResolutions: MutableList<Pair<String, String>> = mutableListOf()
+
+    // Invocation summary buffered until the first file handler is registered
+    private var pendingLogSummary: java.util.logging.LogRecord? = null
     
     // Default models for taggers and parsers
     private val defaultTaggerModels = mapOf(
@@ -662,6 +665,9 @@ class KorapXmlTool : Callable<Int> {
         val sb = StringBuilder()
         sb.appendLine("=== korapxmltool invocation summary ===")
 
+        // Shell wrapper auto-detection message (memory/workload), if available
+        System.getenv("KORAPXMLTOOL_AUTO_DETECT_MSG")?.let { sb.appendLine("  $it") }
+
         // Input files
         sb.append("  Input:        ")
         if (zipFileNames.isNullOrEmpty()) sb.appendLine("(stdin)") else sb.appendLine(zipFileNames!!.joinToString(", "))
@@ -711,19 +717,32 @@ class KorapXmlTool : Callable<Int> {
         sb.append("=== end of invocation summary ===")
         val summary = sb.toString()
 
-        // Always write directly to any file-based log handlers (e.g. Krill log file),
-        // bypassing the logger's own level filter.
+        // Write directly to any file-based log handlers (e.g. Krill log file),
+        // bypassing the logger's own level filter.  Deliberately not sent to
+        // the console handler so the summary does not clutter stderr output.
         val record = java.util.logging.LogRecord(Level.INFO, summary)
         record.loggerName = LOGGER.name
+        var flushed = false
         LOGGER.handlers.forEach { h ->
             if (h is java.util.logging.FileHandler) {
                 h.publish(record)
                 h.flush()
+                flushed = true
             }
         }
-        // Also emit via the normal logging path so non-file handlers (console/stderr)
-        // receive it when INFO level is enabled.
-        LOGGER.info(summary)
+        // No file handler yet (annotation mode sets it up later) — buffer for deferred flush.
+        if (!flushed) {
+            pendingLogSummary = record
+        }
+    }
+
+    /** Flush the buffered invocation summary to [fileHandler], then clear the buffer. */
+    private fun flushPendingSummary(fileHandler: java.util.logging.FileHandler) {
+        pendingLogSummary?.let { record ->
+            fileHandler.publish(record)
+            fileHandler.flush()
+            pendingLogSummary = null
+        }
     }
 
     override fun call(): Int {
@@ -746,7 +765,11 @@ class KorapXmlTool : Callable<Int> {
             Level.WARNING
         }
         LOGGER.level = level
-        handler.level = level  // Handler also needs to be set to the same level
+        // For annotation and krill formats a per-run log file is always created, so we
+        // route everything there and suppress the console.  Otherwise honour the requested level.
+        val willLogToFile = (taggerName != null || parserName != null || annotateWith.isNotBlank()
+                || outputFormat == OutputFormat.KRILL)
+        handler.level = if (willLogToFile) Level.OFF else level
 
         // Auto-detect optimal thread count if not specified
         if (maxThreads == 0) {
@@ -819,28 +842,27 @@ class KorapXmlTool : Callable<Int> {
                 LOGGER.removeHandler(logHandler)
             }
             LOGGER.addHandler(fileHandler)
+            flushPendingSummary(fileHandler)
 
             // Mirror System.err to the same log file
             val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
             val oldErr = System.err
             System.setErr(errPs)
 
-            // Restore System.err and remove file handler on shutdown
+            // Restore System.err and remove file handler on shutdown.
+            // Note: LogManager.reset() closes FileHandlers before user hooks run, so
+            // no LOGGER calls are safe here.
             Runtime.getRuntime().addShutdownHook(Thread {
-                try {
-                    LOGGER.info("Shutting down; closing krill log handler")
-                    LOGGER.removeHandler(fileHandler)
-                    fileHandler.close()
-                } catch (_: Exception) {}
+                try { LOGGER.removeHandler(fileHandler) } catch (_: Exception) {}
+                try { fileHandler.close() } catch (_: Exception) {}
                 try { System.setErr(oldErr) } catch (_: Exception) {}
                 try { errPs.close() } catch (_: Exception) {}
             })
         }
 
         // Log invocation options and environment after all log handlers are set up.
-        // File handlers (e.g. the Krill log) always receive the summary regardless of
-        // the configured log level; non-file output (console/stderr) only shows it
-        // when the INFO level is active.
+        // The summary is written only to file-based handlers (e.g. the Krill log),
+        // not to the console, so it does not clutter stderr output.
         logCallOptionsAndEnvironment()
 
         // CoNLL-U to KorAP XML ZIP conversion mode
@@ -1364,6 +1386,7 @@ class KorapXmlTool : Callable<Int> {
                 }
                 
                 LOGGER.addHandler(fileHandler)
+                flushPendingSummary(fileHandler)
                 LOGGER.info("Logging redirected to: $logFilePath")
                 // Mirror System.err to the same log file for the duration
                 val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
@@ -1387,20 +1410,18 @@ class KorapXmlTool : Callable<Int> {
 
                 // Ensure we restore System.err and remove file handler at the end of processing (shutdown hook).
                 // Also finalize the annotation ZIP so its central directory is written even on SIGTERM/Ctrl-C.
+                // Note: LogManager.reset() closes FileHandlers before user hooks run, so
+                // no LOGGER calls are safe here.
                 Runtime.getRuntime().addShutdownHook(Thread {
                     try {
                         val zipOut = morphoZipOutputStream
                         if (zipOut != null) {
-                            LOGGER.warning("Shutdown hook: finalizing annotation output ZIP")
                             try { synchronized(zipOut) { zipOut.finish() } } catch (_: Exception) {}
                             try { zipOut.close() } catch (_: Exception) {}
                         }
                     } catch (_: Exception) {}
-                    try {
-                        LOGGER.info("Shutting down; closing per-zip log handler")
-                        LOGGER.removeHandler(fileHandler)
-                        fileHandler.close()
-                    } catch (_: Exception) {}
+                    try { LOGGER.removeHandler(fileHandler) } catch (_: Exception) {}
+                    try { fileHandler.close() } catch (_: Exception) {}
                     try { System.setErr(oldErr) } catch (_: Exception) {}
                     try { errPs.close() } catch (_: Exception) {}
                 })
@@ -2197,6 +2218,7 @@ class KorapXmlTool : Callable<Int> {
                 }
             }
             LOGGER.addHandler(fileHandler)
+            flushPendingSummary(fileHandler)
             LOGGER.info("Logging redirected to: $logFilePath")
 
             // Mirror System.err to the same log file
@@ -2218,20 +2240,17 @@ class KorapXmlTool : Callable<Int> {
 
             // Restore System.err and remove file handler on shutdown.
             // Also finalize the annotation ZIP so its central directory is written even on SIGTERM/Ctrl-C.
+            // Note: LogManager.reset() closes FileHandlers before user hooks run, so no LOGGER calls are safe here.
             Runtime.getRuntime().addShutdownHook(Thread {
                 try {
                     val zipOut = morphoZipOutputStream
                     if (zipOut != null) {
-                        LOGGER.warning("Shutdown hook: finalizing annotation output ZIP")
                         try { synchronized(zipOut) { zipOut.finish() } } catch (_: Exception) {}
                         try { zipOut.close() } catch (_: Exception) {}
                     }
                 } catch (_: Exception) {}
-                try {
-                    LOGGER.info("Shutting down; closing ZIP log handler")
-                    LOGGER.removeHandler(fileHandler)
-                    fileHandler.close()
-                } catch (_: Exception) {}
+                try { LOGGER.removeHandler(fileHandler) } catch (_: Exception) {}
+                try { fileHandler.close() } catch (_: Exception) {}
                 try { System.setErr(oldErr) } catch (_: Exception) {}
                 try { errPs.close() } catch (_: Exception) {}
             })
