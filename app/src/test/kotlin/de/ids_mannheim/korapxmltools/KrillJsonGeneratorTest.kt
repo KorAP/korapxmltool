@@ -74,6 +74,7 @@ class KrillJsonGeneratorTest {
                 extractDir.deleteRecursively()
             }
         }
+
     }
 
     private val outContent = ByteArrayOutputStream(10000000)
@@ -233,6 +234,26 @@ class KrillJsonGeneratorTest {
         } finally {
             extractDir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun krillHandlesSparseFoundryWithoutBlockingOtherTexts() {
+        val baseZip = loadResource("ndy_sample.zip").path
+        val sparseCmcZip = loadResource("ndy_sample.cmc.zip").path
+        val emptyGenderZip = loadResource("ndy_sample.gender.zip").path
+
+        val generatedTar = ensureKrillTar("ndy_sparse_foundries", "ndy_sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip, sparseCmcZip, emptyGenderZip)
+        }
+        assertTrue(generatedTar.exists())
+
+        val jsonByFile = readKrillJson(generatedTar)
+        assertEquals(
+            setOf("NDY-115-005255.json", "NDY-266-006701.json", "NDY-269-017376.json"),
+            jsonByFile.keys,
+            "Sparse and empty foundry ZIPs must not block base-only texts from being written"
+        )
+        assertFalse(jsonByFile.values.any { it.contains("\"gender\"") }, "The empty gender ZIP must not add foundry expectations or block output")
     }
 
     @Test
