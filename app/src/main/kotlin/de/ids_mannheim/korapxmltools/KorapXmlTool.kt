@@ -1081,6 +1081,13 @@ class KorapXmlTool : Callable<Int> {
         return TextIdSortKey(prefix, monthRank, mid, tailNumber, textId)
     }
 
+    private fun compareQueuedTasksForScheduling(left: PrioritizedTask?, right: PrioritizedTask?): Int {
+        if (left == null && right == null) return 0
+        if (left == null) return 1
+        if (right == null) return -1
+        return left.compareTo(right)
+    }
+
     val texts: ConcurrentHashMap<String, NonBmpString> = ConcurrentHashMap()
     val sentences: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
     val tokens: ConcurrentHashMap<String, Array<Span>> = ConcurrentHashMap()
@@ -2495,10 +2502,13 @@ class KorapXmlTool : Callable<Int> {
                 // Throttle submission if this foundry is getting too far ahead
                 while (workStealingSchedulerActive && foundrySubmissionComplete.isNotEmpty()) {
                     // Find the minimum NEXT text ID across all foundries (either in queue or submitted)
-                    val minNextTextId = foundryTaskQueues.entries
+                    val minQueuedTask = foundryTaskQueues.entries
                         .filter { it.value.isNotEmpty() }
-                        .minOfOrNull { it.value.peek()?.textId ?: "~~~~~" }
-                        ?: foundryWatermarks.values.minOrNull()
+                        .minWithOrNull { left, right ->
+                            compareQueuedTasksForScheduling(left.value.peek(), right.value.peek())
+                        }?.value?.peek()
+                    val minNextTextId = minQueuedTask?.textId
+                        ?: foundryWatermarks.values.minWithOrNull(this::compareTextIds)
                         ?: textId
                     
                     // Calculate position difference
@@ -2607,9 +2617,8 @@ class KorapXmlTool : Callable<Int> {
             val foundryToProcess = synchronized(foundryTaskQueues) {
                 foundryTaskQueues.entries
                     .filter { entry -> entry.value.isNotEmpty() }
-                    .minByOrNull { entry -> 
-                        // Use the NEXT text ID in queue (peek), not the completed watermark
-                        entry.value.peek()?.textId ?: "~~~~~"
+                    .minWithOrNull { left, right ->
+                        compareQueuedTasksForScheduling(left.value.peek(), right.value.peek())
                     }?.key
             }
             

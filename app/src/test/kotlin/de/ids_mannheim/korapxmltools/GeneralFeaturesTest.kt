@@ -105,9 +105,42 @@ class GeneralFeaturesTest {
         assertEquals(expected, sorted, "Mixed month IDs should follow calendar order")
     }
 
+    @Test
+    fun queueHeadSchedulerUsesMonthAwareTextOrder() {
+        val tool = KorapXmlTool()
+        val left = prioritizedTask(tool, "spacy", "DNB17_DEZ.81042")
+        val right = prioritizedTask(tool, "base", "DNB17_OKT.12345")
+
+        val scheduledFirst = tool.compareQueuedTasksForScheduling(left, right)
+        assertTrue(
+            scheduledFirst > 0,
+            "Queue scheduling must use compareTextIds semantics rather than raw string order"
+        )
+    }
+
     private fun KorapXmlTool.compareTextIds(a: String, b: String): Int {
         val m = KorapXmlTool::class.java.getDeclaredMethod("compareTextIds", String::class.java, String::class.java)
         m.isAccessible = true
         return m.invoke(this, a, b) as Int
+    }
+
+    private fun KorapXmlTool.compareQueuedTasksForScheduling(left: Any, right: Any): Int {
+        val taskClass = Class.forName("de.ids_mannheim.korapxmltools.KorapXmlTool\$PrioritizedTask")
+        val m = KorapXmlTool::class.java.getDeclaredMethod("compareQueuedTasksForScheduling", taskClass, taskClass)
+        m.isAccessible = true
+        return m.invoke(this, left, right) as Int
+    }
+
+    private fun prioritizedTask(tool: KorapXmlTool, foundry: String, textId: String): Any {
+        val taskClass = Class.forName("de.ids_mannheim.korapxmltools.KorapXmlTool\$PrioritizedTask")
+        val ctor = taskClass.getDeclaredConstructor(
+            KorapXmlTool::class.java,
+            String::class.java,
+            String::class.java,
+            Runnable::class.java,
+            Long::class.javaPrimitiveType
+        )
+        ctor.isAccessible = true
+        return ctor.newInstance(tool, foundry, textId, Runnable { }, 0L)
     }
 }
