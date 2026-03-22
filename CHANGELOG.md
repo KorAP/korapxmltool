@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v3.3.0] - 2026-03-26
 
 ### Fixed
 
@@ -8,6 +8,17 @@
 - Shell wrapper auto-detection message (memory/workload) is no longer echoed to stderr; passed via environment variable and included in the log file instead
 - Fixed `java.util.logging.ErrorManager` NPE on JVM shutdown caused by `LOGGER` calls inside shutdown hooks executing after `LogManager.reset()` had already closed file handlers
 - For annotation and krill output modes, console logging is suppressed entirely (everything goes to the log file at the requested level)
+- Fixed OutOfMemoryError and deadlock regressions in external annotation mode by bounding the worker backlog instead of letting whole-document annotation tasks accumulate unbounded in heap
+- Annotation worker buffer sizing now respects `KORAPXMLTOOL_XMX`, so large configured heaps permit larger bounded backlogs without collapsing throughput
+- Fixed Krill incremental output stalls where completed texts could be compressed but never written, causing the progress bar to stay near zero while memory kept growing
+- Fixed Krill work-stealing queue selection to use month-aware `compareTextIds()` ordering instead of raw string order, preventing one foundry from starving the others
+- Fixed a Krill writer-thread stall introduced by compression backpressure by keeping compression enqueueing on worker-completion paths instead of letting the writer thread run compressor work
+- Fixed sparse and empty foundry handling regressions in Krill output by covering them with fixture-based tests (`ndy_sample.cmc.zip`, `ndy_sample.gender.zip`)
+
+### Added
+
+- Added `KRILL-STATS` log lines with heap usage, raw/compressed backlog sizes, in-flight compression count, ready-queue depth, and peak values for server-side tuning
+- Added compression-pool diagnostics to `KRILL-STATS` (`active`, `queued`, `threads`) to distinguish writer stalls from compressor backlog
 
 ## [v3.2.1] - 2026-03-17
 
