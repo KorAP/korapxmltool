@@ -1555,9 +1555,10 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.info("All foundries submitted to work-stealing scheduler")
         }
 
-        // Shutdown entry executor BEFORE closing worker pool to ensure no more tasks enqueue output after EOF
+        // Shutdown entry executor so no more ZIP-entry work feeds the Krill pipeline.
+        // Keep the compression executor alive here: Krill finalization still needs it
+        // to flush any remaining texts after the incremental writer stops.
         entryExecutor?.shutdown()
-        compressionExecutor?.shutdownNow()
         try {
             if (entryExecutor != null) {
                 val terminated = entryExecutor!!.awaitTermination(7, java.util.concurrent.TimeUnit.DAYS)
@@ -5549,7 +5550,7 @@ class KorapXmlTool : Callable<Int> {
             // large corpora: without this, raw data and compressed bytes both sit in
             // memory simultaneously until the incremental writer catches up.
             krillData.remove(textId)
-            readyKrillTextIds.put(textId)
+            readyKrillTextIds.offer(textId)
             updatePeakCounter(krillPeakCompressedPending, krillCompressedData.size)
             updatePeakCounter(krillPeakReadyQueueDepth, readyKrillTextIds.size)
             LOGGER.finer("Compressed text $textId (${compressedData.size} bytes), released raw data")
