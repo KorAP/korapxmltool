@@ -5517,31 +5517,7 @@ class KorapXmlTool : Callable<Int> {
                 KrillJsonGenerator.generate(textData, corpusMetadata, docMetadata, includeNonWordTokens)
             }
             
-            // Choose compression format based on --lz4 flag
-            val (jsonFileName, compressedData) = if (useLz4) {
-                val fileName = textId.replace("_", "-").replace(".", "-") + ".json.lz4"
-                val jsonBytes = json.toByteArray(Charsets.UTF_8)
-                val byteOut = ByteArrayOutputStream()
-                net.jpountz.lz4.LZ4FrameOutputStream(byteOut).use { lz4Out ->
-                    lz4Out.write(jsonBytes)
-                }
-                Pair(fileName, byteOut.toByteArray())
-            } else {
-                // Use GZIP with level 1 compression for speed
-                val fileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
-                val jsonBytes = json.toByteArray(Charsets.UTF_8)
-                val byteOut = ByteArrayOutputStream(jsonBytes.size)
-                
-                // Create GZIPOutputStream with level 1 (fast) compression
-                val gzipOut = object : java.util.zip.GZIPOutputStream(byteOut) {
-                    init {
-                        def.setLevel(1)
-                    }
-                }
-                gzipOut.use { it.write(jsonBytes) }
-                
-                Pair(fileName, byteOut.toByteArray())
-            }
+            val (jsonFileName, compressedData) = compressKrillJson(textId, json)
 
             // Store compressed data for sequential TAR writing
             krillCompressedData[textId] = CompressedKrillData(textId, jsonFileName, compressedData)
@@ -5582,6 +5558,33 @@ class KorapXmlTool : Callable<Int> {
         } else {
             updatePeakCounter(krillPeakRawPending, krillData.size)
             updatePeakCounter(krillPeakCompressionInFlight, krillCompressionFutures.size)
+        }
+    }
+
+    private fun compressKrillJson(textId: String, json: String): Pair<String, ByteArray> {
+        return if (useLz4) {
+            val fileName = textId.replace("_", "-").replace(".", "-") + ".json.lz4"
+            val byteOut = ByteArrayOutputStream()
+            net.jpountz.lz4.LZ4FrameOutputStream(byteOut).use { lz4Out ->
+                OutputStreamWriter(lz4Out, StandardCharsets.UTF_8).use { writer ->
+                    writer.write(json)
+                }
+            }
+            Pair(fileName, byteOut.toByteArray())
+        } else {
+            val fileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
+            val byteOut = ByteArrayOutputStream()
+            val gzipOut = object : java.util.zip.GZIPOutputStream(byteOut) {
+                init {
+                    def.setLevel(1)
+                }
+            }
+            gzipOut.use { gzip ->
+                OutputStreamWriter(gzip, StandardCharsets.UTF_8).use { writer ->
+                    writer.write(json)
+                }
+            }
+            Pair(fileName, byteOut.toByteArray())
         }
     }
 
@@ -5864,31 +5867,7 @@ class KorapXmlTool : Callable<Int> {
 
             val json = KrillJsonGenerator.generate(textData, corpusMetadata, docMetadata, includeNonWordTokens)
             
-            // Choose compression format based on --lz4 flag
-            val (jsonFileName, compressedData) = if (useLz4) {
-                val fileName = textId.replace("_", "-").replace(".", "-") + ".json.lz4"
-                val jsonBytes = json.toByteArray(Charsets.UTF_8)
-                val byteOut = ByteArrayOutputStream()
-                net.jpountz.lz4.LZ4FrameOutputStream(byteOut).use { lz4Out ->
-                    lz4Out.write(jsonBytes)
-                }
-                Pair(fileName, byteOut.toByteArray())
-            } else {
-                // Use GZIP with level 1 compression for speed
-                val fileName = textId.replace("_", "-").replace(".", "-") + ".json.gz"
-                val jsonBytes = json.toByteArray(Charsets.UTF_8)
-                val byteOut = ByteArrayOutputStream(jsonBytes.size)
-                
-                // Create GZIPOutputStream with level 1 (fast) compression
-                val gzipOut = object : java.util.zip.GZIPOutputStream(byteOut) {
-                    init {
-                        def.setLevel(1)
-                    }
-                }
-                gzipOut.use { it.write(jsonBytes) }
-                
-                Pair(fileName, byteOut.toByteArray())
-            }
+            val (jsonFileName, compressedData) = compressKrillJson(textId, json)
 
             // Write to TAR (synchronized for thread safety)
             synchronized(krillTarOutputStream!!) {

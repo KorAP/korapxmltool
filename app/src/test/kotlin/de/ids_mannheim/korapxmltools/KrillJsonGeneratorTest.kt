@@ -1,5 +1,6 @@
 package de.ids_mannheim.korapxmltools
 
+import net.jpountz.lz4.LZ4FrameInputStream
 import org.junit.After
 import org.junit.AfterClass
 import org.junit.Before
@@ -659,6 +660,35 @@ class KrillJsonGeneratorTest {
         assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE48\""), "Should contain token 🙈 with --non-word-tokens")
         assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE49\""), "Should contain token 🙉 with --non-word-tokens")
         assertTrue(combinedJsonContent.contains("\"s:\uD83D\uDE4A\""), "Should contain token 🙊 with --non-word-tokens")
+    }
+
+    @Test
+    fun krillCanWriteLz4CompressedJson() {
+        val baseZip = loadResource("wud24_sample.zip").path
+        val generatedTar = ensureKrillTar("wud24_lz4", "wud24_sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "--lz4", "-D", outputDir.path, baseZip)
+        }
+        assertTrue(generatedTar.exists())
+
+        val extractDir = File.createTempFile("extract_lz4", "").let { it.delete(); it.mkdirs(); it }
+        try {
+            val tarProcess = ProcessBuilder("tar", "-xf", generatedTar.path, "-C", extractDir.path)
+                .redirectErrorStream(true)
+                .start()
+            assertTrue(tarProcess.waitFor() == 0, "Tar extraction should succeed for ${generatedTar.path}")
+
+            val jsonFiles = extractDir.listFiles()?.filter { it.name.endsWith(".json.lz4") }.orEmpty()
+            assertTrue(jsonFiles.isNotEmpty(), "Expected LZ4-compressed JSON files in ${generatedTar.path}")
+
+            jsonFiles.forEach { jsonFile ->
+                val jsonContent = LZ4FrameInputStream(jsonFile.inputStream()).bufferedReader().use { it.readText() }
+                assertTrue(jsonContent.contains("\"@context\""))
+                assertTrue(jsonContent.contains("\"@type\":\"koral:corpus\""))
+                assertTrue(jsonContent.contains("\"text\""))
+            }
+        } finally {
+            extractDir.deleteRecursively()
+        }
     }
 
     @Test
