@@ -404,6 +404,25 @@ object KrillJsonGenerator {
             return emptyList()
         }
         val result = mutableListOf<String>()
+        data class FoundryMorphoData(
+            val foundry: String,
+            val prefix: String?,
+            val morphoSpans: MutableMap<String, MorphoSpan>
+        )
+        val sortedFoundries = textData.morphoByFoundry.entries
+            .sortedBy { it.key }
+            .map { (foundry, morphoSpans) ->
+                FoundryMorphoData(
+                    foundry = foundry,
+                    prefix = when (foundry) {
+                        "tree_tagger" -> "tt"
+                        "marmot-malt" -> "marmot"
+                        "base" -> null
+                        else -> foundry
+                    },
+                    morphoSpans = morphoSpans
+                )
+            }
 
         // Build offset-to-index map for resolving dependency heads and structural spans
         val offsetToIndex = mutableMapOf<String, Int>()
@@ -413,26 +432,18 @@ object KrillJsonGenerator {
 
         // Collect inverse dependency relations and ROOT dependencies
         data class InverseDep(val dependentIndex: Int, val foundry: String, val deprel: String)
-        data class RootDep(val tokenIndex: Int, val foundry: String)
         val inverseDeps = mutableMapOf<Int, MutableList<InverseDep>>()
-        val rootTokens = mutableListOf<RootDep>()
 
         tokens.forEachIndexed { index, token ->
             val spanKey = "${token.from}-${token.to}"
-            textData.morphoByFoundry.keys.forEach { foundry ->
-                val morphoSpan = textData.morphoByFoundry[foundry]?.get(spanKey)
+            sortedFoundries.forEach { foundryData ->
+                val morphoSpan = foundryData.morphoSpans[spanKey]
                 if (morphoSpan != null && morphoSpan.head != null && morphoSpan.head != "_" && morphoSpan.deprel != null && morphoSpan.deprel != "_") {
                     val headStr = morphoSpan.head!!
-                    val prefix = when(foundry) {
-                        "tree_tagger" -> "tt"
-                        "marmot-malt" -> "marmot"
-                        else -> foundry
-                    }
+                    val prefix = foundryData.prefix ?: foundryData.foundry
 
                     // Check if this is a ROOT dependency (head == 0)
-                    if (headStr == "0" || (headStr.contains("-") && headStr.startsWith("0-"))) {
-                        rootTokens.add(RootDep(index, prefix))
-                    } else {
+                    if (!(headStr == "0" || (headStr.contains("-") && headStr.startsWith("0-")))) {
                         val resolvedHeadIndex = if (headStr.contains("-")) {
                             offsetToIndex[headStr]
                         } else {
@@ -483,39 +494,37 @@ object KrillJsonGenerator {
             ))
         }
 
-
-        // Build token-to-sentence map for ROOT edge generation
-        data class SentenceInfo(val from: Int, val to: Int, val tokenFrom: Int, val tokenTo: Int)
-        val tokenToSentence = mutableMapOf<Int, SentenceInfo>()
-
         // Add sentence spans (tokenTo is exclusive: first token after the span)
-        sentences.forEachIndexed { sentIdx, sentence ->
-            val sentTokens = tokens.filter { it.from >= sentence.from && it.to <= sentence.to }
-            if (sentTokens.isNotEmpty()) {
-                val firstTokenIdx = tokens.indexOf(sentTokens.first())
-                val lastTokenIdx = tokens.indexOf(sentTokens.last())
-                val sentInfo = SentenceInfo(
-                    from = sentTokens.first().from,
-                    to = sentTokens.last().to,
-                    tokenFrom = firstTokenIdx,
-                    tokenTo = lastTokenIdx + 1  // Exclusive end
-                )
+        var sentenceTokenCursor = 0
+        sentences.forEach { sentence ->
+            while (sentenceTokenCursor < tokens.size && tokens[sentenceTokenCursor].to <= sentence.from) {
+                sentenceTokenCursor++
+            }
 
-                // Map all tokens in this sentence to the sentence info
-                for (i in firstTokenIdx until sentInfo.tokenTo) {
-                    tokenToSentence[i] = sentInfo
+            var firstTokenIdx = -1
+            var lastTokenIdx = -1
+            var idx = sentenceTokenCursor
+            while (idx < tokens.size && tokens[idx].from < sentence.to) {
+                val token = tokens[idx]
+                if (token.from >= sentence.from && token.to <= sentence.to) {
+                    if (firstTokenIdx == -1) firstTokenIdx = idx
+                    lastTokenIdx = idx
                 }
+                idx++
+            }
 
+            if (firstTokenIdx != -1) {
                 baseStructureSpans.add(StructureSpan(
                     layer = "base/s:s",
-                    from = sentInfo.from,
-                    to = sentInfo.to,
-                    tokenFrom = sentInfo.tokenFrom,
-                    tokenTo = sentInfo.tokenTo,
+                    from = tokens[firstTokenIdx].from,
+                    to = tokens[lastTokenIdx].to,
+                    tokenFrom = firstTokenIdx,
+                    tokenTo = lastTokenIdx + 1,
                     depth = 2,
                     attributes = emptyMap()
                 ))
             }
+            sentenceTokenCursor = idx
         }
 
         // Combine base structure spans with dereko spans
@@ -528,9 +537,15 @@ object KrillJsonGenerator {
                 // Already resolved
                 span
             } else {
-                // Find first and last token covered by this span
-                var tokenFrom = tokens.indexOfFirst { it.from >= span.from && it.from < span.to }
-                var lastTokenIndex = tokens.indexOfLast { it.to > span.from && it.to <= span.to }
+                var tokenFrom = lowerBoundTokenFrom(tokens, span.from)
+                if (tokenFrom >= tokens.size || tokens[tokenFrom].from >= span.to) {
+                    tokenFrom = -1
+                }
+
+                var lastTokenIndex = upperBoundTokenTo(tokens, span.to) - 1
+                if (lastTokenIndex < 0 || tokens[lastTokenIndex].to <= span.from) {
+                    lastTokenIndex = -1
+                }
 
                 // Handle edge cases
                 if (tokenFrom == -1) tokenFrom = 0
@@ -553,6 +568,8 @@ object KrillJsonGenerator {
         resolvedStructureSpans.forEach { span ->
             spansByToken.getOrPut(span.tokenFrom) { mutableListOf() }.add(span)
         }
+        val spanComparator = compareByDescending<StructureSpan> { it.depth }.thenBy { it.layer }
+        spansByToken.values.forEach { spans -> spans.sortWith(spanComparator) }
 
         // Count paragraph spans (name="p") from original document structure only
         // Don't count the base/s:p wrapper we added programmatically
@@ -580,8 +597,8 @@ object KrillJsonGenerator {
                 tokenAnnotations.add(jsonString("-:tokens\$<i>${tokens.size}"))
 
                 // Add all structural spans that start at token 0 or cover the whole document
-                val spansAtZero = spansByToken[0] ?: emptyList()
-                spansAtZero.sortedWith(compareBy({ -it.depth }, { it.layer })).forEach { span ->
+                val spansAtZero = spansByToken[0].orEmpty()
+                spansAtZero.forEach { span ->
                     val spanAnnotation = if (span.attributes.isEmpty()) {
                         "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}"
                     } else {
@@ -603,7 +620,7 @@ object KrillJsonGenerator {
                 }
             } else {
                 // Add structural spans that start at this token
-                spansByToken[index]?.sortedWith(compareBy({ -it.depth }, { it.layer }))?.forEach { span ->
+                spansByToken[index]?.forEach { span ->
                     val spanAnnotation = if (span.attributes.isEmpty()) {
                         "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}"
                     } else {
@@ -649,16 +666,11 @@ object KrillJsonGenerator {
             }
 
             // Collect annotations from all foundries for this token
-            val sortedFoundries = textData.morphoByFoundry.keys.sorted()
-            sortedFoundries.forEach { foundry ->
-                val morphoSpan = textData.morphoByFoundry[foundry]?.get(spanKey)
+            sortedFoundries.forEach { foundryData ->
+                val foundry = foundryData.foundry
+                val morphoSpan = foundryData.morphoSpans[spanKey]
                 if (morphoSpan != null) {
-                    val prefix = when(foundry) {
-                        "tree_tagger" -> "tt"
-                        "marmot-malt" -> "marmot"
-                        "base" -> null  // Skip base for most annotations
-                        else -> foundry
-                    }
+                    val prefix = foundryData.prefix
 
                     if (prefix != null) {
                         // Morphological features (sorted)
@@ -779,6 +791,34 @@ object KrillJsonGenerator {
         }
 
         return result
+    }
+
+    private fun lowerBoundTokenFrom(tokens: List<Span>, target: Int): Int {
+        var low = 0
+        var high = tokens.size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (tokens[mid].from < target) {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    private fun upperBoundTokenTo(tokens: List<Span>, target: Int): Int {
+        var low = 0
+        var high = tokens.size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (tokens[mid].to <= target) {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
     }
 
     private fun shouldKeepTokenForKrill(text: NonBmpString, span: Span): Boolean {
