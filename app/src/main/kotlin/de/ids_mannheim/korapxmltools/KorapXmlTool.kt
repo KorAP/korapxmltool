@@ -1681,9 +1681,7 @@ class KorapXmlTool : Callable<Int> {
                     remainingRawKeys.forEach { textId ->
                         val textData = krillData[textId]
                         if (textData != null && !krillCompressedData.containsKey(textId)) {
-                            compressionExecutor!!.submit {
-                                compressKrillText(textId, textData)
-                            }
+                            enqueueKrillCompression(textId, textData)
                         }
                     }
                     
@@ -1693,10 +1691,18 @@ class KorapXmlTool : Callable<Int> {
                         var waitTime = 0L
                         while (!compressionExecutor!!.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
                             waitTime += 5
-                            val pending = remainingKeys.size - krillCompressedData.size
+                            val pending = remainingRawKeys.count { !krillCompressedData.containsKey(it) }
                             LOGGER.info("Compressing remaining texts... ($pending left, ${waitTime}s elapsed)")
                         }
-                        LOGGER.info("All remaining texts compressed")
+                        val missingCompressed = remainingRawKeys.filterNot { krillCompressedData.containsKey(it) }
+                        if (missingCompressed.isEmpty()) {
+                            LOGGER.info("All remaining texts compressed")
+                        } else {
+                            LOGGER.warning(
+                                "Parallel compression finished with ${missingCompressed.size} texts still missing from cache: " +
+                                    missingCompressed.joinToString(",")
+                            )
+                        }
                     } catch (e: InterruptedException) {
                         LOGGER.warning("Interrupted while compressing remaining texts")
                         Thread.currentThread().interrupt()
@@ -1733,14 +1739,15 @@ class KorapXmlTool : Callable<Int> {
                                 krillTarOutputStream!!.closeArchiveEntry()
                             }
                             krillOutputCount.incrementAndGet()
+                            noteKrillOutputProgress()
                             incrementalProgressBar?.step()
                         } catch (e: Exception) {
                             LOGGER.severe("ERROR writing $textId to TAR: ${e.message}")
                             e.printStackTrace()
                         }
                     } else if (textData != null) {
-                        // Fallback: compress inline if not in compressed cache (shouldn't happen)
-                        LOGGER.warning("Text $textId not in compressed cache, compressing inline")
+                        // Fallback: retry inline if parallel compression failed to populate the cache.
+                        LOGGER.warning("Text $textId not in compressed cache after parallel compression, compressing inline")
                         val textFoundries = textData.morphoByFoundry.keys.toSet() + setOf("base")
                         val expectedForThisText = zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
                             .flatMap { zipPath ->
@@ -5537,56 +5544,12 @@ class KorapXmlTool : Callable<Int> {
     // Compress text data in parallel, then write to TAR sequentially
     private fun compressKrillText(textId: String, textData: KrillJsonGenerator.KrillTextData) {
         try {
-            val json = synchronized(textData) {
+            val (jsonFileName, compressedData) = synchronized(textData) {
                 // Synchronize access to textData to prevent ConcurrentModificationException
-                // during JSON generation while other threads might still be modifying it
-                val corpusSigle = textId.substringBefore('_')
-                val docSigle = textId.substringBeforeLast('.')
-
-                // Apply corpus-level metadata (only if not already set with a non-empty value)
-                corpusMetadata[corpusSigle]?.forEach { (key, value) ->
-                    val currentValue = textData.headerMetadata[key]
-                    // Inherit if: key doesn't exist, OR current value is empty/blank
-                    val shouldInherit = when (currentValue) {
-                        null -> true
-                        is String -> currentValue.isBlank()
-                        else -> false
-                    }
-                    if (shouldInherit && value != null) {
-                        // Only set non-empty values
-                        when (value) {
-                            is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
-                            is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                            is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                            else -> textData.headerMetadata[key] = value
-                        }
-                    }
-                }
-
-                // Apply doc-level metadata (only if not already set with a non-empty value)
-                docMetadata[docSigle]?.forEach { (key, value) ->
-                    val currentValue = textData.headerMetadata[key]
-                    // Inherit if: key doesn't exist, OR current value is empty/blank
-                    val shouldInherit = when (currentValue) {
-                        null -> true
-                        is String -> currentValue.isBlank()
-                        else -> false
-                    }
-                    if (shouldInherit) {
-                        // Only set non-empty values
-                        when (value) {
-                            is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
-                            is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                            is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                            else -> textData.headerMetadata[key] = value
-                        }
-                    }
-                }
-
-                KrillJsonGenerator.generate(textData, corpusMetadata, docMetadata, includeNonWordTokens)
+                // during JSON generation while other threads might still be modifying it.
+                applyInheritedKrillMetadata(textId, textData)
+                compressKrillJson(textId, textData)
             }
-            
-            val (jsonFileName, compressedData) = compressKrillJson(textId, json)
 
             // Store compressed data for sequential TAR writing
             krillCompressedData[textId] = CompressedKrillData(textId, jsonFileName, compressedData)
@@ -5605,6 +5568,45 @@ class KorapXmlTool : Callable<Int> {
         } finally {
             krillCompressionFutures.remove(textId)
             krillCompressionStartNanos.remove(textId)
+        }
+    }
+
+    private fun applyInheritedKrillMetadata(textId: String, textData: KrillJsonGenerator.KrillTextData) {
+        val corpusSigle = textId.substringBefore('_')
+        val docSigle = textId.substringBeforeLast('.')
+
+        corpusMetadata[corpusSigle]?.forEach { (key, value) ->
+            val currentValue = textData.headerMetadata[key]
+            val shouldInherit = when (currentValue) {
+                null -> true
+                is String -> currentValue.isBlank()
+                else -> false
+            }
+            if (shouldInherit && value != null) {
+                when (value) {
+                    is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
+                    is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                    is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                    else -> textData.headerMetadata[key] = value
+                }
+            }
+        }
+
+        docMetadata[docSigle]?.forEach { (key, value) ->
+            val currentValue = textData.headerMetadata[key]
+            val shouldInherit = when (currentValue) {
+                null -> true
+                is String -> currentValue.isBlank()
+                else -> false
+            }
+            if (shouldInherit && value != null) {
+                when (value) {
+                    is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
+                    is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                    is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
+                    else -> textData.headerMetadata[key] = value
+                }
+            }
         }
     }
 
@@ -5632,13 +5634,16 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
-    private fun compressKrillJson(textId: String, json: String): Pair<String, ByteArray> {
+    private fun compressKrillJson(
+        textId: String,
+        textData: KrillJsonGenerator.KrillTextData
+    ): Pair<String, ByteArray> {
         return if (useLz4) {
             val fileName = textId.replace("_", "-").replace(".", "-") + ".json.lz4"
             val byteOut = ByteArrayOutputStream()
             net.jpountz.lz4.LZ4FrameOutputStream(byteOut).use { lz4Out ->
                 OutputStreamWriter(lz4Out, StandardCharsets.UTF_8).use { writer ->
-                    writer.write(json)
+                    KrillJsonGenerator.generateTo(writer, textData, corpusMetadata, docMetadata, includeNonWordTokens)
                 }
             }
             Pair(fileName, byteOut.toByteArray())
@@ -5652,7 +5657,7 @@ class KorapXmlTool : Callable<Int> {
             }
             gzipOut.use { gzip ->
                 OutputStreamWriter(gzip, StandardCharsets.UTF_8).use { writer ->
-                    writer.write(json)
+                    KrillJsonGenerator.generateTo(writer, textData, corpusMetadata, docMetadata, includeNonWordTokens)
                 }
             }
             Pair(fileName, byteOut.toByteArray())
@@ -5919,28 +5924,10 @@ class KorapXmlTool : Callable<Int> {
     // Output a single text to Krill TAR (thread-safe)
     private fun outputKrillText(textId: String, textData: KrillJsonGenerator.KrillTextData) {
         try {
-            // Merge corpus and doc metadata
-            val textIdWithSlashes = textData.textId.replace("_", "/").replace(".", "/")
-            val corpusSigle = textIdWithSlashes.split("/")[0]
-            val docSigle = textIdWithSlashes.split("/").take(2).joinToString("/")
-
-            // Apply corpus-level metadata
-            corpusMetadata[corpusSigle]?.forEach { (key, value) ->
-                if (!textData.headerMetadata.containsKey(key)) {
-                    textData.headerMetadata[key] = value
-                }
+            val (jsonFileName, compressedData) = synchronized(textData) {
+                applyInheritedKrillMetadata(textId, textData)
+                compressKrillJson(textId, textData)
             }
-
-            // Apply doc-level metadata
-            docMetadata[docSigle]?.forEach { (key, value) ->
-                if (!textData.headerMetadata.containsKey(key)) {
-                    textData.headerMetadata[key] = value
-                }
-            }
-
-            val json = KrillJsonGenerator.generate(textData, corpusMetadata, docMetadata, includeNonWordTokens)
-            
-            val (jsonFileName, compressedData) = compressKrillJson(textId, json)
 
             // Write to TAR (synchronized for thread safety)
             synchronized(krillTarOutputStream!!) {

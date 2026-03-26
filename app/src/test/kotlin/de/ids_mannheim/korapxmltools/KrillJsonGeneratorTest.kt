@@ -1,5 +1,6 @@
 package de.ids_mannheim.korapxmltools
 
+import de.ids_mannheim.korapxmltools.formatters.KrillJsonGenerator
 import net.jpountz.lz4.LZ4FrameInputStream
 import org.junit.After
 import org.junit.AfterClass
@@ -689,6 +690,50 @@ class KrillJsonGeneratorTest {
         } finally {
             extractDir.deleteRecursively()
         }
+    }
+
+    @Test
+    fun krillGenerateToMatchesGenerate() {
+        val textData = KrillJsonGenerator.KrillTextData(
+            textId = "TEST_DOC.1",
+            textContent = NonBmpString("Alpha beta."),
+            headerMetadata = mutableMapOf("title" to "Synthetic test")
+        ).apply {
+            tokens = arrayOf(
+                KorapXmlTool.Span(0, 5),
+                KorapXmlTool.Span(6, 10),
+                KorapXmlTool.Span(10, 11)
+            )
+            sentences = arrayOf(KorapXmlTool.Span(0, 11))
+            morphoByFoundry["spacy"] = mutableMapOf(
+                "0-5" to KorapXmlTool.MorphoSpan(lemma = "Alpha", upos = "PROPN", xpos = "NE"),
+                "6-10" to KorapXmlTool.MorphoSpan(lemma = "beta", upos = "NOUN", xpos = "NN")
+            )
+            structureSpans.add(
+                KrillJsonGenerator.StructureSpan(
+                    layer = "dereko/s:p",
+                    from = 0,
+                    to = 11,
+                    tokenFrom = 0,
+                    tokenTo = 3,
+                    depth = 1
+                )
+            )
+        }
+
+        val corpusMetadata = mutableMapOf<String, MutableMap<String, Any>>(
+            "TEST" to mutableMapOf("publisher" to "Publisher")
+        )
+        val docMetadata = mutableMapOf<String, MutableMap<String, Any>>(
+            "TEST_DOC" to mutableMapOf("docTitle" to "Doc title")
+        )
+
+        val generated = KrillJsonGenerator.generate(textData, corpusMetadata, docMetadata, includeNonWordTokens = true)
+        val streamed = buildString {
+            KrillJsonGenerator.generateTo(this, textData, corpusMetadata, docMetadata, includeNonWordTokens = true)
+        }
+
+        assertEquals(generated, streamed)
     }
 
     @Test

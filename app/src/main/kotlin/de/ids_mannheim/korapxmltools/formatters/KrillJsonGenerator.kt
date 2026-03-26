@@ -60,6 +60,18 @@ object KrillJsonGenerator {
         includeNonWordTokens: Boolean
     ): String {
         val sb = StringBuilder()
+        generateTo(sb, textData, corpusMetadata, docMetadata, includeNonWordTokens)
+        return sb.toString()
+    }
+
+    fun generateTo(
+        out: Appendable,
+        textData: KrillTextData,
+        corpusMetadata: Map<String, MutableMap<String, Any>>,
+        docMetadata: Map<String, MutableMap<String, Any>>,
+        includeNonWordTokens: Boolean
+    ) {
+        val sb = StringBuilder()
         sb.append("{")
 
         // @context, @type, and version
@@ -378,20 +390,37 @@ object KrillJsonGenerator {
 
         // stream - token-level annotations
         sb.append("\"stream\":[")
-        if (textData.tokens != null) {
-            val streamItems = generateStream(textData, includeNonWordTokens)
-            sb.append(streamItems.joinToString(","))
-        }
-        sb.append("]")
+        out.append(sb.toString())
+        appendStream(out, textData, includeNonWordTokens)
+        out.append("]")
 
-        sb.append("}")  // close data
-        sb.append("}")  // close root
-
-        return sb.toString()
+        out.append("}")  // close data
+        out.append("}")  // close root
     }
 
     private fun generateStream(textData: KrillTextData, includeNonWordTokens: Boolean): List<String> {
-        val rawTokens = textData.tokens ?: return emptyList()
+        val result = mutableListOf<String>()
+        forEachStreamItem(textData, includeNonWordTokens) { result.add(it) }
+        return result
+    }
+
+    private fun appendStream(out: Appendable, textData: KrillTextData, includeNonWordTokens: Boolean) {
+        var first = true
+        forEachStreamItem(textData, includeNonWordTokens) { item ->
+            if (!first) {
+                out.append(",")
+            }
+            out.append(item)
+            first = false
+        }
+    }
+
+    private fun forEachStreamItem(
+        textData: KrillTextData,
+        includeNonWordTokens: Boolean,
+        emit: (String) -> Unit
+    ) {
+        val rawTokens = textData.tokens ?: return
         val text = textData.textContent ?: NonBmpString("")
         val sentences = textData.sentences ?: emptyArray()
         val tokens: List<Span> = if (includeNonWordTokens || text.length == 0) {
@@ -401,9 +430,8 @@ object KrillJsonGenerator {
         }
         if (tokens.isEmpty()) {
             LOGGER.fine("No tokens remained for ${textData.textId} after filtering non-word tokens")
-            return emptyList()
+            return
         }
-        val result = mutableListOf<String>()
         data class FoundryMorphoData(
             val foundry: String,
             val prefix: String?,
@@ -787,10 +815,8 @@ object KrillJsonGenerator {
             // Surface form (always last)
             tokenAnnotations.add(jsonString("s:${surfaceForm.escapeKrillValue()}"))
 
-            result.add(jsonArray(tokenAnnotations))
+            emit(jsonArray(tokenAnnotations))
         }
-
-        return result
     }
 
     private fun lowerBoundTokenFrom(tokens: List<Span>, target: Int): Int {
