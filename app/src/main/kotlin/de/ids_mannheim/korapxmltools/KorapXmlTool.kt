@@ -5241,16 +5241,16 @@ class KorapXmlTool : Callable<Int> {
 
         synchronized(textData) {
             // Capture values locally to avoid TOCTOU race conditions
-            // If text content is missing but we have tokens, try to reconstruct it or warn
-            if (textData.textContent == null) {
-                LOGGER.warning("Text content missing for $docId, but tokens present. Krill output may be incomplete.")
-                textData.textContent = de.ids_mannheim.korapxmltools.NonBmpString("")
-            }
             val text = texts[docId]
             if (text != null) {
                 textData.textContent = text
             }
             val tokenArray = tokens[docId]
+            // Only log if the base text is actually unavailable after checking the source map.
+            if (textData.textContent == null && tokenArray != null) {
+                LOGGER.info("Text content missing for $docId, but tokens present. Krill output may be incomplete.")
+                textData.textContent = de.ids_mannheim.korapxmltools.NonBmpString("")
+            }
             if (tokenArray != null) {
                 textData.tokens = tokenArray
             }
