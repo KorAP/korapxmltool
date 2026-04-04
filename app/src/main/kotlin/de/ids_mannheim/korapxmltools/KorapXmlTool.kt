@@ -316,6 +316,15 @@ class KorapXmlTool : Callable<Int> {
     )
     var lemmaOnly: Boolean = false
 
+    @Option(
+        names = ["--stax-text"],
+        description = [
+            "Parse data.xml text content with StAX instead of DOM.",
+            "Default is DOM; this is mainly useful for benchmarking or corpora with many short texts."
+        ]
+    )
+    var useStaxTextParser: Boolean = false
+
     private var taggerName: String? = null
     private var taggerModel: String? = null
     private var dockerLogMessage: String? = null
@@ -696,6 +705,7 @@ class KorapXmlTool : Callable<Int> {
         if (overwrite)            sb.appendLine("  --force")
         if (useLemma)             sb.appendLine("  --lemma")
         if (lemmaOnly)            sb.appendLine("  --lemma-only")
+        if (useStaxTextParser)    sb.appendLine("  --stax-text")
         if (useLz4)               sb.appendLine("  --lz4")
         if (includeNonWordTokens) sb.appendLine("  --non-word-tokens")
         if (sequentialInZip)      sb.appendLine("  --sequential")
@@ -967,6 +977,14 @@ class KorapXmlTool : Callable<Int> {
             annotationWorkerPool == null &&
             taggerName == null &&
             parserName == null
+
+    internal fun canUseStaxTextParsing(): Boolean =
+        outputFormat == OutputFormat.CONLLU ||
+            outputFormat == OutputFormat.WORD2VEC ||
+            outputFormat == OutputFormat.NOW
+
+    internal fun shouldParseDataXmlWithStax(): Boolean =
+        useStaxTextParser && canUseStaxTextParsing()
 
     internal fun registerZipProgress(zipPath: String, size: Long) {
         zipSizes[zipPath] = size
@@ -1334,7 +1352,8 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.info("Initialized work-stealing scheduler with $maxThreads worker threads for Krill output")
         } else if (canStreamNowEntriesImmediately()) {
             entryExecutor = null
-            LOGGER.info("Initialized NOW streaming mode: archive-order entries, no text-ID scheduling")
+            val textParserMode = if (shouldParseDataXmlWithStax()) "StAX" else "DOM"
+            LOGGER.info("Initialized NOW streaming mode: archive-order entries, no text-ID scheduling, data.xml via $textParserMode")
         } else {
             // For other formats, use priority-based executor
             entryExecutor = java.util.concurrent.ThreadPoolExecutor(
@@ -2825,10 +2844,11 @@ class KorapXmlTool : Callable<Int> {
                  val needsDom = isStructure && (extractAttributesRegex.isNotEmpty() || outputFormat == OutputFormat.KRILL)
                  val isConstituency = zipEntry.name.endsWith("constituency.xml")
                  val isData = zipEntry.name.endsWith("data.xml")
+                 val useStaxForData = isData && shouldParseDataXmlWithStax()
                  
                  // Use DOM for data.xml (large text content) and structure/constituency (complex parsing)
                  // Use StAX for annotation files (morpho, dependency, tokens, sentences) for better performance
-                 if (!needsDom && !isConstituency && !isData) {
+                 if (!needsDom && !isConstituency && (!isData || useStaxForData)) {
                      processXmlEntryStax(zipFile, zipPath, zipEntry, foundry, waitForMorpho)
                      return
                  }
@@ -4075,12 +4095,15 @@ class KorapXmlTool : Callable<Int> {
 
     private fun extractTextStax(reader: XMLStreamReader): String? {
         val textBuilder = StringBuilder()
+        var insideText = false
         while (reader.hasNext()) {
             val event = reader.next()
-            if (event == XMLStreamConstants.CHARACTERS) {
+            if ((event == XMLStreamConstants.CHARACTERS || event == XMLStreamConstants.CDATA) && insideText) {
                 textBuilder.append(reader.text)
-            } else if (event == XMLStreamConstants.END_ELEMENT && reader.localName == "raw_text") {
-                break
+            } else if (event == XMLStreamConstants.START_ELEMENT && reader.localName == "text") {
+                insideText = true
+            } else if (event == XMLStreamConstants.END_ELEMENT && reader.localName == "text") {
+                return if (textBuilder.isNotEmpty()) textBuilder.toString() else ""
             }
         }
         return if (textBuilder.isNotEmpty()) textBuilder.toString() else null

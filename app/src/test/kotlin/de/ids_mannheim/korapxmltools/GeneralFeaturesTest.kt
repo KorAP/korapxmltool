@@ -142,6 +142,10 @@ class GeneralFeaturesTest {
         tool.outputFormat = OutputFormat.NOW
 
         assertTrue(tool.canStreamNowEntriesImmediately())
+        assertTrue(tool.canUseStaxTextParsing())
+        assertTrue(!tool.shouldParseDataXmlWithStax())
+        tool.useStaxTextParser = true
+        assertTrue(tool.shouldParseDataXmlWithStax())
     }
 
     @Test
@@ -150,6 +154,17 @@ class GeneralFeaturesTest {
         tool.outputFormat = OutputFormat.CONLLU
 
         assertTrue(!tool.canStreamNowEntriesImmediately())
+        assertTrue(tool.canUseStaxTextParsing())
+    }
+
+    @Test
+    fun zipOutputKeepsDomParsingForDataXml() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.KORAP_XML
+
+        tool.useStaxTextParser = true
+        assertTrue(!tool.canUseStaxTextParsing())
+        assertTrue(!tool.shouldParseDataXmlWithStax())
     }
 
     @Test
