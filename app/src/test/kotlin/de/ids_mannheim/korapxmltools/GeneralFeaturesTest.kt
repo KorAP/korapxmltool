@@ -118,6 +118,24 @@ class GeneralFeaturesTest {
         )
     }
 
+    @Test
+    fun nowFileOutputUsesSizeBasedProgress() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.NOW
+        tool.outputFile = "test.now"
+
+        assertTrue(tool.usesSizeBasedTextProgress())
+    }
+
+    @Test
+    fun stdoutNowOutputDoesNotUseSizeBasedProgress() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.NOW
+        tool.outputFile = null
+
+        assertTrue(!tool.usesSizeBasedTextProgress())
+    }
+
     private fun KorapXmlTool.compareTextIds(a: String, b: String): Int {
         val m = KorapXmlTool::class.java.getDeclaredMethod("compareTextIds", String::class.java, String::class.java)
         m.isAccessible = true

@@ -957,16 +957,22 @@ class KorapXmlTool : Callable<Int> {
     private val LOGGER: Logger = Logger.getLogger(KorapXmlTool::class.java.name)
 
     // Helper function to write output to file or stdout
-    private fun writeOutput(content: String) {
+    internal fun usesSizeBasedTextProgress(): Boolean =
+        outputFile != null && (outputFormat == OutputFormat.CONLLU ||
+            outputFormat == OutputFormat.WORD2VEC ||
+            outputFormat == OutputFormat.NOW)
+
+    private fun writeOutput(content: CharSequence) {
         if (textOutputWriter != null) {
-            textOutputWriter!!.write(content)
+            textOutputWriter!!.append(content)
             textOutputWriter!!.newLine()  // Add newline to match println() behavior
         } else {
-            println(content)
+            System.out.append(content).append('\n')
         }
     }
 
     private var annotationWorkerPool : AnnotationWorkerPool? = null
+    private val textOutputLock = Any()
 
     // Track the next text ID (watermark) each foundry needs to process for priority scheduling
     // The foundry with the lexicographically smallest next text ID gets priority
@@ -1518,9 +1524,7 @@ class KorapXmlTool : Callable<Int> {
 
         // For text output formats with file output, initialize progress bar based on total zip size
         // This avoids the overhead of pre-scanning all zips to count documents
-        if (outputFile != null && !quiet && (outputFormat == OutputFormat.CONLLU || 
-                                              outputFormat == OutputFormat.WORD2VEC || 
-                                              outputFormat == OutputFormat.NOW)) {
+        if (!quiet && usesSizeBasedTextProgress()) {
             val totalBytes = zipSizes.values.sum()
             if (totalBytes > 0) {
                 val taskName = when (outputFormat) {
@@ -2396,10 +2400,7 @@ class KorapXmlTool : Callable<Int> {
             )
             
             // Update progress bar for text output formats (size-based progress in MB)
-            if (!quiet && progressBar != null && 
-                (outputFormat == OutputFormat.CONLLU || 
-                 outputFormat == OutputFormat.WORD2VEC || 
-                 outputFormat == OutputFormat.NOW)) {
+            if (!quiet && progressBar != null && usesSizeBasedTextProgress()) {
                 val doneMB = done / (1024.0 * 1024.0)
                 progressBar?.stepTo((doneMB * 100).toLong())  // Multiply by 100 to match initialization
             }
@@ -3257,8 +3258,8 @@ class KorapXmlTool : Callable<Int> {
             // Release internal char[] early
             output.setLength(0)
         } else if (outputFormat != OutputFormat.KORAP_XML) {
-            synchronized(System.out) {
-                writeOutput(output.toString())
+            synchronized(textOutputLock) {
+                writeOutput(output)
             }
             // Note: For text output formats, progress is now tracked by zip size in logZipProgress,
             // not by individual documents, so we don't step the progress bar here
@@ -3391,7 +3392,9 @@ class KorapXmlTool : Callable<Int> {
         }
 
         // Non-ZIP outputs (-t without -f zip): still advance the bar per processed document
-        if (annotationWorkerPool == null && outputFormat != OutputFormat.KORAP_XML) {
+        if (annotationWorkerPool == null &&
+            outputFormat != OutputFormat.KORAP_XML &&
+            !usesSizeBasedTextProgress()) {
             if (!quiet) progressBar?.step()
         }
 
