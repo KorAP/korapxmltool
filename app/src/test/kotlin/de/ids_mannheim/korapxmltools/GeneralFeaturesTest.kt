@@ -136,6 +136,34 @@ class GeneralFeaturesTest {
         assertTrue(!tool.usesSizeBasedTextProgress())
     }
 
+    @Test
+    fun plainNowOutputCanStreamWithoutSorting() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.NOW
+
+        assertTrue(tool.canStreamNowEntriesImmediately())
+    }
+
+    @Test
+    fun nonNowOutputKeepsOrderedPipeline() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.CONLLU
+
+        assertTrue(!tool.canStreamNowEntriesImmediately())
+    }
+
+    @Test
+    fun zipProgressTrackingClampsAtRegisteredZipSize() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.NOW
+        tool.outputFile = "test.now"
+        tool.registerZipProgress("sample.zip", 100L)
+
+        assertEquals(40L, tool.trackZipProgressBytes("sample.zip", 40L))
+        assertEquals(100L, tool.trackZipProgressBytes("sample.zip", 80L))
+        assertEquals(100L, tool.trackZipProgressBytes("sample.zip", 10L))
+    }
+
     private fun KorapXmlTool.compareTextIds(a: String, b: String): Int {
         val m = KorapXmlTool::class.java.getDeclaredMethod("compareTextIds", String::class.java, String::class.java)
         m.isAccessible = true
