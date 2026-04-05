@@ -10,13 +10,17 @@ import kotlin.test.assertTrue
 class SparseAnnotationExternalTest {
 
     private fun extractFileFromZip(zipFile: File, regex: Regex): String? {
-        val zip = org.apache.commons.compress.archivers.zip.ZipFile(zipFile)
-        val entry = zip.entries.asSequence().firstOrNull { regex.matches(it.name) }
-        return if (entry != null) {
-            zip.getInputStream(entry).bufferedReader().use { it.readText() }
-        } else {
-            null
-        }
+        return org.apache.commons.compress.archivers.zip.ZipFile.builder()
+            .setFile(zipFile)
+            .get()
+            .use { zip ->
+                val entry = zip.entries.asSequence().firstOrNull { regex.matches(it.name) }
+                if (entry != null) {
+                    zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                } else {
+                    null
+                }
+            }
     }
 
     @Test
@@ -66,7 +70,7 @@ class SparseAnnotationExternalTest {
             // Verify that the annotation is on the correct span (32-34)
             // Note: Attribute order is not guaranteed, so check for attributes individually
             assertTrue(
-                morphoXml!!.contains("""from="32"""") && morphoXml.contains("""to="34""""),
+                morphoXml.contains("""from="32"""") && morphoXml.contains("""to="34""""),
                 "Annotation should be on span 32-34 (ID 7), but morpho.xml content was:\n$morphoXml"
             )
             

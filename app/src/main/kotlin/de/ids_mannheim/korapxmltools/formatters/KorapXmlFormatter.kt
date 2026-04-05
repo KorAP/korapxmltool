@@ -159,7 +159,7 @@ object KorapXmlFormatter : OutputFormatter {
         val sortedKeys = context.morpho?.keys?.sortedBy { it.split("-")[0].toInt() }
 
         sortedKeys?.forEach { spanString ->
-            val mfs = context.morpho?.get(spanString)
+            val mfs = context.morpho[spanString]
             val offsets = spanString.split("-")
             if(offsets.size != 2) {
                 LOGGER.warning("Invalid span: $spanString in ${context.docId}")

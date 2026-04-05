@@ -1648,7 +1648,7 @@ class KorapXmlTool : Callable<Int> {
         } else {
             LOGGER.info("Processing zip files sequentially")
             Arrays.stream(zips).forEachOrdered { zipFilePath ->
-                processZipFileSequentially((zipFilePath ?: "").toString(), getFoundryFromZipFileNames(zips))
+                processZipFileSequentially(zipFilePath, getFoundryFromZipFileNames(zips))
             }
         }
 
@@ -3405,7 +3405,7 @@ class KorapXmlTool : Callable<Int> {
             }
             
             if (outputFormat == OutputFormat.KRILL) {
-                processedTextsPerZip.getOrPut(zipPath.toString()) { mutableSetOf() }.add(docId)
+                processedTextsPerZip.getOrPut(zipPath) { mutableSetOf() }.add(docId)
             }
             
             val effectiveWaitForMorpho = if (fileName == "morpho.xml") true else waitForMorpho
@@ -4485,7 +4485,7 @@ class KorapXmlTool : Callable<Int> {
                 XMLStreamConstants.END_ELEMENT -> {
                     if (reader.localName == "span") {
                         if (isSentence && currentFrom != null && currentTo != null) {
-                            list.add(Span(currentFrom!!, currentTo!!))
+                            list.add(Span(currentFrom, currentTo))
                         }
                         currentFrom = null
                         currentTo = null
@@ -4594,7 +4594,7 @@ class KorapXmlTool : Callable<Int> {
                 line.isEmpty() -> {
                     // Sentence boundary: record the sentence span if available
                     if (sentenceStartOffset != null && sentenceEndOffset != null) {
-                        sentenceSpans.add(Span(sentenceStartOffset!!, sentenceEndOffset!!))
+                        sentenceSpans.add(Span(sentenceStartOffset, sentenceEndOffset))
                     }
                     sentenceStartOffset = null
                     sentenceEndOffset = null
@@ -4639,7 +4639,7 @@ class KorapXmlTool : Callable<Int> {
 
         // If last sentence did not end with an empty line, capture it now
         if (sentenceStartOffset != null && sentenceEndOffset != null) {
-            sentenceSpans.add(Span(sentenceStartOffset!!, sentenceEndOffset!!))
+            sentenceSpans.add(Span(sentenceStartOffset, sentenceEndOffset))
         }
 
         if (morphoSpans.isEmpty()) {
@@ -4839,7 +4839,7 @@ class KorapXmlTool : Callable<Int> {
 
         // Add final document
         if (currentTextId != null && currentFoundry != null && currentLines.isNotEmpty()) {
-            documents.add(ConlluDocument(currentTextId!!, currentFoundry!!, currentLines.toList()))
+            documents.add(ConlluDocument(currentTextId, currentFoundry, currentLines.toList()))
         }
 
         if (documents.isEmpty()) {
@@ -4899,7 +4899,7 @@ class KorapXmlTool : Callable<Int> {
                         line.isEmpty() -> {
                             // Sentence boundary
                             if (sentenceStartOffset != null && sentenceEndOffset != null) {
-                                sentenceSpans.add(Span(sentenceStartOffset!!, sentenceEndOffset!!))
+                                sentenceSpans.add(Span(sentenceStartOffset, sentenceEndOffset))
                             }
                             sentenceStartOffset = null
                             sentenceEndOffset = null
@@ -4957,7 +4957,7 @@ class KorapXmlTool : Callable<Int> {
 
                 // Capture final sentence if not ended with empty line
                 if (sentenceStartOffset != null && sentenceEndOffset != null) {
-                    sentenceSpans.add(Span(sentenceStartOffset!!, sentenceEndOffset!!))
+                    sentenceSpans.add(Span(sentenceStartOffset, sentenceEndOffset))
                 }
 
                 if (morphoSpans.isEmpty()) {
@@ -5449,7 +5449,7 @@ class KorapXmlTool : Callable<Int> {
                 }
             }
             if (year != null && month != null && day != null) {
-                metadata["pubDate"] = "${year}-${month!!.padStart(2, '0')}-${day!!.padStart(2, '0')}"
+                metadata["pubDate"] = "${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}"
             }
 
             headerRoot.firstElement("ref") { it.getAttribute("type") == "page_url" }
@@ -5867,7 +5867,7 @@ class KorapXmlTool : Callable<Int> {
                 is String -> currentValue.isBlank()
                 else -> false
             }
-            if (shouldInherit && value != null) {
+            if (shouldInherit) {
                 when (value) {
                     is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
                     is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
@@ -5884,7 +5884,7 @@ class KorapXmlTool : Callable<Int> {
                 is String -> currentValue.isBlank()
                 else -> false
             }
-            if (shouldInherit && value != null) {
+            if (shouldInherit) {
                 when (value) {
                     is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
                     is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value

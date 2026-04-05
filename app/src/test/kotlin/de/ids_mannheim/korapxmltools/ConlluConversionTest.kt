@@ -402,7 +402,7 @@ class ConlluConversionTest {
         val filenameLine = lines.find { it.startsWith("# filename = ") }
         assertNotNull(filenameLine, "Should have filename comment line")
         assertTrue(
-            filenameLine!!.contains("/spacy/morpho.xml"),
+            filenameLine.contains("/spacy/morpho.xml"),
             "Filename should point to spacy/morpho.xml, but was: $filenameLine"
         )
         assertFalse(

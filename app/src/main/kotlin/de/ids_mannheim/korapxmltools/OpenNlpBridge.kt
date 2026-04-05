@@ -21,7 +21,7 @@ class OpenNlpBridge(override val model: String, override val logger: Logger) : T
         synchronized(model) {
             if (POSmodel == null) {
                 logger.info("Initializing OpenNLP with model $model")
-                POSmodel = POSModel(File(model as String).inputStream())
+                POSmodel = POSModel(File(model).inputStream())
                 logger.info("Model $model loaded")
             }
         }
