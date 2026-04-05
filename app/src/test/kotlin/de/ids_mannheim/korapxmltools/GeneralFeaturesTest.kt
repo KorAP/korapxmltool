@@ -137,11 +137,11 @@ class GeneralFeaturesTest {
     }
 
     @Test
-    fun plainNowOutputCanStreamWithoutSorting() {
+    fun plainNowOutputCanUseArchiveOrderStreaming() {
         val tool = KorapXmlTool()
         tool.outputFormat = OutputFormat.NOW
 
-        assertTrue(tool.canStreamNowEntriesImmediately())
+        assertTrue(tool.canUseArchiveOrderTextStreaming())
         assertTrue(tool.canUseStaxTextParsing())
         assertTrue(!tool.shouldParseDataXmlWithStax())
         tool.useStaxTextParser = true
@@ -149,11 +149,20 @@ class GeneralFeaturesTest {
     }
 
     @Test
-    fun nonNowOutputKeepsOrderedPipeline() {
+    fun plainWord2VecOutputCanUseArchiveOrderStreaming() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.WORD2VEC
+
+        assertTrue(tool.canUseArchiveOrderTextStreaming())
+        assertTrue(tool.canUseStaxTextParsing())
+    }
+
+    @Test
+    fun conlluOutputKeepsOrderedPipeline() {
         val tool = KorapXmlTool()
         tool.outputFormat = OutputFormat.CONLLU
 
-        assertTrue(!tool.canStreamNowEntriesImmediately())
+        assertTrue(!tool.canUseArchiveOrderTextStreaming())
         assertTrue(tool.canUseStaxTextParsing())
     }
 

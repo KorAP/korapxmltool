@@ -972,11 +972,18 @@ class KorapXmlTool : Callable<Int> {
             outputFormat == OutputFormat.WORD2VEC ||
             outputFormat == OutputFormat.NOW)
 
-    internal fun canStreamNowEntriesImmediately(): Boolean =
-        outputFormat == OutputFormat.NOW &&
+    internal fun canUseArchiveOrderTextStreaming(): Boolean =
+        (outputFormat == OutputFormat.NOW || outputFormat == OutputFormat.WORD2VEC) &&
             annotationWorkerPool == null &&
             taggerName == null &&
             parserName == null
+
+    private fun textStreamingModeLabel(): String =
+        when (outputFormat) {
+            OutputFormat.NOW -> "NOW"
+            OutputFormat.WORD2VEC -> "Word2Vec"
+            else -> outputFormat.name
+        }
 
     internal fun canUseStaxTextParsing(): Boolean =
         outputFormat == OutputFormat.CONLLU ||
@@ -1353,13 +1360,13 @@ class KorapXmlTool : Callable<Int> {
                 Thread(r, "KrillWorker-${Thread.currentThread().threadId()}")
             }
             LOGGER.info("Initialized work-stealing scheduler with $maxThreads worker threads for Krill output")
-        } else if (canStreamNowEntriesImmediately()) {
+        } else if (canUseArchiveOrderTextStreaming()) {
             entryExecutor = java.util.concurrent.Executors.newFixedThreadPool(maxThreads) { r ->
-                Thread(r, "NowEntryWorker-${Thread.currentThread().threadId()}")
+                Thread(r, "TextStreamWorker-${Thread.currentThread().threadId()}")
             }
             val textParserMode = if (shouldParseDataXmlWithStax()) "StAX" else "DOM"
             LOGGER.info(
-                "Initialized NOW streaming mode: archive-order entries, parallel entry processing, " +
+                "Initialized ${textStreamingModeLabel()} streaming mode: archive-order entries, parallel entry processing, " +
                     "no text-ID scheduling, data.xml via $textParserMode"
             )
         } else {
@@ -1620,8 +1627,8 @@ class KorapXmlTool : Callable<Int> {
         if (maxThreads > 1) {
             val foundry = getFoundryFromZipFileNames(zips)
             val parallelism = maxThreads.coerceAtLeast(1)
-            if (canStreamNowEntriesImmediately()) {
-                LOGGER.info("Processing zips in NOW streaming mode; zip parallelism=$parallelism; entry order=archive")
+            if (canUseArchiveOrderTextStreaming()) {
+                LOGGER.info("Processing zips in ${textStreamingModeLabel()} streaming mode; zip parallelism=$parallelism; entry order=archive")
             } else {
                 LOGGER.info("Processing zips with ordered queue; parallelism=$parallelism; entries ${if (sequentialInZip) "sequential" else "parallel"}")
             }
@@ -2222,7 +2229,7 @@ class KorapXmlTool : Callable<Int> {
     private fun compareTextIds(a: String, b: String): Int =
         monthAwareSortKey(a).compareTo(monthAwareSortKey(b))
 
-    private fun shouldUseUnicodeExtraFieldsOnOpen(): Boolean = !canStreamNowEntriesImmediately()
+    private fun shouldUseUnicodeExtraFieldsOnOpen(): Boolean = !canUseArchiveOrderTextStreaming()
 
     private interface ReadableZipEntry {
         val name: String
@@ -2291,7 +2298,7 @@ class KorapXmlTool : Callable<Int> {
         return "base"
     }
 
-    private fun useJavaZipForNow(): Boolean = canStreamNowEntriesImmediately()
+    private fun useJavaZipForTextStreaming(): Boolean = canUseArchiveOrderTextStreaming()
 
     private fun processZipFile(zipFilePath: String, foundry: String = "base") {
         val ord = zipOrdinals[zipFilePath] ?: 0
@@ -2415,7 +2422,7 @@ class KorapXmlTool : Callable<Int> {
         LOGGER.fine("About to process ZIP entries: hasCorrespondingBaseZip=${zipFilePath.hasCorrespondingBaseZip()}")
         if (zipFilePath.hasCorrespondingBaseZip()) {
             val baseZip = zipFilePath.correspondingBaseZip()!!
-            val relatedZips = if (canStreamNowEntriesImmediately() && !lemmaOnly) {
+            val relatedZips = if (canUseArchiveOrderTextStreaming() && !lemmaOnly) {
                 arrayOf(baseZip, zipFilePath)
             } else {
                 arrayOf(zipFilePath, baseZip)
@@ -2428,9 +2435,9 @@ class KorapXmlTool : Callable<Int> {
                 } else {
                     foundry  // Keep original foundry for non-krill formats
                 }
-                if (useJavaZipForNow()) {
+                if (useJavaZipForTextStreaming()) {
                     openJavaZipFile(zip).use { zipFile ->
-                        LOGGER.info("Using NOW streaming mode for $zip: archive-order entries, no text-ID sorting")
+                        LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zip: archive-order entries, no text-ID sorting")
                         processZipEntriesStreaming(zipFile, zip, zipFoundry, true)
                     }
                 } else {
@@ -2443,9 +2450,9 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.fine("Opening ZipFile for processing: $zipFilePath")
             try {
                 // If no corresponding base ZIP exists, this IS the base ZIP
-                if (useJavaZipForNow()) {
+                if (useJavaZipForTextStreaming()) {
                     openJavaZipFile(zipFilePath).use { zipFile ->
-                        LOGGER.info("Using NOW streaming mode for $zipFilePath: archive-order entries, no text-ID sorting")
+                        LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zipFilePath: archive-order entries, no text-ID sorting")
                         processZipEntriesStreaming(zipFile, zipFilePath, foundry, false)
                     }
                 } else {
@@ -2482,7 +2489,7 @@ class KorapXmlTool : Callable<Int> {
         if (zipFilePath.hasCorrespondingBaseZip()) {
             // Process the two related zips strictly sequentially to limit memory growth
             val baseZip = zipFilePath.correspondingBaseZip()!!
-            val zips = if (canStreamNowEntriesImmediately() && !lemmaOnly) {
+            val zips = if (canUseArchiveOrderTextStreaming() && !lemmaOnly) {
                 arrayOf(baseZip, zipFilePath)
             } else {
                 arrayOf(zipFilePath, baseZip)
@@ -2494,9 +2501,9 @@ class KorapXmlTool : Callable<Int> {
                 } else {
                     foundry  // Keep original foundry for non-krill formats
                 }
-                if (useJavaZipForNow()) {
+                if (useJavaZipForTextStreaming()) {
                     openJavaZipFile(zip).use { zipFile ->
-                        LOGGER.info("Using NOW streaming mode for $zip: archive-order entries, no text-ID sorting")
+                        LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zip: archive-order entries, no text-ID sorting")
                         processZipEntriesStreaming(zipFile, zip, zipFoundry, true)
                     }
                 } else {
@@ -2512,9 +2519,9 @@ class KorapXmlTool : Callable<Int> {
                 }
             }
         } else {
-            if (useJavaZipForNow()) {
+            if (useJavaZipForTextStreaming()) {
                 openJavaZipFile(zipFilePath).use { zipFile ->
-                    LOGGER.info("Using NOW streaming mode for $zipFilePath: archive-order entries, no text-ID sorting")
+                    LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zipFilePath: archive-order entries, no text-ID sorting")
                     processZipEntriesStreaming(zipFile, zipFilePath, foundry, false)
                 }
             } else {
