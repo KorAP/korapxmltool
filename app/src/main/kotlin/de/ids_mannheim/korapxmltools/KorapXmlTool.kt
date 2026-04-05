@@ -972,16 +972,28 @@ class KorapXmlTool : Callable<Int> {
             outputFormat == OutputFormat.WORD2VEC ||
             outputFormat == OutputFormat.NOW)
 
+    private fun hasSingleBaseZipInput(): Boolean {
+        val inputs = zipFileNames ?: return false
+        if (inputs.size != 1) return false
+        val name = File(inputs[0]).name
+        return name.matches(Regex(".*\\.zip$")) && !name.matches(Regex(".*\\.[^/.]+\\.zip$"))
+    }
+
     internal fun canUseArchiveOrderTextStreaming(): Boolean =
-        (outputFormat == OutputFormat.NOW || outputFormat == OutputFormat.WORD2VEC) &&
-            annotationWorkerPool == null &&
+        annotationWorkerPool == null &&
             taggerName == null &&
-            parserName == null
+            parserName == null &&
+            when (outputFormat) {
+                OutputFormat.NOW, OutputFormat.WORD2VEC -> true
+                OutputFormat.CONLLU -> hasSingleBaseZipInput()
+                else -> false
+            }
 
     private fun textStreamingModeLabel(): String =
         when (outputFormat) {
             OutputFormat.NOW -> "NOW"
             OutputFormat.WORD2VEC -> "Word2Vec"
+            OutputFormat.CONLLU -> "CoNLL-U"
             else -> outputFormat.name
         }
 

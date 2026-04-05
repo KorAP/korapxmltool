@@ -158,9 +158,30 @@ class GeneralFeaturesTest {
     }
 
     @Test
-    fun conlluOutputKeepsOrderedPipeline() {
+    fun singleBaseConlluOutputCanUseArchiveOrderStreaming() {
         val tool = KorapXmlTool()
         tool.outputFormat = OutputFormat.CONLLU
+        tool.zipFileNames = arrayOf("/tmp/sample.zip")
+
+        assertTrue(tool.canUseArchiveOrderTextStreaming())
+        assertTrue(tool.canUseStaxTextParsing())
+    }
+
+    @Test
+    fun conlluOutputWithFoundryZipKeepsOrderedPipeline() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.CONLLU
+        tool.zipFileNames = arrayOf("/tmp/sample.spacy.zip")
+
+        assertTrue(!tool.canUseArchiveOrderTextStreaming())
+        assertTrue(tool.canUseStaxTextParsing())
+    }
+
+    @Test
+    fun conlluOutputWithMultipleZipInputsKeepsOrderedPipeline() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.CONLLU
+        tool.zipFileNames = arrayOf("/tmp/sample.zip", "/tmp/sample.spacy.zip")
 
         assertTrue(!tool.canUseArchiveOrderTextStreaming())
         assertTrue(tool.canUseStaxTextParsing())
