@@ -8,6 +8,7 @@
 - Plain NOW export startup and progress diagnostics now log ZIP open time and first-output timing more explicitly, making it easier to distinguish ZIP indexing overhead from actual extraction work
 - Plain Word2Vec export now uses the same archive-order streaming ZIP path as plain NOW output, including the faster `java.util.zip.ZipFile` opener for large archives with many entries
 - Plain CoNLL-U export now also uses the archive-order streaming ZIP path when exactly one base ZIP is given, while multi-ZIP and foundry-paired CoNLL-U input stays on the ordered pipeline
+- CoreNLP now uses the the base tokenization and sentence boundaries instead of its own, preventing morpho/constituency drifts (#38).
 
 ## [v3.3.0] - 2026-03-26
 

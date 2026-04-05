@@ -17,6 +17,93 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
     override val foundry = "corenlp"
 
     private val pipeline: StanfordCoreNLP
+    internal data class PosAssignment(val from: Int, val to: Int, val pos: String)
+
+    internal companion object {
+        internal fun mergeMorphoPosAssignmentsByExactOffsets(
+            assignments: List<PosAssignment>,
+            tokens: List<KorapXmlTool.Span>,
+            morpho: MutableMap<String, KorapXmlTool.MorphoSpan>,
+            logger: Logger
+        ) {
+            val tokenSpans = tokens.associateBy { "${it.from}-${it.to}" }
+            var skippedRetokenizedLeaves = 0
+
+            assignments.forEach { assignment ->
+                val spanKey = "${assignment.from}-${assignment.to}"
+                if (!tokenSpans.containsKey(spanKey)) {
+                    skippedRetokenizedLeaves++
+                    return@forEach
+                }
+
+                val existing = morpho[spanKey]
+                morpho[spanKey] = KorapXmlTool.MorphoSpan(
+                    lemma = existing?.lemma ?: "_",
+                    upos = existing?.upos ?: "_",
+                    xpos = assignment.pos.ifBlank { existing?.xpos ?: "_" },
+                    feats = existing?.feats ?: "_",
+                    head = existing?.head ?: "_",
+                    deprel = existing?.deprel ?: "_",
+                    misc = existing?.misc
+                )
+            }
+
+            if (skippedRetokenizedLeaves > 0) {
+                logger.fine(
+                    "Skipped $skippedRetokenizedLeaves CoreNLP POS leaf updates without exact token span match"
+                )
+            }
+        }
+
+        internal fun mergeMorphoPosAssignmentsByTokenOrder(
+            posTags: List<String>,
+            tokens: List<KorapXmlTool.Span>,
+            morpho: MutableMap<String, KorapXmlTool.MorphoSpan>
+        ) {
+            posTags.forEachIndexed { index, pos ->
+                if (index >= tokens.size) return@forEachIndexed
+                val spanKey = "${tokens[index].from}-${tokens[index].to}"
+                val existing = morpho[spanKey]
+                morpho[spanKey] = KorapXmlTool.MorphoSpan(
+                    lemma = existing?.lemma ?: "_",
+                    upos = existing?.upos ?: "_",
+                    xpos = pos.ifBlank { existing?.xpos ?: "_" },
+                    feats = existing?.feats ?: "_",
+                    head = existing?.head ?: "_",
+                    deprel = existing?.deprel ?: "_",
+                    misc = existing?.misc
+                )
+            }
+        }
+
+        internal fun updateMorphoFromTreeByExactOffsets(
+            tree: Tree,
+            tokens: List<KorapXmlTool.Span>,
+            morpho: MutableMap<String, KorapXmlTool.MorphoSpan>,
+            logger: Logger
+        ) {
+            val assignments = mutableListOf<PosAssignment>()
+            val leaves = tree.getLeaves<Tree>()
+            for (leafObj in leaves) {
+                val leaf = leafObj as Tree
+                val parent = leaf.parent(tree) ?: continue
+                if (!parent.isPreTerminal) continue
+
+                val label = leaf.label()
+                if (label !is HasOffset) continue
+
+                val pos = parent.label()?.value()
+                assignments.add(
+                    PosAssignment(
+                        from = label.beginPosition(),
+                        to = label.endPosition(),
+                        pos = pos ?: "_"
+                    )
+                )
+            }
+            mergeMorphoPosAssignmentsByExactOffsets(assignments, tokens, morpho, logger)
+        }
+    }
 
     init {
         logger.info("Initializing CoreNLP parser with model $model" + (if (taggerModel != null) " and tagger model $taggerModel" else ""))
@@ -46,9 +133,10 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
             logger.warning("No POS model specified for parser - CoreNLP may fail. Use both -t and -P with corenlp.")
         }
 
-        // Use default sentence splitting (not eolonly)
-        // tokenize.whitespace=true would prevent CoreNLP from retokenizing, but we want it to
-        // retokenize for better parse quality
+        // Use the tool's tokenization and sentence boundaries to keep constituency
+        // and morpho output aligned with the input ZIP token layer.
+        props.setProperty("tokenize.whitespace", "true")
+        props.setProperty("ssplit.eolonly", "true")
 
         pipeline = StanfordCoreNLP(props)
         logger.info("CoreNLP parser initialized successfully")
@@ -68,43 +156,43 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
         }
 
         try {
-            // Annotate the ENTIRE document text at once, like the Java implementation does
-            // This ensures CoreNLP gives us document-level offsets directly
-            val docText = text.toString()
-            val annotation = Annotation(docText)
-            pipeline.annotate(annotation)
-
-            // Get all sentences from CoreNLP
-            val sentences = annotation.get(CoreAnnotations.SentencesAnnotation::class.java)
-
-            if (sentences.isEmpty()) {
-                logger.warning("CoreNLP produced no sentences")
-                return trees
-            }
-
-            // Process each sentence
-            sentences.forEachIndexed { sentenceIdx, sentence ->
+            sentenceSpans.forEachIndexed { sentenceIdx, sentenceSpan ->
                 val sentenceId = "s${sentenceIdx + 1}"
+                val sentenceTokens = tokens.filter { token ->
+                    token.from >= sentenceSpan.from && token.to <= sentenceSpan.to
+                }
+                if (sentenceTokens.isEmpty()) {
+                    return@forEachIndexed
+                }
+
+                val sentenceText = sentenceTokens.joinToString(" ") { token ->
+                    text.substring(token.from, token.to)
+                }
+                val annotation = Annotation(sentenceText)
+                pipeline.annotate(annotation)
+                val sentences = annotation.get(CoreAnnotations.SentencesAnnotation::class.java)
+                if (sentences.isEmpty()) {
+                    logger.warning("CoreNLP produced no sentences for sentence $sentenceId")
+                    return@forEachIndexed
+                }
+                val sentence = sentences[0]
 
                 val tree = sentence.get(TreeCoreAnnotations.TreeAnnotation::class.java)
 
                 if (tree != null) {
-                    // Get tokens for this sentence based on CoreNLP's sentence boundaries
                     val coreLabels = sentence.get(CoreAnnotations.TokensAnnotation::class.java)
+                    if (coreLabels.size != sentenceTokens.size) {
+                        logger.warning(
+                            "CoreNLP token count mismatch for $sentenceId: parser=${coreLabels.size}, input=${sentenceTokens.size}; " +
+                                "skipping constituency tree to avoid misalignment"
+                        )
+                        return@forEachIndexed
+                    }
+
                     if (coreLabels.isNotEmpty()) {
-                        val sentStart = coreLabels[0].beginPosition()
-                        val sentEnd = coreLabels[coreLabels.size - 1].endPosition()
-
-                        val sentenceTokens = tokens.filter { token ->
-                            token.from >= sentStart && token.to <= sentEnd
-                        }
-
-                        // Convert Stanford tree to our ConstituencyTree format
-                        // No offset adjustment needed since CoreNLP already has document-level offsets
-                        val constituencyTree = convertTree(tree, sentenceId, sentenceTokens, 0)
+                        val constituencyTree = convertTree(tree, sentenceId, sentenceTokens)
                         trees.add(constituencyTree)
 
-                        // Optionally update morpho with POS tags from CoreNLP
                         if (morpho != null) {
                             updatePOSFromTree(tree, sentenceTokens, morpho)
                         }
@@ -122,14 +210,15 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
     private fun convertTree(
         tree: Tree,
         sentenceId: String,
-        tokens: List<KorapXmlTool.Span>,
-        sentenceOffsetInDoc: Int
+        tokens: List<KorapXmlTool.Span>
     ): ConstituencyTree {
         val nodes = mutableListOf<ConstituencyNode>()
+        val rootLeaves = tree.getLeaves<Tree>().map { it as Tree }
+        val leafIndices = java.util.IdentityHashMap<Tree, Int>()
+        rootLeaves.forEachIndexed { index, leaf -> leafIndices[leaf] = index }
 
         // Recursively convert tree nodes
-        // We need to pass offset adjustment since CoreNLP gives offsets relative to sentence text
-        convertNode(tree, tree, sentenceId, tokens, nodes, sentenceOffsetInDoc)
+        convertNode(tree, tree, sentenceId, tokens, nodes, leafIndices)
 
         return ConstituencyTree(sentenceId, nodes)
     }
@@ -140,32 +229,24 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
         sentenceId: String,
         tokens: List<KorapXmlTool.Span>,
         nodes: MutableList<ConstituencyNode>,
-        sentenceOffsetInDoc: Int
+        leafIndices: java.util.IdentityHashMap<Tree, Int>
     ) {
         val nodeNumber = node.nodeNumber(root)
         val nodeId = "${sentenceId}_n${nodeNumber}"
 
-        // Get character offsets from leaves
-        val leaves: List<Tree> = node.getLeaves()
+        // Map constituent span boundaries back to the original token spans.
+        val leaves: List<Tree> = node.getLeaves<Tree>().map { it as Tree }
         if (leaves.isEmpty()) return
 
-        val firstLeafLabel: Label = leaves[0].label()
-        val lastLeafLabel: Label = leaves[leaves.size - 1].label()
-
-        // Get offsets from the leaf labels
-        // CoreNLP gives offsets relative to the sentence text we fed it,
-        // so we need to add sentenceOffsetInDoc to get document-level offsets
-        val from: Int
-        val to: Int
-
-        if (firstLeafLabel is HasOffset && lastLeafLabel is HasOffset) {
-            from = (firstLeafLabel as HasOffset).beginPosition() + sentenceOffsetInDoc
-            to = (lastLeafLabel as HasOffset).endPosition() + sentenceOffsetInDoc
-        } else {
-            // Fallback: use first and last tokens from sentence
-            from = tokens[0].from
-            to = tokens[tokens.size - 1].to
+        val firstLeafIndex = leafIndices[leaves.first()] ?: return
+        val lastLeafIndex = leafIndices[leaves.last()] ?: return
+        if (firstLeafIndex >= tokens.size || lastLeafIndex >= tokens.size) {
+            logger.warning("CoreNLP leaf/token index mismatch in $sentenceId: $firstLeafIndex..$lastLeafIndex vs ${tokens.size} tokens")
+            return
         }
+
+        val from = tokens[firstLeafIndex].from
+        val to = tokens[lastLeafIndex].to
 
         // Get children
         val children = mutableListOf<ConstituencyChild>()
@@ -197,7 +278,7 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
         // Recursively process children
         for (child in node.children()) {
             if (!child.isLeaf()) {
-                convertNode(child, root, sentenceId, tokens, nodes, sentenceOffsetInDoc)
+                convertNode(child, root, sentenceId, tokens, nodes, leafIndices)
             }
         }
     }
@@ -207,28 +288,12 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
         tokens: List<KorapXmlTool.Span>,
         morpho: MutableMap<String, KorapXmlTool.MorphoSpan>
     ) {
-        // Get POS tags from pre-terminal nodes
-        val leaves: List<Tree> = tree.getLeaves()
-        leaves.forEachIndexed { idx, leaf: Tree ->
-            if (idx < tokens.size) {
-                val parent: Tree? = leaf.parent(tree)
-                if (parent != null && parent.isPreTerminal()) {
-                    val pos: String? = parent.label()?.value()
-                    val spanKey = "${tokens[idx].from}-${tokens[idx].to}"
-                    val existing = morpho[spanKey]
-
-                    // Update or create morpho entry with POS tag
-                    morpho[spanKey] = KorapXmlTool.MorphoSpan(
-                        lemma = existing?.lemma ?: "_",
-                        upos = existing?.upos ?: "_",
-                        xpos = pos ?: existing?.xpos ?: "_",
-                        feats = existing?.feats ?: "_",
-                        head = existing?.head ?: "_",
-                        deprel = existing?.deprel ?: "_",
-                        misc = existing?.misc
-                    )
-                }
-            }
+        val posTags = tree.getLeaves<Tree>().map { leafObj ->
+            val leaf = leafObj as Tree
+            val parent = leaf.parent(tree)
+            if (parent != null && parent.isPreTerminal) parent.label()?.value() ?: "_"
+            else "_"
         }
+        mergeMorphoPosAssignmentsByTokenOrder(posTags, tokens, morpho)
     }
 }
