@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Plain NOW export now opens ZIP input with `java.util.zip.ZipFile` in streaming mode instead of Apache Commons `ZipFile`, removing the multi-minute startup delay on very large archives with huge entry counts and allowing extraction to begin almost immediately
+- Plain NOW export startup and progress diagnostics now log ZIP open time and first-output timing more explicitly, making it easier to distinguish ZIP indexing overhead from actual extraction work
+
 ## [v3.3.0] - 2026-03-26
 
 ### Fixed
