@@ -1,7 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
 ## [v3.3.1] - 2026-04-05
 
 ### Fixed
@@ -9,6 +7,12 @@
 - Plain text output modes now use the faster archive-order streaming ZIP path with `java.util.zip.ZipFile`: `NOW`, `Word2Vec`, and `CoNLL-U` when exactly one base ZIP is given. This removes the multi-minute startup delay on very large archives with huge entry counts, while multi-ZIP and foundry-paired `CoNLL-U` input stays on the ordered pipeline
 - Streaming text-output diagnostics now log ZIP open time and first-output timing more explicitly, making it easier to distinguish ZIP indexing overhead from actual extraction work
 - CoreNLP now uses the base tokenization and sentence boundaries instead of its own, preventing morpho/constituency drift on forms such as `Schüler:innen` ([#38](https://github.com/KorAP/korapxmltool/issues/38))
+- Build warnings.
+
+### Updated
+
+- dependencies
+- Gradle wrapper
 
 ## [v3.3.0] - 2026-03-26
 
