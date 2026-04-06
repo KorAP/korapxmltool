@@ -5440,17 +5440,24 @@ class KorapXmlTool : Callable<Int> {
             var year: String? = null
             var month: String? = null
             var day: String? = null
+            var plainPubDate: String? = null
             headerRoot.childElements("pubDate").forEach { element ->
-                val value = element.textContent?.trim()?.takeIf { it.isNotEmpty() } ?: return@forEach
-                when (element.getAttribute("type")) {
+                val value = element.textContent?.trim()?.takeIf { it.isNotEmpty() }
+                val type = element.getAttribute("type")
+                if (type.isBlank()) {
+                    if (plainPubDate == null && value != null) {
+                        plainPubDate = value
+                    }
+                    return@forEach
+                }
+                if (value == null) return@forEach
+                when (type) {
                     "year" -> year = value
                     "month" -> month = value
                     "day" -> day = value
                 }
             }
-            if (year != null && month != null && day != null) {
-                metadata["pubDate"] = "${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}"
-            }
+            composeKrillPubDate(year, month, day, plainPubDate)?.let { metadata["pubDate"] = it }
 
             headerRoot.firstElement("ref") { it.getAttribute("type") == "page_url" }
                 ?.getAttribute("target")?.takeIf { it.isNotBlank() }?.let { metadata["externalLink"] = it }
@@ -5479,6 +5486,30 @@ class KorapXmlTool : Callable<Int> {
 
             LOGGER.fine("Collected ${metadata.size} metadata fields for $docId")
         }
+    }
+
+    private fun composeKrillPubDate(
+        year: String?,
+        month: String?,
+        day: String?,
+        plainPubDate: String? = null
+    ): String? {
+        val normalizedYear = year?.trim()?.takeIf { it.isNotEmpty() }
+        val normalizedMonth = month?.trim()?.takeIf { it.isNotEmpty() }
+        val normalizedDay = day?.trim()?.takeIf { it.isNotEmpty() }
+
+        if (normalizedYear != null) {
+            val parts = mutableListOf(normalizedYear)
+            if (normalizedMonth != null) {
+                parts.add(normalizedMonth.padStart(2, '0'))
+                if (normalizedDay != null) {
+                    parts.add(normalizedDay.padStart(2, '0'))
+                }
+            }
+            return parts.joinToString("-")
+        }
+
+        return plainPubDate?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     // Collect corpus-level metadata from corpus header

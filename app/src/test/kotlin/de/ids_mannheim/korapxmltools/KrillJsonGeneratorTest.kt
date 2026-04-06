@@ -5,11 +5,14 @@ import net.jpountz.lz4.LZ4FrameInputStream
 import org.junit.After
 import org.junit.AfterClass
 import org.junit.Before
+import org.w3c.dom.Element
 import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.PrintStream
 import java.net.URL
 import java.util.zip.GZIPInputStream
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -100,6 +103,21 @@ class KrillJsonGeneratorTest {
         val resource = Thread.currentThread().contextClassLoader.getResource(path)
         requireNotNull(resource) { "Resource $path not found" }
         return resource
+    }
+
+    private fun headerElement(xml: String): Element {
+        val dbFactory = DocumentBuilderFactory.newInstance()
+        val builder = dbFactory.newDocumentBuilder()
+        val doc = builder.parse(ByteArrayInputStream(xml.trimIndent().toByteArray()))
+        return doc.documentElement
+    }
+
+    private fun collectKrillMetadata(tool: KorapXmlTool, docId: String, headerRoot: Element): Map<String, Any> {
+        tool.krillData[docId] = KrillJsonGenerator.KrillTextData(textId = docId)
+        val method = KorapXmlTool::class.java.getDeclaredMethod("collectKrillMetadata", String::class.java, Element::class.java)
+        method.isAccessible = true
+        method.invoke(tool, docId, headerRoot)
+        return tool.krillData.getValue(docId).headerMetadata
     }
 
     @Test
@@ -457,6 +475,47 @@ class KrillJsonGeneratorTest {
             }
             assertTrue(hasMetadata, "Text $textId should have at least some metadata fields from header.xml")
         }
+    }
+
+    @Test
+    fun krillPubDateFallsBackToAvailableDateParts() {
+        val tool = KorapXmlTool()
+
+        val yearOnlyMetadata = collectKrillMetadata(
+            tool,
+            "TEST_DOC.1",
+            headerElement(
+                """
+                <idsHeader>
+                  <analytic/>
+                  <monogr/>
+                  <textDesc/>
+                  <pubDate type="year">1960</pubDate>
+                  <pubDate type="month"/>
+                  <pubDate type="day"/>
+                </idsHeader>
+                """
+            )
+        )
+        assertEquals("1960", yearOnlyMetadata["pubDate"])
+
+        val yearMonthMetadata = collectKrillMetadata(
+            KorapXmlTool(),
+            "TEST_DOC.2",
+            headerElement(
+                """
+                <idsHeader>
+                  <analytic/>
+                  <monogr/>
+                  <textDesc/>
+                  <pubDate type="year">1960</pubDate>
+                  <pubDate type="month">7</pubDate>
+                  <pubDate type="day"/>
+                </idsHeader>
+                """
+            )
+        )
+        assertEquals("1960-07", yearMonthMetadata["pubDate"])
     }
 
     @Test

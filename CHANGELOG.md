@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.3.2] - 2026-04-06
+
+### Fixed
+
+- Krill output now writes `pubDate` even when only partial `pubDate` information is available in `header.xml`, for example year-only values such as `1960` ([#39](https://github.com/KorAP/korapxmltool/issues/39))
+
 ## [v3.3.1] - 2026-04-05
 
 ### Fixed
