@@ -45,7 +45,7 @@ dependencies {
 
     implementation 'com.github.kupietz:cistern:v1.0.4'
     implementation 'org.maltparser:maltparser:1.9.2'
-    implementation 'org.apache.opennlp:opennlp-tools:2.5.7'
+    implementation 'org.apache.opennlp:opennlp-tools:2.5.8'
     implementation('edu.stanford.nlp:stanford-corenlp') {
         version {
             strictly '[3.0.0, 4.0.0)'
