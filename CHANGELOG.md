@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Krill metadata inheritance now ignores empty text-level `creatDate`/`pubDate` elements, inherits metadata consistently from corpus and document headers, and backfills `creationDate` and `pubDate` from each other so both dates are always present once either one is available
+- Corpus and document headers now expose the same common Krill metadata fields for downstream text-level inheritance, including title/author-style fields and publication metadata
+
 ## [v3.3.2] - 2026-04-06
 
 ### Fixed

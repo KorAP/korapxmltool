@@ -5366,125 +5366,151 @@ class KorapXmlTool : Callable<Int> {
         val textData = krillData.getOrPut(docId) { KrillJsonGenerator.KrillTextData(textId = docId) }
 
         synchronized(textData) {
-            val metadata = textData.headerMetadata
-            val analytic = headerRoot.firstElement("analytic")
-            val monogr = headerRoot.firstElement("monogr")
-            val textDesc = headerRoot.firstElement("textDesc")
-            val textClassElement = headerRoot.firstElement("textClass")
+            mergeExtractedKrillMetadata(textData.headerMetadata, extractKrillHeaderMetadata(headerRoot))
+            LOGGER.fine("Collected ${textData.headerMetadata.size} metadata fields for $docId")
+        }
+    }
 
-            metadata.putIfNotBlank("author", analytic.firstText("h.author") ?: monogr.firstText("h.author"))
+    private fun extractKrillHeaderMetadata(headerRoot: Element): MutableMap<String, Any> {
+        val metadata = mutableMapOf<String, Any>()
+        val analytic = headerRoot.firstElement("analytic")
+        val monogr = headerRoot.firstElement("monogr")
+        val textDesc = headerRoot.firstElement("textDesc")
+        val textClassElement = headerRoot.firstElement("textClass")
 
-            val mainTitle = analytic.firstText("h.title") { it.getAttribute("type") == "main" }
-                ?: analytic.firstText("h.title")
-                ?: monogr.firstText("h.title") { it.getAttribute("type") == "main" }
-                ?: monogr.firstText("h.title")
-            metadata.putIfNotBlank("title", mainTitle)
+        metadata.putIfNotBlank("author", analytic.firstText("h.author") ?: monogr.firstText("h.author") ?: headerRoot.firstText("h.author"))
 
-            metadata.putIfNotBlank(
-                "subTitle",
-                analytic.firstText("h.title") { it.getAttribute("type") == "sub" }
-                    ?: monogr.firstText("h.title") { it.getAttribute("type") == "sub" }
-            )
+        val mainTitle = analytic.firstText("h.title") { it.getAttribute("type") == "main" }
+            ?: analytic.firstText("h.title")
+            ?: monogr.firstText("h.title") { it.getAttribute("type") == "main" }
+            ?: monogr.firstText("h.title")
+            ?: headerRoot.firstText("d.title")
+            ?: headerRoot.firstText("c.title") { it.getAttribute("type") == "main" }
+            ?: headerRoot.firstText("c.title")
+        metadata.putIfNotBlank("title", mainTitle)
 
-            val translator = headerRoot.firstText("editor") { it.getAttribute("role") == "translator" }
-            if (translator != null) {
-                metadata["translator"] = translator
-            } else {
-                metadata.putIfNotBlank("editor", analytic.firstText("editor") ?: monogr.firstText("editor"))
+        metadata.putIfNotBlank(
+            "subTitle",
+            analytic.firstText("h.title") { it.getAttribute("type") == "sub" }
+                ?: monogr.firstText("h.title") { it.getAttribute("type") == "sub" }
+                ?: headerRoot.firstText("c.title") { it.getAttribute("type") == "sub" }
+        )
+
+        val translator = headerRoot.firstText("editor") { it.getAttribute("role") == "translator" }
+        if (translator != null) {
+            metadata["translator"] = translator
+        } else {
+            metadata.putIfNotBlank("editor", analytic.firstText("editor") ?: monogr.firstText("editor") ?: headerRoot.firstText("editor"))
+        }
+
+        metadata.putIfNotBlank("publisher", headerRoot.firstText("publisher"))
+        metadata.putIfNotBlank("distributor", headerRoot.firstText("distributor"))
+        metadata.putIfNotBlank("availability", headerRoot.firstText("availability"))
+        metadata.putIfNotBlank("ISBN", headerRoot.firstText("idno") { it.getAttribute("type") == "ISBN" })
+
+        headerRoot.firstElement("reference") { it.getAttribute("type") == "complete" }
+            ?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { metadata["reference"] = it }
+
+        headerRoot.firstElement("idno") { it.getAttribute("type") == "URN" }
+            ?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { urn ->
+                metadata["URN"] = mapOf("urn" to urn, "url" to "http://nbn-resolving.de/$urn")
             }
 
-            metadata.putIfNotBlank("publisher", headerRoot.firstText("publisher"))
-            metadata.putIfNotBlank("distributor", headerRoot.firstText("distributor"))
-            metadata.putIfNotBlank("availability", headerRoot.firstText("availability"))
-            metadata.putIfNotBlank("ISBN", headerRoot.firstText("idno") { it.getAttribute("type") == "ISBN" })
+        metadata.putIfNotBlank("textType", textDesc.firstText("textType"))
+        metadata.putIfNotBlank("textDomain", textDesc.firstText("textDomain"))
+        metadata.putIfNotBlank("textTypeArt", textDesc.firstText("textTypeArt"))
+        metadata.putIfNotBlank("textTypeRef", textDesc.firstText("textTypeRef"))
+        metadata.putIfNotBlank("textColumn", textDesc.firstText("column"))
 
-            headerRoot.firstElement("reference") { it.getAttribute("type") == "complete" }
-                ?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { metadata["reference"] = it }
+        headerRoot.firstElement("pubPlace")?.let { placeElement ->
+            placeElement.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { metadata["pubPlace"] = it }
+            placeElement.getAttribute("key").takeIf { it.isNotBlank() }?.let { metadata["pubPlaceKey"] = it }
+        }
 
-            headerRoot.firstElement("idno") { it.getAttribute("type") == "URN" }
-                ?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { urn ->
-                    metadata["URN"] = mapOf("urn" to urn, "url" to "http://nbn-resolving.de/$urn")
+        val awards = headerRoot.childElements("note")
+            .mapNotNull { note ->
+                val subtype = note.getAttribute("subtype")
+                if (note.getAttribute("type") == "award" && subtype.isNotBlank()) subtype.trim() else null
+            }.toList()
+        if (awards.isNotEmpty()) {
+            metadata["award"] = awards
+        }
+
+        val textClassTopics = textClassElement.collectCatRefTopics()
+        val fallbackTopics = if (textClassTopics.isEmpty()) headerRoot.collectCatRefTopics() else emptyList()
+        val finalTopics = if (textClassTopics.isNotEmpty()) textClassTopics else fallbackTopics
+        if (finalTopics.isNotEmpty()) {
+            metadata["textClass"] = finalTopics
+        }
+
+        headerRoot.firstText("creatDate")?.replace(".", "-")?.let {
+            metadata["creationDate"] = it
+        }
+
+        var year: String? = null
+        var month: String? = null
+        var day: String? = null
+        var plainPubDate: String? = null
+        headerRoot.childElements("pubDate").forEach { element ->
+            val value = element.textContent?.trim()?.takeIf { it.isNotEmpty() }
+            val type = element.getAttribute("type")
+            if (type.isBlank()) {
+                if (plainPubDate == null && value != null) {
+                    plainPubDate = value
                 }
-
-            metadata.putIfNotBlank("textType", textDesc.firstText("textType"))
-            metadata.putIfNotBlank("textDomain", textDesc.firstText("textDomain"))
-            metadata.putIfNotBlank("textTypeArt", textDesc.firstText("textTypeArt"))
-            metadata.putIfNotBlank("textTypeRef", textDesc.firstText("textTypeRef"))
-            metadata.putIfNotBlank("textColumn", textDesc.firstText("column"))
-
-            headerRoot.firstElement("pubPlace")?.let { placeElement ->
-                placeElement.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { metadata["pubPlace"] = it }
-                placeElement.getAttribute("key").takeIf { it.isNotBlank() }?.let { metadata["pubPlaceKey"] = it }
+                return@forEach
             }
-
-            val awards = headerRoot.childElements("note")
-                .mapNotNull { note ->
-                    val subtype = note.getAttribute("subtype")
-                    if (note.getAttribute("type") == "award" && subtype.isNotBlank()) subtype.trim() else null
-                }.toList()
-            if (awards.isNotEmpty()) {
-                metadata["award"] = awards
+            if (value == null) return@forEach
+            when (type) {
+                "year" -> year = value
+                "month" -> month = value
+                "day" -> day = value
             }
+        }
+        composeKrillPubDate(year, month, day, plainPubDate)?.let { metadata["pubDate"] = it }
 
-            val textClassTopics = textClassElement.collectCatRefTopics()
-            val fallbackTopics = if (textClassTopics.isEmpty()) headerRoot.collectCatRefTopics() else emptyList()
-            val finalTopics = if (textClassTopics.isNotEmpty()) textClassTopics else fallbackTopics
-            if (finalTopics.isNotEmpty()) {
-                metadata["textClass"] = finalTopics
+        headerRoot.firstElement("ref") { it.getAttribute("type") == "page_url" }
+            ?.getAttribute("target")?.takeIf { it.isNotBlank() }?.let { metadata["externalLink"] = it }
+
+        val biblNoteElement = analytic.firstElement("biblNote") { it.getAttribute("n") == "url" }
+            ?: monogr.firstElement("biblNote") { it.getAttribute("n") == "url" }
+        biblNoteElement?.let {
+            val url = it.textContent?.trim()?.takeIf { it.isNotEmpty() }
+            metadata.putIfNotBlank("textExternalLink", url)
+            val rendAttr = it.getAttribute("rend")?.trim()?.takeIf { it.isNotBlank() }
+            metadata.putIfNotBlank("textExternalLinkTitle", rendAttr)
+        }
+
+        if (!metadata.containsKey("language")) {
+            metadata["language"] = "de"
+        }
+
+        if (!metadata.containsKey("textType")) {
+            val textTypeArt = metadata["textTypeArt"] as? String
+            if (textTypeArt != null) {
+                metadata["textType"] = textTypeArt + "en"
             }
+        }
 
-            headerRoot.firstText("creatDate")?.replace(".", "-")?.let {
-                metadata["creationDate"] = it
-            }
+        normalizeKrillDateMetadata(metadata)
+        return metadata
+    }
 
-            var year: String? = null
-            var month: String? = null
-            var day: String? = null
-            var plainPubDate: String? = null
-            headerRoot.childElements("pubDate").forEach { element ->
-                val value = element.textContent?.trim()?.takeIf { it.isNotEmpty() }
-                val type = element.getAttribute("type")
-                if (type.isBlank()) {
-                    if (plainPubDate == null && value != null) {
-                        plainPubDate = value
-                    }
-                    return@forEach
-                }
-                if (value == null) return@forEach
-                when (type) {
-                    "year" -> year = value
-                    "month" -> month = value
-                    "day" -> day = value
-                }
-            }
-            composeKrillPubDate(year, month, day, plainPubDate)?.let { metadata["pubDate"] = it }
+    private fun mergeExtractedKrillMetadata(target: MutableMap<String, Any>, source: Map<String, Any>) {
+        source.forEach { (key, value) ->
+            target[key] = value
+        }
+    }
 
-            headerRoot.firstElement("ref") { it.getAttribute("type") == "page_url" }
-                ?.getAttribute("target")?.takeIf { it.isNotBlank() }?.let { metadata["externalLink"] = it }
+    private fun normalizeKrillDateMetadata(metadata: MutableMap<String, Any>) {
+        val creationDate = (metadata["creationDate"] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+        val pubDate = (metadata["pubDate"] as? String)?.trim()?.takeIf { it.isNotEmpty() }
 
-            // Extract textExternalLink from biblNote[@n='url']
-            val biblNoteElement = analytic.firstElement("biblNote") { it.getAttribute("n") == "url" }
-                ?: monogr.firstElement("biblNote") { it.getAttribute("n") == "url" }
-            biblNoteElement?.let {
-                val url = it.textContent?.trim()?.takeIf { it.isNotEmpty() }
-                metadata.putIfNotBlank("textExternalLink", url)
-                // Extract rend attribute as title
-                val rendAttr = it.getAttribute("rend")?.trim()?.takeIf { it.isNotBlank() }
-                metadata.putIfNotBlank("textExternalLinkTitle", rendAttr)
-            }
-
-            if (!metadata.containsKey("language")) {
-                metadata["language"] = "de"
-            }
-
-            if (!metadata.containsKey("textType")) {
-                val textTypeArt = metadata["textTypeArt"] as? String
-                if (textTypeArt != null) {
-                    metadata["textType"] = textTypeArt + "en"
-                }
-            }
-
-            LOGGER.fine("Collected ${metadata.size} metadata fields for $docId")
+        if (creationDate == null && pubDate != null) {
+            metadata["creationDate"] = pubDate
+        }
+        if (pubDate == null && creationDate != null) {
+            metadata["pubDate"] = creationDate
         }
     }
 
@@ -5517,18 +5543,20 @@ class KorapXmlTool : Callable<Int> {
         val metadata = corpusMetadata.getOrPut(corpusSigle) { mutableMapOf() }
 
         synchronized(metadata) {
-            metadata.putIfNotBlank("corpusTitle", headerRoot.firstText("c.title"))
+            mergeExtractedKrillMetadata(metadata, extractKrillHeaderMetadata(headerRoot))
+            metadata.putIfNotBlank(
+                "corpusTitle",
+                headerRoot.firstText("c.title") { it.getAttribute("type") == "main" } ?: headerRoot.firstText("c.title")
+            )
             metadata.putIfNotBlank(
                 "corpusSubTitle",
                 headerRoot.firstText("c.title") { it.getAttribute("type") == "sub" }
             )
             metadata.putIfNotBlank("corpusAuthor", headerRoot.firstText("h.author"))
-            metadata.putIfNotBlank("corpusEditor", headerRoot.firstElement("monogr").firstText("editor"))
-            metadata.putIfNotBlank("publisher", headerRoot.firstText("publisher"))
-            metadata.putIfNotBlank("distributor", headerRoot.firstText("distributor"))
-            metadata.putIfNotBlank("pubPlace", headerRoot.firstText("pubPlace"))
-            metadata.putIfNotBlank("textType", headerRoot.firstElement("textDesc").firstText("textType"))
-            
+            metadata.putIfNotBlank(
+                "corpusEditor",
+                headerRoot.firstElement("monogr").firstText("editor") ?: headerRoot.firstText("editor")
+            )
             LOGGER.fine("Collected ${metadata.size} corpus-level metadata fields for $corpusSigle")
         }
     }
@@ -5538,8 +5566,9 @@ class KorapXmlTool : Callable<Int> {
         val metadata = docMetadata.getOrPut(docSigle) { mutableMapOf() }
 
         synchronized(metadata) {
-            metadata.putIfNotBlank("docTitle", headerRoot.firstText("d.title"))
-            metadata.putIfNotBlank("docAuthor", headerRoot.firstText("h.author"))
+            mergeExtractedKrillMetadata(metadata, extractKrillHeaderMetadata(headerRoot))
+            metadata.putIfNotBlank("docTitle", headerRoot.firstText("d.title") ?: metadata["title"] as? String)
+            metadata.putIfNotBlank("docAuthor", headerRoot.firstText("h.author") ?: metadata["author"] as? String)
             LOGGER.fine("Collected ${metadata.size} doc-level metadata fields for $docSigle")
         }
     }
@@ -5888,42 +5917,14 @@ class KorapXmlTool : Callable<Int> {
     }
 
     private fun applyInheritedKrillMetadata(textId: String, textData: KrillJsonGenerator.KrillTextData) {
-        val corpusSigle = textId.substringBefore('_')
-        val docSigle = textId.substringBeforeLast('.')
-
-        corpusMetadata[corpusSigle]?.forEach { (key, value) ->
-            val currentValue = textData.headerMetadata[key]
-            val shouldInherit = when (currentValue) {
-                null -> true
-                is String -> currentValue.isBlank()
-                else -> false
-            }
-            if (shouldInherit) {
-                when (value) {
-                    is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
-                    is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                    is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                    else -> textData.headerMetadata[key] = value
-                }
-            }
-        }
-
-        docMetadata[docSigle]?.forEach { (key, value) ->
-            val currentValue = textData.headerMetadata[key]
-            val shouldInherit = when (currentValue) {
-                null -> true
-                is String -> currentValue.isBlank()
-                else -> false
-            }
-            if (shouldInherit) {
-                when (value) {
-                    is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
-                    is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                    is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                    else -> textData.headerMetadata[key] = value
-                }
-            }
-        }
+        val resolvedMetadata = KrillJsonGenerator.resolveHeaderMetadata(
+            textId = textId,
+            textHeaderMetadata = textData.headerMetadata,
+            corpusMetadata = corpusMetadata,
+            docMetadata = docMetadata
+        )
+        textData.headerMetadata.clear()
+        textData.headerMetadata.putAll(resolvedMetadata)
     }
 
     private fun enqueueKrillCompression(textId: String, textData: KrillJsonGenerator.KrillTextData) {

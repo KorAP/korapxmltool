@@ -120,6 +120,26 @@ class KrillJsonGeneratorTest {
         return tool.krillData.getValue(docId).headerMetadata
     }
 
+    private fun collectDocMetadata(tool: KorapXmlTool, docSigle: String, headerRoot: Element): Map<String, Any> {
+        val method = KorapXmlTool::class.java.getDeclaredMethod("collectDocMetadata", String::class.java, Element::class.java)
+        method.isAccessible = true
+        method.invoke(tool, docSigle, headerRoot)
+        return tool.docMetadata.getValue(docSigle)
+    }
+
+    private fun collectCorpusMetadata(tool: KorapXmlTool, corpusSigle: String, headerRoot: Element): Map<String, Any> {
+        val method = KorapXmlTool::class.java.getDeclaredMethod("collectCorpusMetadata", String::class.java, Element::class.java)
+        method.isAccessible = true
+        method.invoke(tool, corpusSigle, headerRoot)
+        return tool.corpusMetadata.getValue(corpusSigle)
+    }
+
+    private fun krillFieldValue(json: String, fieldName: String): String? =
+        Regex(
+            """"key"\s*:\s*"$fieldName".*?"value"\s*:\s*"([^"]*)"""",
+            setOf(RegexOption.DOT_MATCHES_ALL)
+        ).find(json)?.groupValues?.getOrNull(1)
+
     @Test
     fun krillOutputMatchesExpectedStructure() {
         val baseZip = loadResource("wud24_sample.zip").path
@@ -516,6 +536,107 @@ class KrillJsonGeneratorTest {
             )
         )
         assertEquals("1960-07", yearMonthMetadata["pubDate"])
+    }
+
+    @Test
+    fun krillInheritedDatesIgnoreEmptyTextValuesAndBackfillEachOther() {
+        val tool = KorapXmlTool()
+        val textMetadata = collectKrillMetadata(
+            tool,
+            "TEST_DOC.1",
+            headerElement(
+                """
+                <idsHeader>
+                  <analytic/>
+                  <monogr/>
+                  <textDesc/>
+                  <creatDate/>
+                  <pubDate/>
+                </idsHeader>
+                """
+            )
+        )
+
+        val json = KrillJsonGenerator.generate(
+            KrillJsonGenerator.KrillTextData(
+                textId = "TEST_DOC.1",
+                headerMetadata = textMetadata.toMutableMap()
+            ),
+            mapOf("TEST" to mutableMapOf<String, Any>("creationDate" to "1960-07-01")),
+            emptyMap<String, MutableMap<String, Any>>(),
+            includeNonWordTokens = false
+        )
+
+        assertEquals("1960-07-01", krillFieldValue(json, "creationDate"))
+        assertEquals("1960-07-01", krillFieldValue(json, "pubDate"))
+    }
+
+    @Test
+    fun krillMetadataResolutionUsesHierarchyPrecedence() {
+        val resolvedFromDoc = KrillJsonGenerator.resolveHeaderMetadata(
+            textId = "TEST_DOC.1",
+            textHeaderMetadata = mutableMapOf<String, Any>("pubPlace" to " "),
+            corpusMetadata = mapOf("TEST" to mutableMapOf<String, Any>("pubPlace" to "Corpus Place")),
+            docMetadata = mapOf("TEST/DOC" to mutableMapOf<String, Any>("pubPlace" to "Doc Place"))
+        )
+        assertEquals("Doc Place", resolvedFromDoc["pubPlace"])
+
+        val resolvedFromText = KrillJsonGenerator.resolveHeaderMetadata(
+            textId = "TEST_DOC.1",
+            textHeaderMetadata = mutableMapOf<String, Any>("pubPlace" to "Text Place"),
+            corpusMetadata = mapOf("TEST" to mutableMapOf<String, Any>("pubPlace" to "Corpus Place")),
+            docMetadata = mapOf("TEST/DOC" to mutableMapOf<String, Any>("pubPlace" to "Doc Place"))
+        )
+        assertEquals("Text Place", resolvedFromText["pubPlace"])
+    }
+
+    @Test
+    fun docAndCorpusMetadataCollectorsExposeCommonInheritedFields() {
+        val tool = KorapXmlTool()
+
+        val docMetadata = collectDocMetadata(
+            tool,
+            "TEST/DOC",
+            headerElement(
+                """
+                <idsHeader>
+                  <d.title>Document Level Title</d.title>
+                  <h.author>Document Author</h.author>
+                  <publisher>Document Publisher</publisher>
+                  <creatDate>1984-01-02</creatDate>
+                </idsHeader>
+                """
+            )
+        )
+        assertEquals("Document Level Title", docMetadata["title"])
+        assertEquals("Document Level Title", docMetadata["docTitle"])
+        assertEquals("Document Author", docMetadata["author"])
+        assertEquals("Document Author", docMetadata["docAuthor"])
+        assertEquals("Document Publisher", docMetadata["publisher"])
+        assertEquals("1984-01-02", docMetadata["creationDate"])
+        assertEquals("1984-01-02", docMetadata["pubDate"])
+
+        val corpusMetadata = collectCorpusMetadata(
+            tool,
+            "TEST",
+            headerElement(
+                """
+                <idsHeader>
+                  <c.title>Corpus Level Title</c.title>
+                  <h.author>Corpus Author</h.author>
+                  <pubPlace>Corpus Place</pubPlace>
+                  <pubDate type="year">1999</pubDate>
+                </idsHeader>
+                """
+            )
+        )
+        assertEquals("Corpus Level Title", corpusMetadata["title"])
+        assertEquals("Corpus Level Title", corpusMetadata["corpusTitle"])
+        assertEquals("Corpus Author", corpusMetadata["author"])
+        assertEquals("Corpus Author", corpusMetadata["corpusAuthor"])
+        assertEquals("Corpus Place", corpusMetadata["pubPlace"])
+        assertEquals("1999", corpusMetadata["pubDate"])
+        assertEquals("1999", corpusMetadata["creationDate"])
     }
 
     @Test

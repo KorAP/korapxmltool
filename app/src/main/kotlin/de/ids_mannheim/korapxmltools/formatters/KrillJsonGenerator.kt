@@ -14,6 +14,25 @@ object KrillJsonGenerator {
     private val LOGGER = Logger.getLogger(KrillJsonGenerator::class.java.name)
     private val BASE_STRUCTURE_FOUNDRIES = setOf("base", "dereko")
 
+    fun resolveHeaderMetadata(
+        textId: String,
+        textHeaderMetadata: Map<String, Any>,
+        corpusMetadata: Map<String, out Map<String, Any>>,
+        docMetadata: Map<String, out Map<String, Any>>
+    ): MutableMap<String, Any> {
+        val resolved = mutableMapOf<String, Any>()
+        val textIdWithSlashes = textId.replace("_", "/").replace(".", "/")
+        val sigleParts = textIdWithSlashes.split("/")
+        val corpusSigle = sigleParts.firstOrNull().orEmpty()
+        val docSigle = sigleParts.take(2).joinToString("/")
+
+        mergeMeaningfulMetadata(resolved, corpusMetadata[corpusSigle])
+        mergeMeaningfulMetadata(resolved, docMetadata[docSigle])
+        mergeMeaningfulMetadata(resolved, textHeaderMetadata)
+        normalizeRequiredDates(resolved)
+        return resolved
+    }
+
     /**
      * Data class representing a complete Krill text with all annotations.
      */
@@ -108,47 +127,12 @@ object KrillJsonGenerator {
             )))
         }
 
-        // Merge corpus and doc metadata into text metadata (corpus < doc < text precedence)
-        val corpusSigle = textIdWithSlashes.split("/")[0]
-        val docSigle = textIdWithSlashes.split("/").take(2).joinToString("/")
-
-        // First apply corpus-level metadata (lowest priority) - only if not already set with non-empty value
-        corpusMetadata[corpusSigle]?.forEach { (key, value) ->
-            val currentValue = textData.headerMetadata[key]
-            val shouldInherit = when (currentValue) {
-                null -> true
-                is String -> currentValue.isBlank()
-                else -> false
-            }
-            if (shouldInherit) {
-                when (value) {
-                    is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
-                    is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                    is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                    else -> textData.headerMetadata[key] = value
-                }
-            }
-        }
-
-        // Then apply doc-level metadata (medium priority) - only if not already set with non-empty value
-        docMetadata[docSigle]?.forEach { (key, value) ->
-            val currentValue = textData.headerMetadata[key]
-            val shouldInherit = when (currentValue) {
-                null -> true
-                is String -> currentValue.isBlank()
-                else -> false
-            }
-            if (shouldInherit) {
-                when (value) {
-                    is String -> if (value.isNotBlank()) textData.headerMetadata[key] = value
-                    is List<*> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                    is Map<*, *> -> if (value.isNotEmpty()) textData.headerMetadata[key] = value
-                    else -> textData.headerMetadata[key] = value
-                }
-            }
-        }
-
-        // Text-level metadata is already in textData.headerMetadata (highest priority)
+        val resolvedHeaderMetadata = resolveHeaderMetadata(
+            textId = textData.textId,
+            textHeaderMetadata = textData.headerMetadata,
+            corpusMetadata = corpusMetadata,
+            docMetadata = docMetadata
+        )
 
         // Add additional metadata fields from header with correct types
         val fieldOrder = listOf(
@@ -156,12 +140,12 @@ object KrillJsonGenerator {
             "creationDate", "pubDate", "textClass", "award", "availability", "language",
             "ISBN", "URN", "pubPlace", "pubPlaceKey",
             "textType", "textTypeArt", "textTypeRef", "textDomain", "textColumn",
-            "author", "title", "subTitle", "corpusTitle", "corpusSubTitle", "docTitle", "docAuthor",
+            "author", "title", "subTitle", "corpusAuthor", "corpusTitle", "corpusSubTitle", "docTitle", "docAuthor",
             "textExternalLink", "tokenSource"
         )
 
         fieldOrder.forEach { key ->
-            val value = textData.headerMetadata[key] ?: return@forEach
+            val value = resolvedHeaderMetadata[key] ?: return@forEach
 
             // Determine field type and value format
             val (fieldType, fieldValue) = when (key) {
@@ -214,20 +198,20 @@ object KrillJsonGenerator {
                         "type:attachement" to jsonString("data:,${value.toString()}")
                     }
                 }
-                "author", "title", "subTitle", "corpusTitle", "corpusSubTitle", "docTitle", "docAuthor" -> {
+                "author", "title", "subTitle", "corpusAuthor", "corpusTitle", "corpusSubTitle", "docTitle", "docAuthor" -> {
                     "type:text" to jsonString(value.toString())
                 }
                 "externalLink" -> {
                     val url = value.toString()
                     // Extract title from corpus/publisher metadata if available
-                    val title = textData.headerMetadata["publisher"]?.toString() ?: "Link"
+                    val title = resolvedHeaderMetadata["publisher"]?.toString() ?: "Link"
                     val encodedUrl = url.replace(":", "%3A").replace("/", "%2F")
                     "type:attachement" to jsonString("data:application/x.korap-link;title=$title,$encodedUrl")
                 }
                 "textExternalLink" -> {
                     val url = value.toString()
-                    val title = textData.headerMetadata["textExternalLinkTitle"]?.toString()
-                        ?: textData.headerMetadata["publisher"]?.toString() ?: "Link"
+                    val title = resolvedHeaderMetadata["textExternalLinkTitle"]?.toString()
+                        ?: resolvedHeaderMetadata["publisher"]?.toString() ?: "Link"
                     val encodedUrl = url.replace(":", "%3A").replace("/", "%2F")
                     "type:attachement" to jsonString("data:application/x.korap-link;title=$title,$encodedUrl")
                 }
@@ -396,6 +380,35 @@ object KrillJsonGenerator {
 
         out.append("}")  // close data
         out.append("}")  // close root
+    }
+
+    private fun mergeMeaningfulMetadata(target: MutableMap<String, Any>, source: Map<String, Any>?) {
+        source?.forEach { (key, value) ->
+            if (isMeaningfulMetadataValue(value)) {
+                target[key] = value
+            }
+        }
+    }
+
+    private fun normalizeRequiredDates(metadata: MutableMap<String, Any>) {
+        val creationDate = (metadata["creationDate"] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+        val pubDate = (metadata["pubDate"] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+
+        if (creationDate == null && pubDate != null) {
+            metadata["creationDate"] = pubDate
+        }
+        if (pubDate == null && creationDate != null) {
+            metadata["pubDate"] = creationDate
+        }
+    }
+
+    private fun isMeaningfulMetadataValue(value: Any?): Boolean = when (value) {
+        null -> false
+        is String -> value.isNotBlank()
+        is Collection<*> -> value.isNotEmpty()
+        is Map<*, *> -> value.isNotEmpty()
+        is Array<*> -> value.isNotEmpty()
+        else -> true
     }
 
     private fun generateStream(textData: KrillTextData, includeNonWordTokens: Boolean): List<String> {
