@@ -65,15 +65,10 @@ dependencies {
     }
 }
 
-// Enforce JDK 21 Toolchain and Bytecode-Level 21
+// Target JVM 21 compatibility using whatever host JDK is available (minimum 21)
 java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
-}
-
-kotlin {
-    jvmToolchain(21)
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
 }
 
 // For any existing Java source code
