@@ -1,12 +1,22 @@
 # Changelog
 
-## [Unreleased]
+## [v3.3.3] - 2026-06-04
+
+### Added
+
+- Support standard TEI P5 archives by falling back to standard XML elements for author (with primary role priority), title, pubDate (including date with when attribute), and externalLink (link with target attribute) when typical customized I5 metadata elements are missing
+- Extract corpusSigle, docSigle, and textSigle from ZIP entry path directories as a fallback for archives without explicit sigle tags in their header.xml files
 
 ### Fixed
 
 - Krill metadata inheritance now ignores empty text-level `creatDate`/`pubDate` elements, inherits metadata consistently from corpus and document headers, and backfills `creationDate` and `pubDate` from each other so both dates are always present once either one is available
 - Corpus and document headers now expose the same common Krill metadata fields for downstream text-level inheritance, including title/author-style fields and publication metadata
 - External annotation with ZIP output no longer slows down progressively on very large corpora; the text-submission scheduler now avoids repeated text-order list scans and the hot document-processing path no longer forces periodic full GCs
+
+### Changed
+
+- Re-target Java compiler compatibility to Java 21 to support building on any host JDK >= 21 without requiring a strict Gradle JVM Toolchain version configuration
+
 
 ## [v3.3.2] - 2026-04-06
 
