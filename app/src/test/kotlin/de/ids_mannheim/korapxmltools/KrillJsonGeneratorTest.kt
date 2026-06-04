@@ -640,6 +640,118 @@ class KrillJsonGeneratorTest {
     }
 
     @Test
+    fun krillStandardTeiP5MetadataFallbacks() {
+        val tool = KorapXmlTool()
+
+        // 1. Check basic P5 typical structure from the example
+        val p5Metadata = collectKrillMetadata(
+            tool,
+            "SK_UL.19811",
+            headerElement(
+                """
+                <teiHeader>
+                  <fileDesc>
+                    <titleStmt>
+                      <title>Affenstern</title>
+                      <author role="primary">Udo Lindenberg</author>
+                      <author role="text">Another Author</author>
+                    </titleStmt>
+                    <publicationStmt>
+                      <publisher>Unbekannt</publisher>
+                      <date>1981</date>
+                      <ref>
+                        <name>Udopia</name>
+                      </ref>
+                    </publicationStmt>
+                    <sourceDesc>
+                      <ab>
+                        <link target="https://www.udo-lindenberg.de/affenstern.57680.htm" />
+                      </ab>
+                    </sourceDesc>
+                  </fileDesc>
+                </teiHeader>
+                """
+            )
+        )
+
+        assertEquals("Udo Lindenberg", p5Metadata["author"], "Should prefer primary role author")
+        assertEquals("Affenstern", p5Metadata["title"])
+        assertEquals("1981", p5Metadata["pubDate"])
+        assertEquals("https://www.udo-lindenberg.de/affenstern.57680.htm", p5Metadata["externalLink"])
+
+        // 2. Check <date when="..."> fallback
+        val p5MetadataDateWhen = collectKrillMetadata(
+            KorapXmlTool(),
+            "SK_UL.19812",
+            headerElement(
+                """
+                <teiHeader>
+                  <fileDesc>
+                    <publicationStmt>
+                      <date when="1982-03-04"/>
+                    </publicationStmt>
+                  </fileDesc>
+                </teiHeader>
+                """
+            )
+        )
+        assertEquals("1982-03-04", p5MetadataDateWhen["pubDate"])
+
+        // 3. Check author without role (first author)
+        val p5MetadataNoRole = collectKrillMetadata(
+            KorapXmlTool(),
+            "SK_UL.19813",
+            headerElement(
+                """
+                <teiHeader>
+                  <fileDesc>
+                    <titleStmt>
+                      <author>First Author</author>
+                      <author>Second Author</author>
+                    </titleStmt>
+                  </fileDesc>
+                </teiHeader>
+                """
+            )
+        )
+        assertEquals("First Author", p5MetadataNoRole["author"])
+    }
+
+    @Test
+    fun testSkZipExtraction() {
+        val skZip = loadResource("sk.zip").path
+        
+        val generatedTar = ensureKrillTar("sk_test", "sk.krill.tar") { outputDir ->
+            arrayOf(
+                "-t", "krill",
+                "-q",
+                "-D", outputDir.path,
+                skZip
+            )
+        }
+        assertTrue(generatedTar.exists())
+
+        val jsonByFile = readKrillJson(generatedTar)
+        assertTrue(jsonByFile.containsKey("SK-UL-19811.json"))
+        val json = jsonByFile.getValue("SK-UL-19811.json")
+
+        // Assert our fallbacks were correctly populated in the output JSON
+        assertEquals("Udo Lindenberg", krillFieldValue(json, "author"))
+        assertEquals("Affenstern", krillFieldValue(json, "title"))
+        assertEquals("1981", krillFieldValue(json, "pubDate"))
+        
+        // Assert docTitle, docAuthor, corpusTitle, and corpusAuthor are empty/null
+        kotlin.test.assertNull(krillFieldValue(json, "docTitle"))
+        kotlin.test.assertNull(krillFieldValue(json, "docAuthor"))
+        kotlin.test.assertNull(krillFieldValue(json, "corpusTitle"))
+        kotlin.test.assertNull(krillFieldValue(json, "corpusAuthor"))
+
+        // Check externalLink contains the encoded URL
+        assertTrue(json.contains("https%3A%2F%2Fwww.udo-lindenberg.de%2Faffenstern.57680.htm"), 
+            "JSON should contain the encoded url in the externalLink field")
+    }
+
+    @Test
     fun testCorrectTextCount() {
         val baseZip = loadResource("wud24_sample.zip").path
         

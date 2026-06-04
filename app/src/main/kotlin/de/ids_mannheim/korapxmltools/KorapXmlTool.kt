@@ -2090,9 +2090,23 @@ class KorapXmlTool : Callable<Int> {
                         val headerRoot = headerDoc.documentElement
                         headerRoot.normalize()
 
-                        val textSigle = headerRoot.firstText("textSigle")
-                        val docSigle = headerRoot.firstText("dokumentSigle")
-                        val corpusSigle = headerRoot.firstText("korpusSigle")
+                        val entryPath = headerEntry.name
+                        val pathParts = entryPath.split('/').filter { it.isNotEmpty() && !it.endsWith("header.xml") }
+
+                        var textSigle = headerRoot.firstText("textSigle")
+                        var docSigle = headerRoot.firstText("dokumentSigle")
+                        var corpusSigle = headerRoot.firstText("korpusSigle")
+
+                        if (textSigle == null && docSigle == null && corpusSigle == null) {
+                            if (pathParts.size == 1) {
+                                corpusSigle = pathParts[0]
+                            } else if (pathParts.size == 2) {
+                                docSigle = "${pathParts[0]}/${pathParts[1]}"
+                            } else if (pathParts.size >= 3) {
+                                textSigle = getTextIdFromPath(entryPath)
+                            }
+                        }
+
                         val docId = textSigle?.replace('/', '_')
 
                         // Call appropriate metadata collection function based on what the header contains
@@ -3261,9 +3275,22 @@ class KorapXmlTool : Callable<Int> {
                 val headerRoot = headerDoc.documentElement
                 headerRoot.normalize()
 
-                val textSigle = headerRoot.firstText("textSigle")
-                val docSigle = headerRoot.firstText("dokumentSigle")
-                val corpusSigle = headerRoot.firstText("korpusSigle")
+                val entryPath = zipEntry.name
+                val pathParts = entryPath.split('/').filter { it.isNotEmpty() && !it.endsWith("header.xml") }
+
+                var textSigle = headerRoot.firstText("textSigle")
+                var docSigle = headerRoot.firstText("dokumentSigle")
+                var corpusSigle = headerRoot.firstText("korpusSigle")
+
+                if (textSigle == null && docSigle == null && corpusSigle == null) {
+                    if (pathParts.size == 1) {
+                        corpusSigle = pathParts[0]
+                    } else if (pathParts.size == 2) {
+                        docSigle = "${pathParts[0]}/${pathParts[1]}"
+                    } else if (pathParts.size >= 3) {
+                        textSigle = getTextIdFromPath(entryPath)
+                    }
+                }
 
                 val docId = textSigle?.replace('/', '_')
                 LOGGER.fine("Processing header file: " + zipEntry.name + " docId: " + docId + " corpusSigle: " + corpusSigle + " docSigle: " + docSigle)
@@ -5414,7 +5441,12 @@ class KorapXmlTool : Callable<Int> {
         val textDesc = headerRoot.firstElement("textDesc")
         val textClassElement = headerRoot.firstElement("textClass")
 
-        metadata.putIfNotBlank("author", analytic.firstText("h.author") ?: monogr.firstText("h.author") ?: headerRoot.firstText("h.author"))
+        val author = analytic.firstText("h.author") 
+            ?: monogr.firstText("h.author") 
+            ?: headerRoot.firstText("h.author")
+            ?: headerRoot.firstText("author") { it.getAttribute("role") == "primary" }
+            ?: headerRoot.firstText("author")
+        metadata.putIfNotBlank("author", author)
 
         val mainTitle = analytic.firstText("h.title") { it.getAttribute("type") == "main" }
             ?: analytic.firstText("h.title")
@@ -5423,6 +5455,8 @@ class KorapXmlTool : Callable<Int> {
             ?: headerRoot.firstText("d.title")
             ?: headerRoot.firstText("c.title") { it.getAttribute("type") == "main" }
             ?: headerRoot.firstText("c.title")
+            ?: headerRoot.firstText("title") { it.getAttribute("type") == "main" }
+            ?: headerRoot.firstText("title")
         metadata.putIfNotBlank("title", mainTitle)
 
         metadata.putIfNotBlank(
@@ -5430,6 +5464,7 @@ class KorapXmlTool : Callable<Int> {
             analytic.firstText("h.title") { it.getAttribute("type") == "sub" }
                 ?: monogr.firstText("h.title") { it.getAttribute("type") == "sub" }
                 ?: headerRoot.firstText("c.title") { it.getAttribute("type") == "sub" }
+                ?: headerRoot.firstText("title") { it.getAttribute("type") == "sub" }
         )
 
         val translator = headerRoot.firstText("editor") { it.getAttribute("role") == "translator" }
@@ -5505,8 +5540,24 @@ class KorapXmlTool : Callable<Int> {
         }
         composeKrillPubDate(year, month, day, plainPubDate)?.let { metadata["pubDate"] = it }
 
+        if (!metadata.containsKey("pubDate")) {
+            val dateEl = headerRoot.firstElement("date")
+            val dateVal = dateEl?.getAttribute("when")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: dateEl?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+            if (dateVal != null) {
+                metadata["pubDate"] = dateVal
+            }
+        }
+
         headerRoot.firstElement("ref") { it.getAttribute("type") == "page_url" }
             ?.getAttribute("target")?.takeIf { it.isNotBlank() }?.let { metadata["externalLink"] = it }
+
+        if (!metadata.containsKey("externalLink")) {
+            headerRoot.firstElement("link") { it.hasAttribute("target") }
+                ?.getAttribute("target")?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    metadata["externalLink"] = it
+                }
+        }
 
         val biblNoteElement = analytic.firstElement("biblNote") { it.getAttribute("n") == "url" }
             ?: monogr.firstElement("biblNote") { it.getAttribute("n") == "url" }
