@@ -1224,4 +1224,33 @@ class KrillJsonGeneratorTest {
             }
         }
     }
+
+    @Test
+    fun standoffMetadataAddsClassificationKeywords() {
+        val baseZip = loadResource("rei_sample.zip").path
+        val standoff = loadResource("rei_sample.domains.meta.xml").path
+
+        val generatedTar = ensureKrillTar("rei_standoff", "rei_sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip, standoff)
+        }
+        assertTrue(generatedTar.exists())
+
+        val jsonByFile = readKrillJson(generatedTar)
+        val rei473 = jsonByFile.entries.first { it.key.startsWith("REI-RBR-00473") }.value
+
+        // The layer xml:id ("wikidomain") becomes the Krill field key, typed as keywords.
+        val field = Regex(
+            """"key":"wikidomain","@type":"koral:field","value":\[([^\]]*)\],"type":"type:keywords""""
+        ).find(rei473)
+        assertNotNull(field, "Expected a wikidomain keywords field in REI_RBR.00473")
+
+        // Default policy ingests everything in the file, ordered by rank (no curation
+        // at index time). REI_RBR.00473 has all five categories.
+        val values = field.groupValues[1]
+        assertEquals(
+            """"Language","History","Culture","Mass_media","People"""",
+            values,
+            "All categories present in the file should be indexed, in rank order"
+        )
+    }
 }

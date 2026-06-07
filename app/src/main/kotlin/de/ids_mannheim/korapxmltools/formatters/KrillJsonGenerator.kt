@@ -47,7 +47,23 @@ object KrillJsonGenerator {
         var extractedAttributes: MutableMap<String, String> = mutableMapOf(),
         var lpSentencesCollected: Boolean = false,
         var sentencesCollectedByFoundry: MutableSet<String> = mutableSetOf(),
-        var constituencyCollectedByFoundry: MutableSet<String> = mutableSetOf()
+        var constituencyCollectedByFoundry: MutableSet<String> = mutableSetOf(),
+        // Extra metadata fields derived from stand-off metadata files, already
+        // resolved to their final Krill type/value (see StandoffMetadata).
+        var standoffFields: MutableList<StandoffField> = mutableListOf()
+    )
+
+    /**
+     * A ready-to-emit Krill metadata field coming from a stand-off metadata file.
+     *
+     * @param key   the Krill field name (koral:field "key")
+     * @param type  the Krill field type, e.g. "type:keywords" or "type:attachement"
+     * @param value either a List<String> (keywords) or a String (everything else)
+     */
+    data class StandoffField(
+        val key: String,
+        val type: String,
+        val value: Any
     )
 
     /**
@@ -230,6 +246,25 @@ object KrillJsonGenerator {
                 "@type" to jsonString("koral:field"),
                 "value" to fieldValue,
                 "type" to jsonString(fieldType)
+            )))
+        }
+
+        // Stand-off metadata fields (already typed/selected upstream). Skip any key
+        // that a header field above already emitted, so stand-off never clobbers it.
+        val emittedKeys = (if (sigleParts.size >= 3)
+            mutableSetOf("corpusSigle", "docSigle", "textSigle") else mutableSetOf())
+        emittedKeys.addAll(resolvedHeaderMetadata.keys)
+        textData.standoffFields.forEach { field ->
+            if (!emittedKeys.add(field.key)) return@forEach
+            val fieldValue = when (val v = field.value) {
+                is List<*> -> jsonArray(v.map { jsonString(it.toString()) })
+                else -> jsonString(v.toString())
+            }
+            fields.add(jsonObject(listOf(
+                "key" to jsonString(field.key),
+                "@type" to jsonString("koral:field"),
+                "value" to fieldValue,
+                "type" to jsonString(field.type)
             )))
         }
 

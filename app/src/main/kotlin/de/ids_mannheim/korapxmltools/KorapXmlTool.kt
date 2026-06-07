@@ -811,6 +811,19 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
+        // Auto-detect stand-off metadata inputs (<standOff> XML files) among the
+        // positional arguments, so no dedicated CLI option is needed. They are
+        // joined to texts by docid, so any number of files can be supplied and
+        // their filenames don't matter. Strip them from the ZIP processing list.
+        zipFileNames?.filter { StandoffMetadata.isStandoffMetadataFile(it) }?.takeIf { it.isNotEmpty() }?.let { standoffFiles ->
+            zipFileNames = zipFileNames!!.filterNot { it in standoffFiles }.toTypedArray()
+            if (outputFormat == OutputFormat.KRILL) {
+                standoffFiles.forEach { StandoffMetadata.parseInto(it, standoffMetadata) }
+            } else {
+                LOGGER.warning("Stand-off metadata files are only used with -t krill; ignoring: ${standoffFiles.joinToString(", ")}")
+            }
+        }
+
         // For krill format, redirect logging to file before any logging occurs
         if (outputFormat == OutputFormat.KRILL) {
             // Determine output path for Krill format
@@ -1262,6 +1275,9 @@ class KorapXmlTool : Callable<Int> {
     )
 
     val krillData: ConcurrentHashMap<String, KrillJsonGenerator.KrillTextData> = ConcurrentHashMap()
+    // Stand-off metadata fields keyed by text docid, loaded from <standOff> XML
+    // inputs and merged into each text's Krill fields at output time.
+    val standoffMetadata: MutableMap<String, MutableList<KrillJsonGenerator.StandoffField>> = HashMap()
     val krillCompressedData: ConcurrentHashMap<String, CompressedKrillData> = ConcurrentHashMap()
     val krillCompressionFutures: ConcurrentHashMap<String, java.util.concurrent.Future<*>> = ConcurrentHashMap()
     val krillCompressionStartNanos: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
@@ -6012,6 +6028,13 @@ class KorapXmlTool : Callable<Int> {
         )
         textData.headerMetadata.clear()
         textData.headerMetadata.putAll(resolvedMetadata)
+
+        // Attach any stand-off metadata fields for this text (joined by docid).
+        if (standoffMetadata.isNotEmpty()) {
+            standoffMetadata[textId]?.let { fields ->
+                textData.standoffFields = fields.toMutableList()
+            }
+        }
     }
 
     private fun enqueueKrillCompression(textId: String, textData: KrillJsonGenerator.KrillTextData) {

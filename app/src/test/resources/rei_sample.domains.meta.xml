@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Stand-off metadata for the corpus contained in rei_sample.zip.
+
+  In the TEI namespace and reusing TEI's classification vocabulary
+  (taxonomy/category/catDesc/catRef), but NOT conformant TEI P5: standOff,
+  metadataLayer, textRef and source are local KorAP extensions.
+
+  Conventions:
+    * One <metadataLayer> per logical metadata category ("foundry"); its
+      xml:id is the Krill metadata field key (here: "wikidomain"). The taxonomy
+      has its own distinct xml:id ("wikitaxonomy") so the two never collide.
+    * <textRef target="..."> joins on raw_text/@docid from data.xml
+      (e.g. REI_RBR.00473) - NOT on the slash-form textSigle. No '#':
+      the docid is an external corpus identifier, not a fragment of this file.
+    * Intra-document pointers (catRef/@scheme, catRef/@target) DO use '#'
+      because they reference xml:ids declared within this file.
+    * catRef/@n = 1-based rank; catRef/@cert = classifier confidence.
+-->
+<standOff xmlns="http://www.tei-c.org/ns/1.0" version="1.0">
+
+  <!-- ===================================================================
+       Layer 1: Wikipedia top-level topic-domain classification
+       =================================================================== -->
+  <metadataLayer xml:id="wikidomain" type="classification" join="docid">
+
+    <!-- Provenance: this layer is machine-derived, so describe how. -->
+    <source tool="wiki-taxonomy" model="epoch_33-step_183090"
+            date="2026-06-06" select="top5" threshold="0.05" scoreType="confidence"/>
+
+    <taxonomy xml:id="wikitaxonomy">
+      <desc>Wikipedia top-level topic domains (flat, single level)</desc>
+      <category xml:id="Academic_disciplines"><catDesc>Academic disciplines</catDesc></category>
+      <category xml:id="Business"><catDesc>Business</catDesc></category>
+      <category xml:id="Communication"><catDesc>Communication</catDesc></category>
+      <category xml:id="Concepts"><catDesc>Concepts</catDesc></category>
+      <category xml:id="Culture"><catDesc>Culture</catDesc></category>
+      <category xml:id="Economy"><catDesc>Economy</catDesc></category>
+      <category xml:id="Education"><catDesc>Education</catDesc></category>
+      <category xml:id="Energy"><catDesc>Energy</catDesc></category>
+      <category xml:id="Engineering"><catDesc>Engineering</catDesc></category>
+      <category xml:id="Entertainment"><catDesc>Entertainment</catDesc></category>
+      <category xml:id="Entities"><catDesc>Entities</catDesc></category>
+      <category xml:id="Food_drink"><catDesc>Food drink</catDesc></category>
+      <category xml:id="Geography"><catDesc>Geography</catDesc></category>
+      <category xml:id="Government"><catDesc>Government</catDesc></category>
+      <category xml:id="Health"><catDesc>Health</catDesc></category>
+      <category xml:id="History"><catDesc>History</catDesc></category>
+      <category xml:id="Human_behavior"><catDesc>Human behavior</catDesc></category>
+      <category xml:id="Humanities"><catDesc>Humanities</catDesc></category>
+      <category xml:id="Information"><catDesc>Information</catDesc></category>
+      <category xml:id="Internet"><catDesc>Internet</catDesc></category>
+      <category xml:id="Knowledge"><catDesc>Knowledge</catDesc></category>
+      <category xml:id="Language"><catDesc>Language</catDesc></category>
+      <category xml:id="Law"><catDesc>Law</catDesc></category>
+      <category xml:id="Life"><catDesc>Life</catDesc></category>
+      <category xml:id="Lists"><catDesc>Lists</catDesc></category>
+      <category xml:id="Mass_media"><catDesc>Mass media</catDesc></category>
+      <category xml:id="Mathematics"><catDesc>Mathematics</catDesc></category>
+      <category xml:id="Military"><catDesc>Military</catDesc></category>
+      <category xml:id="Nature"><catDesc>Nature</catDesc></category>
+      <category xml:id="People"><catDesc>People</catDesc></category>
+      <category xml:id="Philosophy"><catDesc>Philosophy</catDesc></category>
+      <category xml:id="Politics"><catDesc>Politics</catDesc></category>
+      <category xml:id="Religion"><catDesc>Religion</catDesc></category>
+      <category xml:id="Science"><catDesc>Science</catDesc></category>
+      <category xml:id="Society"><catDesc>Society</catDesc></category>
+      <category xml:id="Sports"><catDesc>Sports</catDesc></category>
+      <category xml:id="Technology"><catDesc>Technology</catDesc></category>
+      <category xml:id="Time"><catDesc>Time</catDesc></category>
+      <category xml:id="Universe"><catDesc>Universe</catDesc></category>
+    </taxonomy>
+
+    <textRef target="REI_RBR.00473">
+      <catRef scheme="#wikitaxonomy" target="#Language"   n="1" cert="0.3947"/>
+      <catRef scheme="#wikitaxonomy" target="#History"    n="2" cert="0.3142"/>
+      <catRef scheme="#wikitaxonomy" target="#Culture"    n="3" cert="0.2739"/>
+      <catRef scheme="#wikitaxonomy" target="#Mass_media" n="4" cert="0.2524"/>
+      <catRef scheme="#wikitaxonomy" target="#People"     n="5" cert="0.2486"/>
+    </textRef>
+    <textRef target="REI_RBR.01123">
+      <catRef scheme="#wikitaxonomy" target="#Lists"    n="1" cert="0.4853"/>
+      <catRef scheme="#wikitaxonomy" target="#History"  n="2" cert="0.4571"/>
+      <catRef scheme="#wikitaxonomy" target="#Politics" n="3" cert="0.3770"/>
+      <catRef scheme="#wikitaxonomy" target="#Culture"  n="4" cert="0.3549"/>
+      <catRef scheme="#wikitaxonomy" target="#Language" n="5" cert="0.3525"/>
+    </textRef>
+    <textRef target="REI_RBR.01561">
+      <catRef scheme="#wikitaxonomy" target="#Language" n="1" cert="0.6705"/>
+      <catRef scheme="#wikitaxonomy" target="#Lists"    n="2" cert="0.5889"/>
+      <catRef scheme="#wikitaxonomy" target="#History"  n="3" cert="0.5108"/>
+      <catRef scheme="#wikitaxonomy" target="#Culture"  n="4" cert="0.4956"/>
+      <catRef scheme="#wikitaxonomy" target="#Politics" n="5" cert="0.3944"/>
+    </textRef>
+  </metadataLayer>
+
+  <!-- ===================================================================
+       Layer 2: external links (illustrative - same container, different payload)
+       =================================================================== -->
+  <metadataLayer xml:id="external-links" type="links" join="docid">
+    <source tool="manual" date="2026-06-06"/>
+    <textRef target="REI_RBR.00473">
+      <ref type="page_url" target="https://politische-reden.eu/#data"/>
+    </textRef>
+  </metadataLayer>
+
+</standOff>
