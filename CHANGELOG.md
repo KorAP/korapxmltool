@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.4.0] - 2026-06-08
+
+### Added
+
+- Stand-off metadata support for Krill output: text-level metadata (e.g. Wikipedia topic-domain classifications, external links) is read from `<standOff>` XML files and folded into the Krill index. Such files are auto-detected among the inputs by content (no extra option needed) and joined to texts by `raw_text/@docid`. Classification layers become `type:keywords` fields named after the layer id; link layers become `type:attachement` fields. By default every category present in the file is indexed, leaving selection to the producing annotation or classification tool.
+
 ## [v3.3.3] - 2026-06-04
 
 ### Added
