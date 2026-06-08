@@ -163,6 +163,36 @@ Generate a tar archive containing gzipped Krill/KoralQuery JSON files across all
 
 This writes `out/krill/wud24_sample.krill.tar` plus a log file. Add more annotated KorAP-XML zips (e.g., TreeTagger, CoreNLP) to merge their layers into the same Krill export; use `--non-word-tokens` if punctuation should stay in the token stream.
 
+### Adding stand-off metadata (classifications, links) to the Krill export
+
+In addition to token and span annotations, text-level metadata can be supplied as
+*stand-off metadata*: one `<standOff>` XML file per corpus that assigns metadata to
+texts by their `raw_text/@docid`. This is useful for classifications that are produced
+separately (e.g. Wikipedia topic domains) or for data that changes occasionally (e.g.
+external links), without changing the source TEI files and re-running the corpus conversion.
+
+Just list such files alongside the zips — they are auto-detected by content (root
+element `<standOff>`), so no extra option is needed:
+
+```shell script
+./build/bin/korapxmltool -t krill -D out/krill \
+  app/src/test/resources/rei_sample.zip \
+  app/src/test/resources/rei_sample.domains.meta.xml
+```
+
+Each `<metadataLayer>` becomes a Krill metadata field named after the layer's
+`xml:id`: `type="classification"` layers become `type:keywords` fields, `type="links"`
+layers become `type:attachement` fields. By default every category present in the file
+is indexed, leaving the selection (e.g. top-k / threshold) to the tool that produced it.
+
+A classification file is, for example, produced by piping the NOW output through a
+classifier:
+
+```shell script
+./build/bin/korapxmltool -t now app/src/test/resources/rei_sample.zip \
+  | docker run --rm -i korap/wiki-taxonomy > rei_sample.wikiDomain.meta.xml
+```
+
 ## Annotation
 
 ### Tagging with integrated MarMoT POS tagger directly to a new KorAP-XML ZIP file

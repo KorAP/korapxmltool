@@ -8,7 +8,7 @@
 
   Conventions:
     * One <metadataLayer> per logical metadata category ("foundry"); its
-      xml:id is the Krill metadata field key (here: "wikidomain"). The taxonomy
+      xml:id is the Krill metadata field key (here: "wikiDomain"). The taxonomy
       has its own distinct xml:id ("wikitaxonomy") so the two never collide.
     * <textRef target="..."> joins on raw_text/@docid from data.xml
       (e.g. REI_RBR.00473) - NOT on the slash-form textSigle. No '#':
@@ -22,7 +22,7 @@
   <!-- ===================================================================
        Layer 1: Wikipedia top-level topic-domain classification
        =================================================================== -->
-  <metadataLayer xml:id="wikidomain" type="classification" join="docid">
+  <metadataLayer xml:id="wikiDomain" type="classification" join="docid">
 
     <!-- Provenance: this layer is machine-derived, so describe how. -->
     <source tool="wiki-taxonomy" model="epoch_33-step_183090"

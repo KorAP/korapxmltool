@@ -1238,11 +1238,11 @@ class KrillJsonGeneratorTest {
         val jsonByFile = readKrillJson(generatedTar)
         val rei473 = jsonByFile.entries.first { it.key.startsWith("REI-RBR-00473") }.value
 
-        // The layer xml:id ("wikidomain") becomes the Krill field key, typed as keywords.
+        // The layer xml:id ("wikiDomain") becomes the Krill field key, typed as keywords.
         val field = Regex(
-            """"key":"wikidomain","@type":"koral:field","value":\[([^\]]*)\],"type":"type:keywords""""
+            """"key":"wikiDomain","@type":"koral:field","value":\[([^\]]*)\],"type":"type:keywords""""
         ).find(rei473)
-        assertNotNull(field, "Expected a wikidomain keywords field in REI_RBR.00473")
+        assertNotNull(field, "Expected a wikiDomain keywords field in REI_RBR.00473")
 
         // Default policy ingests everything in the file, ordered by rank (no curation
         // at index time). REI_RBR.00473 has all five categories.

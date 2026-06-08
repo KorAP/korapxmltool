@@ -18,7 +18,7 @@ import javax.xml.parsers.DocumentBuilderFactory
  * Layout:
  *
  *     <standOff>
- *       <metadataLayer xml:id="wikidomain" type="classification">
+ *       <metadataLayer xml:id="wikiDomain" type="classification">
  *         <taxonomy .../>                               (declaration, ignored here)
  *         <textRef target="REI_RBR.00473">              (target == raw_text/@docid)
  *           <catRef target="#Language" n="1" cert="0.39"/>
