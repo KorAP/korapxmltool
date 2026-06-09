@@ -92,19 +92,31 @@ object KrillJsonGenerator {
         textData: KrillTextData,
         corpusMetadata: Map<String, MutableMap<String, Any>>,
         docMetadata: Map<String, MutableMap<String, Any>>,
-        includeNonWordTokens: Boolean
+        includeNonWordTokens: Boolean,
+        legacyFieldNames: Boolean = false
     ): String {
         val sb = StringBuilder()
-        generateTo(sb, textData, corpusMetadata, docMetadata, includeNonWordTokens)
+        generateTo(sb, textData, corpusMetadata, docMetadata, includeNonWordTokens, legacyFieldNames)
         return sb.toString()
     }
+
+    // Krill metadata field keys that were named misleadingly early on. By default we
+    // emit the corrected names; the original names map to their proper meaning:
+    //   textClass  -> dmozDomain (DMOZ-based topic-domain classification)
+    //   textDomain -> idsColumn  (normalised newspaper column / Ressort)
+    // Pass legacyFieldNames=true to keep the historical keys.
+    private val CORRECTED_FIELD_NAMES = mapOf(
+        "textClass" to "dmozDomain",
+        "textDomain" to "idsColumn"
+    )
 
     fun generateTo(
         out: Appendable,
         textData: KrillTextData,
         corpusMetadata: Map<String, MutableMap<String, Any>>,
         docMetadata: Map<String, MutableMap<String, Any>>,
-        includeNonWordTokens: Boolean
+        includeNonWordTokens: Boolean,
+        legacyFieldNames: Boolean = false
     ) {
         val sb = StringBuilder()
         sb.append("{")
@@ -241,8 +253,9 @@ object KrillJsonGenerator {
                 }
             }
 
+            val outKey = if (legacyFieldNames) key else CORRECTED_FIELD_NAMES[key] ?: key
             fields.add(jsonObject(listOf(
-                "key" to jsonString(key),
+                "key" to jsonString(outKey),
                 "@type" to jsonString("koral:field"),
                 "value" to fieldValue,
                 "type" to jsonString(fieldType)

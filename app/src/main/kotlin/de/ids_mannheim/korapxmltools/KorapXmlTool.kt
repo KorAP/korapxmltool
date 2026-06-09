@@ -209,6 +209,12 @@ class KorapXmlTool : Callable<Int> {
     var includeNonWordTokens: Boolean = false
 
     @Option(
+        names = ["--legacy-field-names"],
+        description = ["Keep historical Krill metadata field names instead of the corrected ones (textClass instead of dmozDomain, textDomain instead of idsColumn)."]
+    )
+    var legacyFieldNames: Boolean = false
+
+    @Option(
         names = ["--lz4"],
         description = ["Use LZ4 compression for Krill JSON output instead of gzip (faster but larger files)."]
     )
@@ -708,6 +714,7 @@ class KorapXmlTool : Callable<Int> {
         if (useStaxTextParser)    sb.appendLine("  --stax-text")
         if (useLz4)               sb.appendLine("  --lz4")
         if (includeNonWordTokens) sb.appendLine("  --non-word-tokens")
+        if (legacyFieldNames)     sb.appendLine("  --legacy-field-names")
         if (sequentialInZip)      sb.appendLine("  --sequential")
         if (COMPATIBILITY_MODE)   sb.appendLine("  COMPATIBILITY_MODE=true")
 
@@ -6070,7 +6077,7 @@ class KorapXmlTool : Callable<Int> {
             val byteOut = ByteArrayOutputStream()
             net.jpountz.lz4.LZ4FrameOutputStream(byteOut).use { lz4Out ->
                 OutputStreamWriter(lz4Out, StandardCharsets.UTF_8).use { writer ->
-                    KrillJsonGenerator.generateTo(writer, textData, corpusMetadata, docMetadata, includeNonWordTokens)
+                    KrillJsonGenerator.generateTo(writer, textData, corpusMetadata, docMetadata, includeNonWordTokens, legacyFieldNames)
                 }
             }
             Pair(fileName, byteOut.toByteArray())
@@ -6084,7 +6091,7 @@ class KorapXmlTool : Callable<Int> {
             }
             gzipOut.use { gzip ->
                 OutputStreamWriter(gzip, StandardCharsets.UTF_8).use { writer ->
-                    KrillJsonGenerator.generateTo(writer, textData, corpusMetadata, docMetadata, includeNonWordTokens)
+                    KrillJsonGenerator.generateTo(writer, textData, corpusMetadata, docMetadata, includeNonWordTokens, legacyFieldNames)
                 }
             }
             Pair(fileName, byteOut.toByteArray())

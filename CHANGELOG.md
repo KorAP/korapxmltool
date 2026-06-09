@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Krill metadata field names corrected by default: the misleadingly named `textClass` is now emitted as `dmozDomain` (DMOZ-based topic-domain classification) and `textDomain` as `idsColumn` (normalised newspaper column / Ressort). Pass `--legacy-field-names` to keep the historical names. Note: querying the corrected indices by the old names will require a need an accordingly configured Koral Mapper plugin to be active.
+
 ## [v3.4.0] - 2026-06-08
 
 ### Added

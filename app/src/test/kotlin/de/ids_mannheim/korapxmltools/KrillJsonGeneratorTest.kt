@@ -1253,4 +1253,30 @@ class KrillJsonGeneratorTest {
             "All categories present in the file should be indexed, in rank order"
         )
     }
+
+    @Test
+    fun correctedMetadataFieldNamesByDefault() {
+        val baseZip = loadResource("rei_sample.zip").path
+        val tar = ensureKrillTar("rei_corrected_names", "rei_sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip)
+        }
+        val json = readKrillJson(tar).entries.first { it.key.startsWith("REI-RBR-00473") }.value
+
+        // The misleadingly named textClass is emitted under its corrected name dmozDomain.
+        assertTrue(json.contains("\"key\":\"dmozDomain\""), "textClass should be emitted as dmozDomain by default")
+        assertFalse(json.contains("\"key\":\"textClass\""), "legacy textClass key must not appear by default")
+    }
+
+    @Test
+    fun legacyMetadataFieldNamesWithFlag() {
+        val baseZip = loadResource("rei_sample.zip").path
+        val tar = ensureKrillTar("rei_legacy_names", "rei_sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "--legacy-field-names", "-D", outputDir.path, baseZip)
+        }
+        val json = readKrillJson(tar).entries.first { it.key.startsWith("REI-RBR-00473") }.value
+
+        // With --legacy-field-names the historical key is kept and the corrected one is absent.
+        assertTrue(json.contains("\"key\":\"textClass\""), "--legacy-field-names should keep textClass")
+        assertFalse(json.contains("\"key\":\"dmozDomain\""), "corrected name must not appear in legacy mode")
+    }
 }
