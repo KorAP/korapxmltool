@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Sentence segmentation fallback: when a corpus has no `s` spans in `structure.xml` (common for TEI conversions of custom corpora), sentence boundaries now fall back to other segment-like TEI elements, in order of preference: `posting` (chat/CMC), `l` (verse line), `seg` (segment), `u` (utterance). This makes integrated taggers/parsers and KorAP sentence-based queries work on such corpora.
+- New `dck_sample.zip` test resource: two-text excerpt from the CC BY licensed Dortmunder Chat-Korpus with custom `cmc` tokenization/annotations (in one text the `s` spans are removed to exercise the sentence fallback)
+
+### Fixed
+
+- Corpora with custom tokenization and annotations inside the base ZIP (e.g. `cmc/morpho.xml` from TEI conversions, with no `base/tokens.xml`) are now handled correctly: the foundry is derived from the annotation folder name instead of the ZIP file name, so Krill output indexes the annotations (e.g. `cmc/p`, `cmc/l`) instead of silently dropping them, the token stream is no longer empty (`tokenSource` is set to e.g. `cmc#morpho`), and CoNLL-U output reports `# foundry = cmc` instead of `# foundry = base`
+
 ### Changed
 
 - Krill metadata field names corrected by default: the misleadingly named `textClass` is now emitted as `dmozDomain` (DMOZ-based topic-domain classification) and `textDomain` as `idsColumn` (normalised newspaper column / Ressort). Pass `--legacy-field-names` to keep the historical names. Note: querying the corrected indices by the old names will require a need an accordingly configured Koral Mapper plugin to be active.

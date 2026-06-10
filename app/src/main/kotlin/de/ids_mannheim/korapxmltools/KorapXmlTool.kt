@@ -2364,6 +2364,22 @@ class KorapXmlTool : Callable<Int> {
         return zipFileName.replace(Regex(".*\\.([^/.]+)\\.zip$"), "$1")
     }
 
+    // In KorAP-XML, annotation files live in a folder named after their foundry
+    // (e.g. tree_tagger/morpho.xml). Corpora with custom annotations (converted
+    // from TEI with their own tokenization/POS/lemma layers) ship them inside
+    // the base ZIP in such a folder (e.g. cmc/morpho.xml), so for base ZIPs the
+    // folder name takes precedence over the foundry derived from the ZIP name.
+    private fun annotationFoundryFor(entryName: String, fileName: String, zipFoundry: String): String {
+        if (zipFoundry != "base") return zipFoundry
+        when (fileName) {
+            "morpho.xml", "dependency.xml", "sentences.xml", "constituency.xml" -> {}
+            else -> return zipFoundry
+        }
+        val parts = entryName.split('/')
+        val dir = parts.getOrNull(parts.size - 2)
+        return if (dir.isNullOrEmpty() || dir == "base") zipFoundry else dir
+    }
+
     private fun getFoundryFromZipFileNames(zipFileNames: Array<String>): String {
         for (zipFileName in zipFileNames) {
             val foundry = getFoundryFromZipFileName(zipFileName)
@@ -3105,6 +3121,7 @@ class KorapXmlTool : Callable<Int> {
                 }
                 // LOGGER.info("Processing file: " + zipEntry.getName())
                 val fileName = zipEntry.name.replace(Regex(".*?/([^/]+\\.xml)$"), "$1")
+                val annotationFoundry = annotationFoundryFor(zipEntry.name, fileName, foundry)
                 when (fileName) {
                     "data.xml" -> {
                         if (!lemmaOnly) {
@@ -3119,7 +3136,7 @@ class KorapXmlTool : Callable<Int> {
                         val spans: NodeList = doc.getElementsByTagName("span")
                         if (extractAttributesRegex.isNotEmpty())
                             extraFeatures[docId] = extractMiscSpans(spans)
-                        sentences[docId] = extractSentenceSpans(spans)
+                        sentences[docId] = extractSentenceSpans(spans, docId)
 
                         // For krill format, collect structural spans and base data (only from base foundry to avoid duplicates)
                         if (outputFormat == OutputFormat.KRILL && foundry == "base") {
@@ -3156,15 +3173,17 @@ class KorapXmlTool : Callable<Int> {
                     "morpho.xml" -> {
                         waitForMorpho = true
                         fnames[docId] = zipEntry.name
-                        LOGGER.info("Processing morpho.xml for $docId with foundry=$foundry from ${zipEntry.name}")
+                        LOGGER.info("Processing morpho.xml for $docId with foundry=$annotationFoundry from ${zipEntry.name}")
                         val fsSpans: NodeList = doc.getElementsByTagName("span")
                         val morphoSpans = extractMorphoSpans(fsSpans)
 
                         // For krill format, collect morpho data directly without using shared morpho map
                         if (outputFormat == OutputFormat.KRILL) {
-                            val morphoFoundry = getFoundryForLayer(foundry, "morpho")
+                            val morphoFoundry = getFoundryForLayer(annotationFoundry, "morpho")
                             collectKrillMorphoDataDirect(docId, morphoFoundry, morphoSpans, "morpho")
-                            tokens[docId] = extractSpans(fsSpans, docId)
+                            val morphoTokens = extractSpans(fsSpans, docId)
+                            tokens[docId] = morphoTokens
+                            collectKrillTokensFromMorpho(docId, morphoFoundry, morphoTokens)
                         } else {
                             // For other formats, use the shared morpho map
                             // Merge with existing morpho data (e.g., from dependency.xml)
@@ -3201,7 +3220,7 @@ class KorapXmlTool : Callable<Int> {
 
                         // For krill format, collect dependency data directly without using shared morpho map
                         if (outputFormat == OutputFormat.KRILL) {
-                            val depFoundry = getFoundryForLayer(foundry, "dependency")
+                            val depFoundry = getFoundryForLayer(annotationFoundry, "dependency")
                             collectKrillMorphoDataDirect(docId, depFoundry, depMap, "dependency")
                         } else {
                             // For other formats, merge dependency info into existing morpho data
@@ -3237,17 +3256,17 @@ class KorapXmlTool : Callable<Int> {
                     }
 
                     "sentences.xml" -> {
-                        LOGGER.fine("Sentences entry foundry=$foundry for $docId from ${zipEntry.name}")
+                        LOGGER.fine("Sentences entry foundry=$annotationFoundry for $docId from ${zipEntry.name}")
                         if (outputFormat == OutputFormat.KRILL) {
                             val sentenceSpans: NodeList = doc.getElementsByTagName("span")
-                            collectSentences(docId, foundry, sentenceSpans)
+                            collectSentences(docId, annotationFoundry, sentenceSpans)
                         }
                     }
 
                     "constituency.xml" -> {
                         if (outputFormat == OutputFormat.KRILL || outputFormat == OutputFormat.CONLLU) {
                             val constituencySpans: NodeList = doc.getElementsByTagName("span")
-                            collectConstituency(docId, foundry, constituencySpans)
+                            collectConstituency(docId, annotationFoundry, constituencySpans)
                         }
                     }
                 }
@@ -3287,7 +3306,7 @@ class KorapXmlTool : Callable<Int> {
                     && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
                 ) {
                     LOGGER.fine("All data ready for $docId, calling processText")
-                    tryProcessReadyText(docId, foundry)
+                    tryProcessReadyText(docId, annotationFoundry)
                 } else {
                     LOGGER.fine("NOT ready to process $docId yet: textOK=${texts[docId] != null || !textRequired}, sentencesOK=${sentences[docId] != null}, tokensOK=${tokens[docId] != null}, morphoOK=${!morphoRequired || morpho[docId] != null}")
                 }
@@ -3401,7 +3420,8 @@ class KorapXmlTool : Callable<Int> {
             if (siglePattern != null && !Regex(siglePattern!!).containsMatchIn(docId)) return
 
             val fileName = entryFileName
-            
+            val annotationFoundry = annotationFoundryFor(zipEntry.name, fileName, foundry)
+
             when (fileName) {
                 "data.xml" -> {
                     if (!lemmaOnly) {
@@ -3428,11 +3448,12 @@ class KorapXmlTool : Callable<Int> {
                 "morpho.xml" -> {
                     fnames[docId] = zipEntry.name
                     val (morphoSpans, allSpans) = extractMorphoSpansStax(reader)
-                    
+
                     if (outputFormat == OutputFormat.KRILL) {
-                        val morphoFoundry = getFoundryForLayer(foundry, "morpho")
+                        val morphoFoundry = getFoundryForLayer(annotationFoundry, "morpho")
                         collectKrillMorphoDataDirect(docId, morphoFoundry, morphoSpans, "morpho")
                         tokens[docId] = allSpans
+                        collectKrillTokensFromMorpho(docId, morphoFoundry, allSpans)
                     } else {
                         val morphoMap = synchronized(morpho) {
                             morpho.getOrPut(docId) { morphoSpans }
@@ -3455,7 +3476,7 @@ class KorapXmlTool : Callable<Int> {
                 "dependency.xml" -> {
                     val depMap = extractDependencySpansStax(reader)
                     if (outputFormat == OutputFormat.KRILL) {
-                        val depFoundry = getFoundryForLayer(foundry, "dependency")
+                        val depFoundry = getFoundryForLayer(annotationFoundry, "dependency")
                         collectKrillMorphoDataDirect(docId, depFoundry, depMap, "dependency")
                     } else {
                         val morphoMap = synchronized(morpho) {
@@ -3477,11 +3498,11 @@ class KorapXmlTool : Callable<Int> {
                 "sentences.xml" -> {
                     if (outputFormat == OutputFormat.KRILL) {
                         val spans = extractSpansStax(reader, docId)
-                        collectSentencesFromSpans(docId, foundry, spans)
+                        collectSentencesFromSpans(docId, annotationFoundry, spans)
                     }
                 }
                 "structure.xml" -> {
-                    sentences[docId] = extractSentenceSpansStax(reader)
+                    sentences[docId] = extractSentenceSpansStax(reader, docId)
                 }
             }
             
@@ -3510,7 +3531,7 @@ class KorapXmlTool : Callable<Int> {
                 && (!finalMorphoRequired || morpho[docId] != null)
                 && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
             ) {
-                tryProcessReadyText(docId, foundry)
+                tryProcessReadyText(docId, annotationFoundry)
             }
 
         } catch (e: Exception) {
@@ -4524,23 +4545,44 @@ class KorapXmlTool : Callable<Int> {
         return res
     }
 
-    private fun extractSentenceSpans(spans: NodeList): Array<Span> {
-        return IntStream.range(0, spans.length).mapToObj(spans::item)
-            .filter { node -> node is Element && node.getElementsByTagName("f").item(0).textContent.equals("s") }
-            .map { node ->
-                Span(
-                    Integer.parseInt((node as Element).getAttribute("from")), Integer.parseInt(node.getAttribute("to"))
-                )
-            }.toArray { size -> arrayOfNulls(size) }
+    // TEI elements that can stand in for sentences when a corpus has no s
+    // segmentation: chat postings, verse lines, segments, utterances (in
+    // order of preference). Without sentence spans, integrated parsers and
+    // KorAP sentence queries cannot work on such corpora.
+    private val sentenceElementFallbacks = listOf("posting", "l", "seg", "u")
+
+    private fun pickSentenceSpans(spansByName: Map<String, List<Span>>, docId: String): Array<Span> {
+        spansByName["s"]?.let { if (it.isNotEmpty()) return it.toTypedArray() }
+        for (name in sentenceElementFallbacks) {
+            val spans = spansByName[name]
+            if (!spans.isNullOrEmpty()) {
+                LOGGER.info("No sentence (s) spans in structure.xml for $docId: falling back to ${spans.size} <$name> elements")
+                return spans.toTypedArray()
+            }
+        }
+        return emptyArray()
     }
 
-    private fun extractSentenceSpansStax(reader: XMLStreamReader): Array<Span> {
-        val list = ArrayList<Span>()
+    private fun extractSentenceSpans(spans: NodeList, docId: String): Array<Span> {
+        val spansByName = HashMap<String, MutableList<Span>>()
+        IntStream.range(0, spans.length).mapToObj(spans::item).forEach { node ->
+            if (node !is Element) return@forEach
+            val name = node.getElementsByTagName("f").item(0)?.textContent ?: return@forEach
+            if (name == "s" || name in sentenceElementFallbacks) {
+                spansByName.getOrPut(name) { mutableListOf() }
+                    .add(Span(Integer.parseInt(node.getAttribute("from")), Integer.parseInt(node.getAttribute("to"))))
+            }
+        }
+        return pickSentenceSpans(spansByName, docId)
+    }
+
+    private fun extractSentenceSpansStax(reader: XMLStreamReader, docId: String): Array<Span> {
+        val spansByName = HashMap<String, MutableList<Span>>()
         var currentFrom: Int? = null
         var currentTo: Int? = null
-        var isSentence = false
-        var inF = false
-        
+        var currentName: String? = null
+        var inNameF = false
+
         while (reader.hasNext()) {
             val event = reader.next()
             when (event) {
@@ -4548,31 +4590,34 @@ class KorapXmlTool : Callable<Int> {
                     if (reader.localName == "span") {
                         currentFrom = reader.getAttributeValue(null, "from")?.toIntOrNull()
                         currentTo = reader.getAttributeValue(null, "to")?.toIntOrNull()
-                        isSentence = false
-                    } else if (reader.localName == "f") {
-                        inF = true
+                        currentName = null
+                    } else if (reader.localName == "f" && reader.getAttributeValue(null, "name") == "name") {
+                        inNameF = true
                     }
                 }
                 XMLStreamConstants.CHARACTERS -> {
-                    if (inF && reader.text.trim() == "s") {
-                        isSentence = true
+                    if (inNameF && currentName == null) {
+                        reader.text.trim().takeIf { it.isNotEmpty() }?.let { currentName = it }
                     }
                 }
                 XMLStreamConstants.END_ELEMENT -> {
                     if (reader.localName == "span") {
-                        if (isSentence && currentFrom != null && currentTo != null) {
-                            list.add(Span(currentFrom, currentTo))
+                        val name = currentName
+                        if (name != null && currentFrom != null && currentTo != null
+                            && (name == "s" || name in sentenceElementFallbacks)
+                        ) {
+                            spansByName.getOrPut(name) { mutableListOf() }.add(Span(currentFrom, currentTo))
                         }
                         currentFrom = null
                         currentTo = null
-                        isSentence = false
+                        currentName = null
                     } else if (reader.localName == "f") {
-                        inF = false
+                        inNameF = false
                     }
                 }
             }
         }
-        return list.toTypedArray()
+        return pickSentenceSpans(spansByName, docId)
     }
 
     private fun extractMiscSpans(spans: NodeList): MutableMap<String, String> {
@@ -5730,6 +5775,24 @@ class KorapXmlTool : Callable<Int> {
         fnames.remove(docId)
         metadata.remove(docId)
         extraFeatures.remove(docId)
+    }
+
+    // Texts with custom tokenization carry their token spans in a foundry's
+    // morpho.xml instead of base/tokens.xml (e.g. cmc/morpho.xml in CMC
+    // corpora). collectKrillBaseData only picks tokens up from tokens.xml, so
+    // register the morpho-derived spans here; real base tokens, if they arrive
+    // later, overwrite both fields via collectKrillBaseData.
+    private fun collectKrillTokensFromMorpho(docId: String, foundry: String, morphoTokens: Array<Span>) {
+        if (outputTexts.contains(docId)) return
+        val textData = krillData.getOrPut(docId) {
+            KrillJsonGenerator.KrillTextData(textId = docId)
+        }
+        synchronized(textData) {
+            if (textData.tokens == null) {
+                textData.tokens = morphoTokens
+                textData.headerMetadata.putIfAbsent("tokenSource", "$foundry#morpho")
+            }
+        }
     }
 
     // Extract the appropriate foundry name for a given annotation layer
