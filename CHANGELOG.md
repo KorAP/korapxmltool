@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- Krill output now drops texts that contain no tokens instead of emitting empty, unindexable documents ([#46](https://github.com/KorAP/korapxmltool/issues/46)). Such texts (e.g. articles with empty `data.xml`/`base/tokens.xml`) are skipped with a per-text warning and a summary count; texts with at least one token are kept. New `m21_empty_sample.zip` regression fixture (one empty text, one single-token text).
 - Corpora with custom tokenization and annotations inside the base ZIP (e.g. `cmc/morpho.xml` from TEI conversions, with no `base/tokens.xml`) are now handled correctly: the foundry is derived from the annotation folder name instead of the ZIP file name, so Krill output indexes the annotations (e.g. `cmc/p`, `cmc/l`) instead of silently dropping them, the token stream is no longer empty (`tokenSource` is set to e.g. `cmc#morpho`), and CoNLL-U output reports `# foundry = cmc` instead of `# foundry = base`
 
 ### Changed

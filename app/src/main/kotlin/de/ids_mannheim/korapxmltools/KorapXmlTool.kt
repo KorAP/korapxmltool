@@ -1294,6 +1294,8 @@ class KorapXmlTool : Callable<Int> {
     val expectedFoundries: MutableSet<String> = mutableSetOf("base")
     val processedFoundries: MutableSet<String> = mutableSetOf()
     var krillOutputCount = java.util.concurrent.atomic.AtomicInteger(0)
+    // Texts dropped from Krill output because they contain no tokens (see enqueueKrillCompression).
+    val krillEmptyTextCount = java.util.concurrent.atomic.AtomicInteger(0)
     private val krillPeakRawPending = AtomicInteger(0)
     private val krillPeakCompressedPending = AtomicInteger(0)
     private val krillPeakCompressionInFlight = AtomicInteger(0)
@@ -1927,6 +1929,10 @@ class KorapXmlTool : Callable<Int> {
                 // Close incremental progress bar if it was initialized
                 incrementalProgressBar?.close()
 
+                val emptyDropped = krillEmptyTextCount.get()
+                if (emptyDropped > 0) {
+                    LOGGER.warning("Dropped $emptyDropped empty text(s) with no tokens from Krill output")
+                }
                 LOGGER.info("Closed krill TAR file: $krillOutputFileName (total texts output: $krillOutputCount)")
             } catch (e: Exception) {
                 LOGGER.severe("ERROR generating krill output: ${e.message}")
@@ -6107,8 +6113,35 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
+    // Remove a text from every Krill tracking structure without writing it. Used for empty
+    // texts that must not appear in the output TAR. Marking it in outputTexts ensures the
+    // incremental writer and the finalization pass both treat it as already handled.
+    private fun dropKrillText(textId: String) {
+        outputTexts.add(textId)
+        krillData.remove(textId)
+        krillCompressedData.remove(textId)
+        krillCompressionFutures.remove(textId)
+        krillCompressionStartNanos.remove(textId)
+        val relevantZips = zipInventory.filter { (_, texts) -> texts.contains(textId) }.keys
+        relevantZips.forEach { path ->
+            zipInventory[path]?.remove(textId)
+            processedTextsPerZip[path]?.remove(textId)
+        }
+    }
+
     private fun enqueueKrillCompression(textId: String, textData: KrillJsonGenerator.KrillTextData) {
         if (krillCompressedData.containsKey(textId)) return
+
+        // Drop texts that contain no tokens: Krill cannot index a text without at least
+        // one token, so emitting it would only produce an empty, unusable document. We log
+        // a warning and remove it from all tracking so the finalization pass skips it too.
+        val tokenCount = textData.tokens?.size ?: 0
+        if (tokenCount == 0) {
+            LOGGER.warning("Skipping text $textId: no tokens (empty text)")
+            krillEmptyTextCount.incrementAndGet()
+            dropKrillText(textId)
+            return
+        }
 
         val executor = compressionExecutor
         val future = if (executor != null && !executor.isShutdown) {
@@ -6420,6 +6453,14 @@ class KorapXmlTool : Callable<Int> {
 
     // Output a single text to Krill TAR (thread-safe)
     private fun outputKrillText(textId: String, textData: KrillJsonGenerator.KrillTextData) {
+        // Never emit a text without tokens: Krill cannot index an empty document.
+        if ((textData.tokens?.size ?: 0) == 0) {
+            LOGGER.warning("Skipping text $textId: no tokens (empty text)")
+            krillEmptyTextCount.incrementAndGet()
+            dropKrillText(textId)
+            freeTextMemory(textId)
+            return
+        }
         try {
             val (jsonFileName, compressedData) = synchronized(textData) {
                 applyInheritedKrillMetadata(textId, textData)

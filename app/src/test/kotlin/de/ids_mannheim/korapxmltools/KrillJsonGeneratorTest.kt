@@ -1279,4 +1279,40 @@ class KrillJsonGeneratorTest {
         assertTrue(json.contains("\"key\":\"textClass\""), "--legacy-field-names should keep textClass")
         assertFalse(json.contains("\"key\":\"dmozDomain\""), "corrected name must not appear in legacy mode")
     }
+
+    /**
+     * Regression test for https://github.com/KorAP/korapxmltool/issues/46
+     *
+     * Krill should not index a text that has no tokens, so empty texts must be dropped (with a
+     * warning) instead of producing unusable empty documents. The fixture contains two texts:
+     *   - M21/FEB.04748: an empty text with 0 tokens -> must be dropped
+     *   - M21/FEB.04749: a text with exactly 1 token -> must be kept
+     */
+    @Test
+    fun krillDropsEmptyTextsButKeepsSingleTokenTexts() {
+        val baseZip = loadResource("m21_empty_sample.zip").path
+        val tar = ensureKrillTar("m21_empty_sample", "m21_empty_sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "-l", "info", "-D", outputDir.path, baseZip)
+        }
+
+        val tarListProcess = ProcessBuilder("tar", "-tf", tar.path).redirectErrorStream(true).start()
+        val entries = tarListProcess.inputStream.bufferedReader().readLines()
+        assertTrue(tarListProcess.waitFor() == 0)
+
+        val textIds = entries.filter { it.endsWith(".json.gz") }.map { it.removeSuffix(".json.gz") }
+
+        // The single-token text is kept; the empty text is dropped.
+        assertTrue(textIds.any { it.endsWith("M21-FEB-04749") }, "1-token text must be kept, got: $textIds")
+        assertFalse(textIds.any { it.endsWith("M21-FEB-04748") }, "empty text must be dropped, got: $textIds")
+        assertEquals(1, textIds.size, "exactly one text expected in the TAR, got: $textIds")
+
+        // The drop is reported in the run log.
+        val logFile = File(tar.path.replace(Regex("\\.tar$"), ".log"))
+        assertTrue(logFile.exists(), "krill run log should exist")
+        val log = logFile.readText()
+        assertTrue(
+            log.contains("Skipping text M21_FEB.04748: no tokens"),
+            "log should warn about the dropped empty text"
+        )
+    }
 }
