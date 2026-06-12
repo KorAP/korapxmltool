@@ -763,225 +763,248 @@ class KorapXmlTool : Callable<Int> {
     }
 
     override fun call(): Int {
-        val handler = ConsoleHandler()
-        LogManager.getLogManager().reset()
-        handler.formatter = ColoredFormatter()
+        var oldErr: java.io.PrintStream? = null
+        var addedFileHandler: java.util.logging.FileHandler? = null
+        var errPs: java.io.PrintStream? = null
 
-        if (System.getProperty("korapxmltool.test") == "true") {
-            quiet = true
-        }
+        try {
+            val handler = ConsoleHandler()
+            LogManager.getLogManager().reset()
+            handler.formatter = ColoredFormatter()
 
-        for (handler in LOGGER.handlers) {
-            LOGGER.removeHandler(handler)
-        }
-        LOGGER.addHandler(handler)
-        val level = try {
-            Level.parse(logLevel.uppercase(Locale.getDefault()))
-        } catch (e: IllegalArgumentException) {
-            LOGGER.warning("Invalid log level: $logLevel. Defaulting to WARNING.")
-            Level.WARNING
-        }
-        LOGGER.level = level
-        // For annotation and krill formats a per-run log file is always created, so we
-        // route everything there and suppress the console.  Otherwise honour the requested level.
-        val willLogToFile = (taggerName != null || parserName != null || annotateWith.isNotBlank()
-                || outputFormat == OutputFormat.KRILL)
-        handler.level = if (willLogToFile) Level.OFF else level
-
-        // Auto-detect optimal thread count if not specified
-        if (maxThreads == 0) {
-            maxThreads = calculateOptimalThreads()
-            LOGGER.info("Auto-detected optimal thread count: $maxThreads threads")
-        }
-
-        // Log model path resolutions that occurred during parameter parsing
-        modelPathResolutions.forEach { (original, resolved) ->
-            LOGGER.info("Resolved model path '$original' to '$resolved'")
-        }
-        
-        // Validate input files exist before doing any processing
-        zipFileNames?.forEach { zipFile ->
-            if (!File(zipFile).exists()) {
-                System.err.println("ERROR: Input file does not exist: $zipFile")
-                return 1
-            }
-            if (!File(zipFile).canRead()) {
-                System.err.println("ERROR: Cannot read input file: $zipFile")
-                return 1
-            }
-        }
-
-        if (lemmaOnly) {
-            useLemma = true
-            if (outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW) {
-                throw ParameterException(spec.commandLine(), "--lemma-only is supported only with -t word2vec or -t now")
-            }
-        }
-
-        // Auto-detect stand-off metadata inputs (<standOff> XML files) among the
-        // positional arguments, so no dedicated CLI option is needed. They are
-        // joined to texts by docid, so any number of files can be supplied and
-        // their filenames don't matter. Strip them from the ZIP processing list.
-        zipFileNames?.filter { StandoffMetadata.isStandoffMetadataFile(it) }?.takeIf { it.isNotEmpty() }?.let { standoffFiles ->
-            zipFileNames = zipFileNames!!.filterNot { it in standoffFiles }.toTypedArray()
-            if (outputFormat == OutputFormat.KRILL) {
-                standoffFiles.forEach { StandoffMetadata.parseInto(it, standoffMetadata) }
-            } else {
-                LOGGER.warning("Stand-off metadata files are only used with -t krill; ignoring: ${standoffFiles.joinToString(", ")}")
-            }
-        }
-
-        // For krill format, redirect logging to file before any logging occurs
-        if (outputFormat == OutputFormat.KRILL) {
-            // Determine output path for Krill format
-            krillOutputPath = if (outputFile != null) {
-                // Use explicit -o option - has highest priority, use as-is
-                val finalOutputPath = outputFile!!
-                // Ensure .tar extension for Krill format
-                if (finalOutputPath.endsWith(".tar")) {
-                    finalOutputPath
-                } else {
-                    "$finalOutputPath.tar"
-                }
-            } else {
-                // Find the base ZIP (one without a foundry suffix)
-                val baseZip = zipFileNames!!.firstOrNull { zip ->
-                    val name = File(zip).name
-                    name.matches(Regex(".*\\.zip$")) && !name.matches(Regex(".*\\.[^/.]+\\.zip$"))
-                } ?: zipFileNames!![0]
-
-                val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
-                File(outputDir, "$baseZipName.krill.tar").absolutePath
-            }
-            var logFilePath = krillOutputPath!!.replace(Regex("\\.tar$"), ".log")
-            
-            if (logDir != null) {
-                if (!logDir!!.exists()) {
-                     logDir!!.mkdirs()
-                }
-                logFilePath = File(logDir, File(logFilePath).name).absolutePath
+            if (System.getProperty("korapxmltool.test") == "true") {
+                quiet = true
             }
 
-            // Set up file handler for logging
-            val fileHandler = java.util.logging.FileHandler(logFilePath, true)
-            fileHandler.formatter = ColoredFormatter()
-
-
-            // Remove existing console handlers so logs only go to file
             for (logHandler in LOGGER.handlers.toList()) {
                 LOGGER.removeHandler(logHandler)
             }
-            LOGGER.addHandler(fileHandler)
-            flushPendingSummary(fileHandler)
+            LOGGER.addHandler(handler)
+            val level = try {
+                Level.parse(logLevel.uppercase(Locale.getDefault()))
+            } catch (e: IllegalArgumentException) {
+                LOGGER.warning("Invalid log level: $logLevel. Defaulting to WARNING.")
+                Level.WARNING
+            }
+            LOGGER.level = level
+            // For annotation and krill formats a per-run log file is always created, so we
+            // route everything there and suppress the console.  Otherwise honour the requested level.
+            val willLogToFile = (taggerName != null || parserName != null || annotateWith.isNotBlank()
+                    || outputFormat == OutputFormat.KRILL)
+            handler.level = if (willLogToFile) Level.OFF else level
 
-            // Mirror System.err to the same log file
-            val errPs = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
-            val oldErr = System.err
-            System.setErr(errPs)
-
-            // Restore System.err and remove file handler on shutdown.
-            // Note: LogManager.reset() closes FileHandlers before user hooks run, so
-            // no LOGGER calls are safe here.
-            Runtime.getRuntime().addShutdownHook(Thread {
-                try { LOGGER.removeHandler(fileHandler) } catch (_: Exception) {}
-                try { fileHandler.close() } catch (_: Exception) {}
-                try { System.setErr(oldErr) } catch (_: Exception) {}
-                try { errPs.close() } catch (_: Exception) {}
-            })
-        }
-
-        // Log invocation options and environment after all log handlers are set up.
-        // The summary is written only to file-based handlers (e.g. the Krill log),
-        // not to the console, so it does not clutter stderr output.
-        logCallOptionsAndEnvironment()
-
-        // CoNLL-U to KorAP XML ZIP conversion mode
-        val isConlluInput = zipFileNames == null || zipFileNames!!.isEmpty() || 
-                           zipFileNames!!.any { it.endsWith(".conllu") }
-        
-        if (isConlluInput) {
-            // Validate: CoNLL-U mode requires -t zip (default or explicit)
-            if (outputFormat != OutputFormat.KORAP_XML) {
-                throw ParameterException(spec.commandLine(), 
-                    "CoNLL-U input requires output format 'zip' (use -t zip or invoke as 'conllu2korapxml')")
+            // Auto-detect optimal thread count if not specified
+            if (maxThreads == 0) {
+                maxThreads = calculateOptimalThreads()
+                LOGGER.info("Auto-detected optimal thread count: $maxThreads threads")
             }
 
-            when {
-                // Case 1: stdin input (no files specified)
-                zipFileNames == null || zipFileNames!!.isEmpty() -> {
-                    if (outputFile == null) {
-                        throw ParameterException(spec.commandLine(),
-                            "Reading from stdin requires -o/--output to specify output file path")
-                    }
-                    // -o has highest priority - use it as-is (absolute or relative to CWD)
-                    val finalOutputPath = outputFile!!
-                    LOGGER.info("Converting CoNLL-U from stdin to: $finalOutputPath")
-                    convertConlluToZip(System.`in`, finalOutputPath)
-                    return 0
-                }
-                
-                // Case 2: CoNLL-U file(s) specified
-                zipFileNames!!.all { it.endsWith(".conllu") } -> {
-                    zipFileNames!!.forEach { conlluFile ->
-                        val outputPath = when {
-                            outputFile != null -> {
-                                // -o has highest priority - use it as-is (absolute or relative to CWD)
-                                outputFile!!
-                            }
-                            else -> {
-                                // Auto-infer from input filename
-                                val baseName = File(conlluFile).name.replace(Regex("\\.conllu$"), ".zip")
-                                if (outputDir != ".") {
-                                    File(outputDir, baseName).path
-                                } else {
-                                    conlluFile.replace(Regex("\\.conllu$"), ".zip")
-                                }
-                            }
-                        }
-                        LOGGER.info("Converting CoNLL-U file: $conlluFile → $outputPath")
-                        FileInputStream(conlluFile).use { inputStream ->
-                            convertConlluToZip(inputStream, outputPath)
-                        }
-                    }
-                    return 0
-                }
-                
-                // Case 3: Mixed input (some .conllu, some .zip) - not supported
-                else -> {
-                    throw ParameterException(spec.commandLine(),
-                        "Cannot mix CoNLL-U (.conllu) and ZIP files in the same invocation")
-                }
+            // Log model path resolutions that occurred during parameter parsing
+            modelPathResolutions.forEach { (original, resolved) ->
+                LOGGER.info("Resolved model path '$original' to '$resolved'")
             }
-        }
-
-        // Normal ZIP processing mode
-        if (outputFile != null && (outputFormat == OutputFormat.CONLLU || outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW)) {
-            // -o has highest priority - use it as-is (absolute or relative to CWD)
-            val finalOutputPath = outputFile!!
-            val file = File(finalOutputPath)
-            if (file.exists()) {
-                if (!overwrite) {
-                    System.err.println("ERROR: Output file $finalOutputPath already exists. Use --force to overwrite.")
+            
+            // Validate input files exist before doing any processing
+            zipFileNames?.forEach { zipFile ->
+                if (!File(zipFile).exists()) {
+                    System.err.println("ERROR: Input file does not exist: $zipFile")
                     return 1
                 }
-                file.delete()
+                if (!File(zipFile).canRead()) {
+                    System.err.println("ERROR: Cannot read input file: $zipFile")
+                    return 1
+                }
             }
-            // Create parent directories
-            file.parentFile?.mkdirs()
+
+            if (lemmaOnly) {
+                useLemma = true
+                if (outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW) {
+                    throw ParameterException(spec.commandLine(), "--lemma-only is supported only with -t word2vec or -t now")
+                }
+            }
+
+            // Auto-detect stand-off metadata inputs (<standOff> XML files) among the
+            // positional arguments, so no dedicated CLI option is needed. They are
+            // joined to texts by docid, so any number of files can be supplied and
+            // their filenames don't matter. Strip them from the ZIP processing list.
+            zipFileNames?.filter { StandoffMetadata.isStandoffMetadataFile(it) }?.takeIf { it.isNotEmpty() }?.let { standoffFiles ->
+                zipFileNames = zipFileNames!!.filterNot { it in standoffFiles }.toTypedArray()
+                if (outputFormat == OutputFormat.KRILL) {
+                    standoffFiles.forEach { StandoffMetadata.parseInto(it, standoffMetadata) }
+                } else {
+                    LOGGER.warning("Stand-off metadata files are only used with -t krill; ignoring: ${standoffFiles.joinToString(", ")}")
+                }
+            }
+
+            // For krill format, redirect logging to file before any logging occurs
+            if (outputFormat == OutputFormat.KRILL) {
+                // Determine output path for Krill format
+                krillOutputPath = if (outputFile != null) {
+                    // Use explicit -o option - has highest priority, use as-is
+                    val finalOutputPath = outputFile!!
+                    // Ensure .tar extension for Krill format
+                    if (finalOutputPath.endsWith(".tar")) {
+                        finalOutputPath
+                    } else {
+                        "$finalOutputPath.tar"
+                    }
+                } else {
+                    // Find the base ZIP (one without a foundry suffix)
+                    val baseZip = zipFileNames!!.firstOrNull { zip ->
+                        val name = File(zip).name
+                        name.matches(Regex(".*\\.zip$")) && !name.matches(Regex(".*\\.[^/.]+\\.zip$"))
+                    } ?: zipFileNames!![0]
+
+                    val baseZipName = File(baseZip).name.replace(Regex("\\.zip$"), "")
+                    File(outputDir, "$baseZipName.krill.tar").absolutePath
+                }
+                var logFilePath = krillOutputPath!!.replace(Regex("\\.tar$"), ".log")
+                
+                if (logDir != null) {
+                    if (!logDir!!.exists()) {
+                         logDir!!.mkdirs()
+                    }
+                    logFilePath = File(logDir, File(logFilePath).name).absolutePath
+                }
+
+                // Set up file handler for logging
+                val fh = java.util.logging.FileHandler(logFilePath, true)
+                addedFileHandler = fh
+                fh.formatter = ColoredFormatter()
+
+
+                // Remove existing console handlers so logs only go to file
+                for (logHandler in LOGGER.handlers.toList()) {
+                    LOGGER.removeHandler(logHandler)
+                }
+                LOGGER.addHandler(fh)
+                flushPendingSummary(fh)
+
+                // Mirror System.err to the same log file
+                val eps = java.io.PrintStream(java.io.BufferedOutputStream(java.io.FileOutputStream(logFilePath, true)), true)
+                errPs = eps
+                oldErr = System.err
+                System.setErr(eps)
+
+                if (System.getProperty("korapxmltool.test") != "true") {
+                    // Restore System.err and remove file handler on shutdown.
+                    // Note: LogManager.reset() closes FileHandlers before user hooks run, so
+                    // no LOGGER calls are safe here.
+                    Runtime.getRuntime().addShutdownHook(Thread {
+                        try { LOGGER.removeHandler(fh) } catch (_: Exception) {}
+                        try { fh.close() } catch (_: Exception) {}
+                        try { System.setErr(oldErr) } catch (_: Exception) {}
+                        try { eps.close() } catch (_: Exception) {}
+                    })
+                }
+            }
+
+            // Log invocation options and environment after all log handlers are set up.
+            // The summary is written only to file-based handlers (e.g. the Krill log),
+            // not to the console, so it does not clutter stderr output.
+            logCallOptionsAndEnvironment()
+
+            // CoNLL-U to KorAP XML ZIP conversion mode
+            val isConlluInput = zipFileNames == null || zipFileNames!!.isEmpty() || 
+                               zipFileNames!!.any { it.endsWith(".conllu") }
             
-            // Initialize output writer with optional gzip compression
-            val outputStream = FileOutputStream(file)
-            textOutputWriter = if (finalOutputPath.endsWith(".gz")) {
-                BufferedWriter(OutputStreamWriter(GZIPOutputStream(outputStream), StandardCharsets.UTF_8))
-            } else {
-                BufferedWriter(OutputStreamWriter(outputStream, StandardCharsets.UTF_8))
+            if (isConlluInput) {
+                // Validate: CoNLL-U mode requires -t zip (default or explicit)
+                if (outputFormat != OutputFormat.KORAP_XML) {
+                    throw ParameterException(spec.commandLine(), 
+                        "CoNLL-U input requires output format 'zip' (use -t zip or invoke as 'conllu2korapxml')")
+                }
+
+                when {
+                    // Case 1: stdin input (no files specified)
+                    zipFileNames == null || zipFileNames!!.isEmpty() -> {
+                        if (outputFile == null) {
+                            throw ParameterException(spec.commandLine(),
+                                "Reading from stdin requires -o/--output to specify output file path")
+                        }
+                        // -o has highest priority - use it as-is (absolute or relative to CWD)
+                        val finalOutputPath = outputFile!!
+                        LOGGER.info("Converting CoNLL-U from stdin to: $finalOutputPath")
+                        convertConlluToZip(System.`in`, finalOutputPath)
+                        return 0
+                    }
+                    
+                    // Case 2: CoNLL-U file(s) specified
+                    zipFileNames!!.all { it.endsWith(".conllu") } -> {
+                        zipFileNames!!.forEach { conlluFile ->
+                            val outputPath = when {
+                                outputFile != null -> {
+                                    // -o has highest priority - use it as-is (absolute or relative to CWD)
+                                    outputFile!!
+                                }
+                                else -> {
+                                    // Auto-infer from input filename
+                                    val baseName = File(conlluFile).name.replace(Regex("\\.conllu$"), ".zip")
+                                    if (outputDir != ".") {
+                                        File(outputDir, baseName).path
+                                    } else {
+                                        conlluFile.replace(Regex("\\.conllu$"), ".zip")
+                                    }
+                                }
+                            }
+                            LOGGER.info("Converting CoNLL-U file: $conlluFile → $outputPath")
+                            FileInputStream(conlluFile).use { inputStream ->
+                                convertConlluToZip(inputStream, outputPath)
+                            }
+                        }
+                        return 0
+                    }
+                    
+                    // Case 3: Mixed input (some .conllu, some .zip) - not supported
+                    else -> {
+                        throw ParameterException(spec.commandLine(),
+                            "Cannot mix CoNLL-U (.conllu) and ZIP files in the same invocation")
+                    }
+                }
+            }
+
+            // Normal ZIP processing mode
+            if (outputFile != null && (outputFormat == OutputFormat.CONLLU || outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW)) {
+                // -o has highest priority - use it as-is (absolute or relative to CWD)
+                val finalOutputPath = outputFile!!
+                val file = File(finalOutputPath)
+                if (file.exists()) {
+                    if (!overwrite) {
+                        System.err.println("ERROR: Output file $finalOutputPath already exists. Use --force to overwrite.")
+                        return 1
+                    }
+                    file.delete()
+                }
+                // Create parent directories
+                file.parentFile?.mkdirs()
+                
+                // Initialize output writer with optional gzip compression
+                val outputStream = FileOutputStream(file)
+                textOutputWriter = if (finalOutputPath.endsWith(".gz")) {
+                    BufferedWriter(OutputStreamWriter(GZIPOutputStream(outputStream), StandardCharsets.UTF_8))
+                } else {
+                    BufferedWriter(OutputStreamWriter(outputStream, StandardCharsets.UTF_8))
+                }
+            }
+
+            LOGGER.info("Processing zip files: " + zipFileNames!!.joinToString(", "))
+
+            korapxml2conllu(zipFileNames!!)
+            return 0
+        } finally {
+            if (System.getProperty("korapxmltool.test") == "true") {
+                if (oldErr != null) {
+                    System.setErr(oldErr)
+                }
+                if (errPs != null) {
+                    try { errPs.close() } catch (_: Exception) {}
+                }
+                if (addedFileHandler != null) {
+                    try { LOGGER.removeHandler(addedFileHandler) } catch (_: Exception) {}
+                    try { addedFileHandler.close() } catch (_: Exception) {}
+                }
             }
         }
-
-        LOGGER.info("Processing zip files: " + zipFileNames!!.joinToString(", "))
-
-        korapxml2conllu(zipFileNames!!)
-        return 0
     }
 
     private val LOGGER: Logger = Logger.getLogger(KorapXmlTool::class.java.name)
@@ -3095,7 +3118,7 @@ class KorapXmlTool : Callable<Int> {
                  // Use DOM for data.xml (large text content) and structure/constituency (complex parsing)
                  // Use StAX for annotation files (morpho, dependency, tokens, sentences) for better performance
                  if (!needsDom && !isConstituency && (!isData || useStaxForData)) {
-                     processXmlEntryStax(zipPath, zipEntry, foundry, waitForMorpho)
+                     processXmlEntryStax(zipPath, zipEntry, foundry, _foundry, waitForMorpho)
                      return
                  }
 
@@ -3187,9 +3210,11 @@ class KorapXmlTool : Callable<Int> {
                         if (outputFormat == OutputFormat.KRILL) {
                             val morphoFoundry = getFoundryForLayer(annotationFoundry, "morpho")
                             collectKrillMorphoDataDirect(docId, morphoFoundry, morphoSpans, "morpho")
-                            val morphoTokens = extractSpans(fsSpans, docId)
-                            tokens[docId] = morphoTokens
-                            collectKrillTokensFromMorpho(docId, morphoFoundry, morphoTokens)
+                            if (_foundry == "base") {
+                                val morphoTokens = extractSpans(fsSpans, docId)
+                                tokens[docId] = morphoTokens
+                                collectKrillTokensFromMorpho(docId, morphoFoundry, morphoTokens)
+                            }
                         } else {
                             // For other formats, use the shared morpho map
                             // Merge with existing morpho data (e.g., from dependency.xml)
@@ -3213,7 +3238,9 @@ class KorapXmlTool : Callable<Int> {
                                     LOGGER.fine("Merged morpho.xml with existing data for $docId (preserved ${morphoMap.count { it.value.head != "_" }} dependency relations)")
                                 }
                             }
-                            tokens[docId] = extractSpans(fsSpans, docId)
+                            if (_foundry == "base") {
+                                tokens[docId] = extractSpans(fsSpans, docId)
+                            }
                         }
                     }
 
@@ -3393,7 +3420,7 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
-    private fun processXmlEntryStax(zipPath: String, zipEntry: ReadableZipEntry, foundry: String, waitForMorpho: Boolean) {
+    private fun processXmlEntryStax(zipPath: String, zipEntry: ReadableZipEntry, foundry: String, _foundry: String, waitForMorpho: Boolean) {
         LOGGER.finer("Processing entry (StAX): ${zipEntry.name}, foundry=$foundry")
         val factory = xmlInputFactory.get()
         val inputStream = zipEntry.openInputStream()
@@ -3438,7 +3465,7 @@ class KorapXmlTool : Callable<Int> {
                 "tokens.xml" -> {
                     if (!fnames.contains(docId)) fnames[docId] = zipEntry.name
                     tokens[docId] = extractSpansStax(reader, docId)
-                    if (outputFormat == OutputFormat.KRILL && foundry == "base") {
+                    if (outputFormat == OutputFormat.KRILL && _foundry == "base") {
                         // Set tokenSource based on the foundry containing the tokens
                         // Extract foundry from path like "CORPUS/DOC/TEXT/base/tokens.xml" -> "base"
                         val textData = krillData.getOrPut(docId) { 
@@ -3458,8 +3485,10 @@ class KorapXmlTool : Callable<Int> {
                     if (outputFormat == OutputFormat.KRILL) {
                         val morphoFoundry = getFoundryForLayer(annotationFoundry, "morpho")
                         collectKrillMorphoDataDirect(docId, morphoFoundry, morphoSpans, "morpho")
-                        tokens[docId] = allSpans
-                        collectKrillTokensFromMorpho(docId, morphoFoundry, allSpans)
+                        if (_foundry == "base") {
+                            tokens[docId] = allSpans
+                            collectKrillTokensFromMorpho(docId, morphoFoundry, allSpans)
+                        }
                     } else {
                         val morphoMap = synchronized(morpho) {
                             morpho.getOrPut(docId) { morphoSpans }
@@ -3476,7 +3505,9 @@ class KorapXmlTool : Callable<Int> {
                                 }
                             }
                         }
-                        tokens[docId] = allSpans
+                        if (_foundry == "base") {
+                            tokens[docId] = allSpans
+                        }
                     }
                 }
                 "dependency.xml" -> {
@@ -6113,11 +6144,13 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
-    // Remove a text from every Krill tracking structure without writing it. Used for empty
-    // texts that must not appear in the output TAR. Marking it in outputTexts ensures the
-    // incremental writer and the finalization pass both treat it as already handled.
-    private fun dropKrillText(textId: String) {
-        outputTexts.add(textId)
+    // Remove a text from every Krill tracking structure without writing it, and free its
+    // per-text memory. Used for empty texts that must not appear in the output TAR. Marking it
+    // in outputTexts ensures the incremental writer and the finalization pass both treat it as
+    // already handled. Returns true only on the first drop (outputTexts.add succeeds), so the
+    // caller can count and warn about each dropped text exactly once even if two paths race.
+    private fun dropKrillText(textId: String): Boolean {
+        if (!outputTexts.add(textId)) return false
         krillData.remove(textId)
         krillCompressedData.remove(textId)
         krillCompressionFutures.remove(textId)
@@ -6127,6 +6160,8 @@ class KorapXmlTool : Callable<Int> {
             zipInventory[path]?.remove(textId)
             processedTextsPerZip[path]?.remove(textId)
         }
+        freeTextMemory(textId)
+        return true
     }
 
     private fun enqueueKrillCompression(textId: String, textData: KrillJsonGenerator.KrillTextData) {
@@ -6137,9 +6172,10 @@ class KorapXmlTool : Callable<Int> {
         // a warning and remove it from all tracking so the finalization pass skips it too.
         val tokenCount = textData.tokens?.size ?: 0
         if (tokenCount == 0) {
-            LOGGER.warning("Skipping text $textId: no tokens (empty text)")
-            krillEmptyTextCount.incrementAndGet()
-            dropKrillText(textId)
+            if (dropKrillText(textId)) {
+                krillEmptyTextCount.incrementAndGet()
+                LOGGER.warning("Skipping text $textId: no tokens (empty text, dropped before compression)")
+            }
             return
         }
 
@@ -6455,10 +6491,10 @@ class KorapXmlTool : Callable<Int> {
     private fun outputKrillText(textId: String, textData: KrillJsonGenerator.KrillTextData) {
         // Never emit a text without tokens: Krill cannot index an empty document.
         if ((textData.tokens?.size ?: 0) == 0) {
-            LOGGER.warning("Skipping text $textId: no tokens (empty text)")
-            krillEmptyTextCount.incrementAndGet()
-            dropKrillText(textId)
-            freeTextMemory(textId)
+            if (dropKrillText(textId)) {
+                krillEmptyTextCount.incrementAndGet()
+                LOGGER.warning("Skipping text $textId: no tokens (empty text, dropped at write)")
+            }
             return
         }
         try {

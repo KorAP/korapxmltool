@@ -114,6 +114,60 @@ class CustomTokenizationTest {
         }
     }
 
+    @Test
+    fun krillTokenSourceWithMultipleZips() {
+        val outputDir = File.createTempFile("dck_krill_multi", "").apply {
+            delete()
+            mkdirs()
+        }
+        val tempDir = File.createTempFile("temp_zips", "").apply {
+            delete()
+            mkdirs()
+        }
+        try {
+            val baseZip = loadResource("dck_sample.zip").path
+            val corenlpZip = File(tempDir, "dck_sample.corenlp.zip")
+            
+            // Create a fake corenlp.zip that has corenlp/morpho.xml by reading cmc/morpho.xml from the base zip
+            java.util.zip.ZipOutputStream(corenlpZip.outputStream()).use { outZip ->
+                java.util.zip.ZipFile(File(baseZip)).use { inZip ->
+                    val entries = inZip.entries()
+                    while (entries.hasMoreElements()) {
+                        val entry = entries.nextElement()
+                        if (entry.name.endsWith("cmc/morpho.xml")) {
+                            val newName = entry.name.replace("cmc/morpho.xml", "corenlp/morpho.xml")
+                            outZip.putNextEntry(java.util.zip.ZipEntry(newName))
+                            inZip.getInputStream(entry).use { it.copyTo(outZip) }
+                            outZip.closeEntry()
+                        }
+                    }
+                }
+            }
+            
+            assertTrue(corenlpZip.exists(), "Should have created dck_sample.corenlp.zip")
+
+            // Run korapxmltool with BOTH zips
+            val args = arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip, corenlpZip.path)
+            assertEquals(0, debug(args))
+
+            val tar = File(outputDir, "dck_sample.krill.tar")
+            assertTrue(tar.exists(), "Expected dck_sample.krill.tar")
+
+            val jsons = readKrillJsons(tar)
+            val json1 = jsons.getValue("DCK-CPR-00001.json")
+            val json4 = jsons.getValue("DCK-CPR-00004.json")
+
+            jsons.forEach { (name, json) ->
+                // The tokens must STILL come from the base ZIP's cmc foundry, not corenlp
+                assertContains(json, "\"value\":\"cmc#morpho\"", message = "Failed for $name")
+                assertFalse(json.contains("\"value\":\"corenlp#morpho\""), "tokenSource should not be stolen by corenlp standoff zip in $name")
+            }
+        } finally {
+            outputDir.deleteRecursively()
+            tempDir.deleteRecursively()
+        }
+    }
+
     private fun readKrillJsons(tarFile: File): Map<String, String> {
         val extractDir = File.createTempFile("krill_extract", "").let {
             it.delete()
