@@ -5664,6 +5664,25 @@ class KorapXmlTool : Callable<Int> {
                 }
         }
 
+        // Derive the external link for cases where it is not explicitly encoded (Wikipedia URL in
+        // the reference text, DGD/FOLK transcripts, Süddeutsche and Genios newspapers). See
+        // ExternalLinkResolver. Explicitly encoded links (above) always take precedence.
+        if (!metadata.containsKey("externalLink")) {
+            val corpusSigle = headerRoot.firstText("textSigle")?.substringBefore("/")
+            val biblNoteId = headerRoot.childElements("biblNote")
+                .mapNotNull { ExternalLinkResolver.biblNoteId(it.textContent) }
+                .firstOrNull()
+            ExternalLinkResolver.resolve(
+                corpusSigle = corpusSigle,
+                reference = metadata["reference"] as? String,
+                biblNoteId = biblNoteId,
+                title = metadata["title"] as? String
+            )?.let { resolved ->
+                metadata["externalLink"] = resolved.url
+                metadata["externalLinkTitle"] = resolved.title
+            }
+        }
+
         val biblNoteElement = analytic.firstElement("biblNote") { it.getAttribute("n") == "url" }
             ?: monogr.firstElement("biblNote") { it.getAttribute("n") == "url" }
         biblNoteElement?.let {

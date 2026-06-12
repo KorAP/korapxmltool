@@ -231,8 +231,10 @@ object KrillJsonGenerator {
                 }
                 "externalLink" -> {
                     val url = value.toString()
-                    // Extract title from corpus/publisher metadata if available
-                    val title = resolvedHeaderMetadata["publisher"]?.toString() ?: "Link"
+                    // Prefer an explicit link title (e.g. "Wikipedia", "GENIOS", "Süddeutsche
+                    // Zeitung", "DGD" set by ExternalLinkResolver), then publisher, then "Link".
+                    val title = resolvedHeaderMetadata["externalLinkTitle"]?.toString()
+                        ?: resolvedHeaderMetadata["publisher"]?.toString() ?: "Link"
                     val encodedUrl = url.replace(":", "%3A").replace("/", "%2F")
                     "type:attachement" to jsonString("data:application/x.korap-link;title=$title,$encodedUrl")
                 }

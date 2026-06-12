@@ -1315,4 +1315,62 @@ class KrillJsonGeneratorTest {
             "log should warn about the dropped empty text"
         )
     }
+
+    /**
+     * Regression test for https://github.com/KorAP/korapxmltool/issues/47
+     *
+     * In older Wikipedia corpora (wdd17/wpd17) the article URL is only present in the
+     * reference[type=complete] text, not encoded as a ref/link element. It must still be picked up
+     * as the Krill externalLink, with title "Wikipedia".
+     */
+    @Test
+    fun krillExtractsWikipediaExternalLinkFromReference() {
+        val baseZip = loadResource("wdd17sample.zip").path
+        val tar = ensureKrillTar("wdd17_externallink", "wdd17sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, baseZip)
+        }
+
+        val json = readKrillJson(tar).getValue("WDD17-B06-45592.json")
+        val externalLink = krillFieldValue(json, "externalLink")
+        assertNotNull(externalLink, "Wikipedia text should have an externalLink field")
+        assertTrue(externalLink.contains("title=Wikipedia"), "link title should be Wikipedia: $externalLink")
+        assertTrue(
+            externalLink.contains("de.wikipedia.org%2Fwiki%2FDiskussion%3ABerlinische_Grammatik"),
+            "link should contain the encoded Wikipedia URL: $externalLink"
+        )
+    }
+
+    /**
+     * Wiring test for the Genios newspaper case (issue #47): a corpus sigle whose botkuerzel is
+     * known (W24 -> WELT) plus a biblNote "ID:" yields a genios.de full-text link with title GENIOS.
+     */
+    @Test
+    fun krillDerivesGeniosExternalLinkForNewspaper() {
+        val tool = KorapXmlTool()
+        val metadata = collectKrillMetadata(
+            tool,
+            "W24_SEP.00359",
+            headerElement(
+                """
+                <idsHeader>
+                  <fileDesc>
+                    <titleStmt><textSigle>W24/SEP.00359</textSigle></titleStmt>
+                    <sourceDesc>
+                      <biblStruct>
+                        <analytic>
+                          <h.title type="main">Wir brauchen ein Smartphone-Verbot in Schulen</h.title>
+                          <biblNote n="1">ID: 216199263 file: Originaldaten/2024/WELT.xml.zip@ Categories: Ressort: Forum</biblNote>
+                        </analytic>
+                        <monogr><h.title type="main">Die Welt</h.title></monogr>
+                      </biblStruct>
+                      <reference type="complete" assemblage="regular">W24/SEP.00359 Die Welt, 12.09.2024, S. 7.</reference>
+                    </sourceDesc>
+                  </fileDesc>
+                </idsHeader>
+                """
+            )
+        )
+        assertEquals("https://www.genios.de/document/WELT__216199263", metadata["externalLink"])
+        assertEquals("GENIOS", metadata["externalLinkTitle"])
+    }
 }
