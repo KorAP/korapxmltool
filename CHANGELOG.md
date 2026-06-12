@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v4.0.0] - 2026-06-12
 
 ### Added
 
@@ -21,6 +21,7 @@
 ### Changed
 
 - Krill metadata field names corrected by default: the misleadingly named `textClass` is now emitted as `dmozDomain` (DMOZ-based topic-domain classification) and `textDomain` as `idsColumn` (normalised newspaper column / Ressort). Pass `--legacy-field-names` to keep the historical names. Note: querying the corrected indices by the old names will require a need an accordingly configured Koral Mapper plugin to be active.
+- Dependency updates: `org.apache.opennlp:opennlp-tools` 2.5.7 → 2.5.8, `com.google.guava:guava` 33.5.0-jre → 33.6.0-jre, `org.apache.ant:ant` 1.10.15 → 1.10.17, `org.jetbrains.kotlin:kotlin-test` 2.3.20 → 2.3.21, and the `softprops/action-gh-release` GitHub Action 2 → 3.
 
 ## [v3.4.0] - 2026-06-08
 
