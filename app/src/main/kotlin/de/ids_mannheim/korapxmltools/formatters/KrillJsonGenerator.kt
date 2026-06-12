@@ -17,8 +17,8 @@ object KrillJsonGenerator {
     fun resolveHeaderMetadata(
         textId: String,
         textHeaderMetadata: Map<String, Any>,
-        corpusMetadata: Map<String, out Map<String, Any>>,
-        docMetadata: Map<String, out Map<String, Any>>
+        corpusMetadata: Map<String, Map<String, Any>>,
+        docMetadata: Map<String, Map<String, Any>>
     ): MutableMap<String, Any> {
         val resolved = mutableMapOf<String, Any>()
         val textIdWithSlashes = textId.replace("_", "/").replace(".", "/")
