@@ -4454,6 +4454,10 @@ class KorapXmlTool : Callable<Int> {
                             "upos" -> currentSpan.upos = append(currentSpan.upos, value)
                             "xpos", "ctag", "pos" -> currentSpan.xpos = append(currentSpan.xpos, value.replace(UNKNOWN, "--"))
                             "feats", "msd" -> currentSpan.feats = append(currentSpan.feats, value)
+                            "norm" -> currentSpan.norm = append(currentSpan.norm, value)
+                            "orig" -> currentSpan.orig = append(currentSpan.orig, value)
+                            "phon" -> currentSpan.phon = append(currentSpan.phon, value)
+                            "trans" -> currentSpan.trans = append(currentSpan.trans, value)
                             "certainty" -> currentSpan.misc = append(currentSpan.misc, value)
                         }
                     }
@@ -4493,6 +4497,10 @@ class KorapXmlTool : Callable<Int> {
                         "upos" -> fs.upos = append(fs.upos, value)
                         "xpos", "ctag", "pos" -> fs.xpos = append(fs.xpos, value.replace(UNKNOWN, "--"))
                         "feats", "msd" -> fs.feats = append(fs.feats, value)
+                        "norm" -> fs.norm = append(fs.norm, value)
+                        "orig" -> fs.orig = append(fs.orig, value)
+                        "phon" -> fs.phon = append(fs.phon, value)
+                        "trans" -> fs.trans = append(fs.trans, value)
                         "type" -> {
                              val typeVal = feature.getElementsByTagName("symbol").item(0).attributes.getNamedItem("value").textContent.trim()
                              fs.feats = append(fs.feats, typeVal)
@@ -4702,7 +4710,13 @@ class KorapXmlTool : Callable<Int> {
         var head: String? = "_",
         var deprel: String? = "_",
         var deps: String? = "_",
-        var misc: String? = "_"
+        var misc: String? = "_",
+        // Extra inline w-attributes from TEI-derived corpora, emitted as their
+        // own Krill layers (norm, orig, phon, trans). Not used by CoNLL-U.
+        var norm: String? = "_",
+        var orig: String? = "_",
+        var phon: String? = "_",
+        var trans: String? = "_"
     )
 
     internal fun parseAndWriteAnnotatedConllu(annotatedConllu: String, task: AnnotationWorkerPool.AnnotationTask?) {
@@ -5890,6 +5904,10 @@ class KorapXmlTool : Callable<Int> {
                     filteredSpan.xpos = span.xpos
                     filteredSpan.feats = span.feats
                     filteredSpan.misc = span.misc
+                    filteredSpan.norm = span.norm
+                    filteredSpan.orig = span.orig
+                    filteredSpan.phon = span.phon
+                    filteredSpan.trans = span.trans
                 } else if (annotationType == "dependency") {
                     // Copy only dependency annotations (head, deprel)
                     filteredSpan.head = span.head
@@ -5924,6 +5942,10 @@ class KorapXmlTool : Callable<Int> {
                                 if (newSpan.xpos != null && newSpan.xpos != "_" && (existingSpan.xpos == null || existingSpan.xpos == "_")) existingSpan.xpos = newSpan.xpos
                                 if (newSpan.feats != null && newSpan.feats != "_" && (existingSpan.feats == null || existingSpan.feats == "_")) existingSpan.feats = newSpan.feats
                                 if (newSpan.misc != null && newSpan.misc != "_" && (existingSpan.misc == null || existingSpan.misc == "_")) existingSpan.misc = newSpan.misc
+                                if (newSpan.norm != null && newSpan.norm != "_" && (existingSpan.norm == null || existingSpan.norm == "_")) existingSpan.norm = newSpan.norm
+                                if (newSpan.orig != null && newSpan.orig != "_" && (existingSpan.orig == null || existingSpan.orig == "_")) existingSpan.orig = newSpan.orig
+                                if (newSpan.phon != null && newSpan.phon != "_" && (existingSpan.phon == null || existingSpan.phon == "_")) existingSpan.phon = newSpan.phon
+                                if (newSpan.trans != null && newSpan.trans != "_" && (existingSpan.trans == null || existingSpan.trans == "_")) existingSpan.trans = newSpan.trans
                             }
                             mergedCount++
                         } else {
@@ -5965,6 +5987,10 @@ class KorapXmlTool : Callable<Int> {
                         filteredSpan.xpos = span.xpos
                         filteredSpan.feats = span.feats
                         filteredSpan.misc = span.misc
+                        filteredSpan.norm = span.norm
+                        filteredSpan.orig = span.orig
+                        filteredSpan.phon = span.phon
+                        filteredSpan.trans = span.trans
                     } else if (annotationType == "dependency") {
                         // Copy only dependency annotations (head, deprel)
                         filteredSpan.head = span.head
@@ -5999,6 +6025,10 @@ class KorapXmlTool : Callable<Int> {
                                     if (newSpan.xpos != null && newSpan.xpos != "_" && (existingSpan.xpos == null || existingSpan.xpos == "_")) existingSpan.xpos = newSpan.xpos
                                     if (newSpan.feats != null && newSpan.feats != "_" && (existingSpan.feats == null || existingSpan.feats == "_")) existingSpan.feats = newSpan.feats
                                     if (newSpan.misc != null && newSpan.misc != "_" && (existingSpan.misc == null || existingSpan.misc == "_")) existingSpan.misc = newSpan.misc
+                                    if (newSpan.norm != null && newSpan.norm != "_" && (existingSpan.norm == null || existingSpan.norm == "_")) existingSpan.norm = newSpan.norm
+                                    if (newSpan.orig != null && newSpan.orig != "_" && (existingSpan.orig == null || existingSpan.orig == "_")) existingSpan.orig = newSpan.orig
+                                    if (newSpan.phon != null && newSpan.phon != "_" && (existingSpan.phon == null || existingSpan.phon == "_")) existingSpan.phon = newSpan.phon
+                                    if (newSpan.trans != null && newSpan.trans != "_" && (existingSpan.trans == null || existingSpan.trans == "_")) existingSpan.trans = newSpan.trans
                                 }
                                 mergedCount++
                             } else {

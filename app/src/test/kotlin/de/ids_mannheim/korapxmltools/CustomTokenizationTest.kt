@@ -168,6 +168,83 @@ class CustomTokenizationTest {
         }
     }
 
+    /**
+     * Rare TEI w-attributes (norm, orig, phon, trans) become their own Krill
+     * layers (like pos and lemma), but are not part of CoNLL-U. Here we inject
+     * all four into the first token of DCK/CPR/00001 to exercise the layers.
+     */
+    private fun dckSampleWithExtraAttributes(): File {
+        val baseZip = loadResource("dck_sample.zip").path
+        val outZipFile = File.createTempFile("dck_extraattr", ".zip")
+        java.util.zip.ZipOutputStream(outZipFile.outputStream()).use { outZip ->
+            java.util.zip.ZipFile(File(baseZip)).use { inZip ->
+                val entries = inZip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    outZip.putNextEntry(java.util.zip.ZipEntry(entry.name))
+                    if (entry.name == "DCK/CPR/00001/cmc/morpho.xml") {
+                        val content = inZip.getInputStream(entry).bufferedReader().use { it.readText() }
+                            .replaceFirst(
+                                "<f name=\"pos\">PPER</f>",
+                                "<f name=\"pos\">PPER</f>" +
+                                    "<f name=\"norm\">wir</f><f name=\"orig\">Wir</f>" +
+                                    "<f name=\"phon\">viːɐ̯</f><f name=\"trans\">we</f>"
+                            )
+                        outZip.write(content.toByteArray())
+                    } else {
+                        inZip.getInputStream(entry).use { it.copyTo(outZip) }
+                    }
+                    outZip.closeEntry()
+                }
+            }
+        }
+        return outZipFile
+    }
+
+    @Test
+    fun conlluDoesNotLeakExtraAttributesIntoFeats() {
+        val zip = dckSampleWithExtraAttributes()
+        try {
+            assertEquals(0, debug(arrayOf("-q", zip.path)))
+            // The first token keeps an empty FEATS column; the extra w-attributes
+            // are Krill-only and must not appear in CoNLL-U.
+            val output = outContent.toString()
+            assertContains(output, "wir\twir\t_\tPPER\t_")
+            assertFalse(output.contains("norm="), "norm must not leak into CoNLL-U")
+            assertFalse(output.contains("orig="), "orig must not leak into CoNLL-U")
+        } finally {
+            zip.delete()
+        }
+    }
+
+    @Test
+    fun krillIndexesExtraAttributesAsOwnLayers() {
+        val zip = dckSampleWithExtraAttributes()
+        val outputDir = File.createTempFile("dck_extraattr_krill", "").apply {
+            delete()
+            mkdirs()
+        }
+        try {
+            assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", outputDir.path, zip.path)))
+            val tar = File(outputDir, "${zip.nameWithoutExtension}.krill.tar")
+            assertTrue(tar.exists(), "Expected ${tar.name}")
+            val json1 = readKrillJsons(tar).getValue("DCK-CPR-00001.json")
+            // Each attribute is indexed under its own foundry/key (case preserved)
+            assertContains(json1, "\"cmc/norm:wir\"")
+            assertContains(json1, "\"cmc/orig:Wir\"")
+            assertContains(json1, "\"cmc/phon:viːɐ̯\"")
+            assertContains(json1, "\"cmc/trans:we\"")
+            // Layers are advertised in layerInfos
+            assertContains(json1, "cmc/norm=tokens")
+            assertContains(json1, "cmc/orig=tokens")
+            // A token without the extra attributes must not carry empty layers
+            assertFalse(json1.contains("\"cmc/norm:\""), "norm must only be emitted where present")
+        } finally {
+            zip.delete()
+            outputDir.deleteRecursively()
+        }
+    }
+
     private fun readKrillJsons(tarFile: File): Map<String, String> {
         val extractDir = File.createTempFile("krill_extract", "").let {
             it.delete()

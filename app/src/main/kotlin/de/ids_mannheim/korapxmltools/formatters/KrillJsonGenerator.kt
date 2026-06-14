@@ -359,6 +359,20 @@ object KrillJsonGenerator {
                         layers.add("u=tokens")
                     }
                 }
+
+                // Extra inline w-attribute layers (norm, orig, phon, trans) are
+                // rare; a single short-circuiting scan gates the four per-attribute
+                // checks so corpora without them pay at most one extra pass.
+                val hasExtra = morphoData?.any {
+                    (it.norm != null && it.norm != "_") || (it.orig != null && it.orig != "_") ||
+                    (it.phon != null && it.phon != "_") || (it.trans != null && it.trans != "_")
+                } ?: false
+                if (hasExtra) {
+                    if (morphoData?.any { it.norm != null && it.norm != "_" } == true) layers.add("norm=tokens")
+                    if (morphoData?.any { it.orig != null && it.orig != "_" } == true) layers.add("orig=tokens")
+                    if (morphoData?.any { it.phon != null && it.phon != "_" } == true) layers.add("phon=tokens")
+                    if (morphoData?.any { it.trans != null && it.trans != "_" } == true) layers.add("trans=tokens")
+                }
             }
         }
 
@@ -408,7 +422,9 @@ object KrillJsonGenerator {
                 // Convert layer format: "d=rels" -> "dependency", "p=tokens" -> "morpho", etc.
                 val layerName = when {
                     layer.startsWith("d=") -> "dependency"
-                    layer.startsWith("l=") || layer.startsWith("p=") || layer.startsWith("m=") || layer.startsWith("u=") -> "morpho"
+                    layer.startsWith("l=") || layer.startsWith("p=") || layer.startsWith("m=") || layer.startsWith("u=") ||
+                        layer.startsWith("norm=") || layer.startsWith("orig=") ||
+                        layer.startsWith("phon=") || layer.startsWith("trans=") -> "morpho"
                     else -> layer.split("=")[0]
                 }
                 val foundryLayer = "$foundryFullName/$layerName"
@@ -848,6 +864,29 @@ object KrillJsonGenerator {
                         // UPOS (skip for tree_tagger as it only has xpos)
                         if (morphoSpan.upos != null && morphoSpan.upos != "_" && foundry != "tree_tagger") {
                             tokenAnnotations.add(jsonString("$prefix/u:${morphoSpan.upos!!.escapeKrillValue()}"))
+                        }
+
+                        // Extra inline w-attribute layers (norm, orig, phon, trans),
+                        // each emitted under its own key like pos (p:) and lemma (l:).
+                        if (morphoSpan.norm != null && morphoSpan.norm != "_") {
+                            morphoSpan.norm!!.split("|").forEach {
+                                tokenAnnotations.add(jsonString("$prefix/norm:${it.escapeKrillValue()}"))
+                            }
+                        }
+                        if (morphoSpan.orig != null && morphoSpan.orig != "_") {
+                            morphoSpan.orig!!.split("|").forEach {
+                                tokenAnnotations.add(jsonString("$prefix/orig:${it.escapeKrillValue()}"))
+                            }
+                        }
+                        if (morphoSpan.phon != null && morphoSpan.phon != "_") {
+                            morphoSpan.phon!!.split("|").forEach {
+                                tokenAnnotations.add(jsonString("$prefix/phon:${it.escapeKrillValue()}"))
+                            }
+                        }
+                        if (morphoSpan.trans != null && morphoSpan.trans != "_") {
+                            morphoSpan.trans!!.split("|").forEach {
+                                tokenAnnotations.add(jsonString("$prefix/trans:${it.escapeKrillValue()}"))
+                            }
                         }
                     }
 
