@@ -134,6 +134,14 @@ class KrillJsonGeneratorTest {
         return tool.corpusMetadata.getValue(corpusSigle)
     }
 
+    private fun applyInheritedKrillMetadata(tool: KorapXmlTool, textId: String, textData: KrillJsonGenerator.KrillTextData) {
+        val method = KorapXmlTool::class.java.getDeclaredMethod(
+            "applyInheritedKrillMetadata", String::class.java, KrillJsonGenerator.KrillTextData::class.java
+        )
+        method.isAccessible = true
+        method.invoke(tool, textId, textData)
+    }
+
     private fun krillFieldValue(json: String, fieldName: String): String? =
         Regex(
             """"key"\s*:\s*"$fieldName".*?"value"\s*:\s*"([^"]*)"""",
@@ -588,6 +596,29 @@ class KrillJsonGeneratorTest {
             docMetadata = mapOf("TEST/DOC" to mutableMapOf<String, Any>("pubPlace" to "Doc Place"))
         )
         assertEquals("Text Place", resolvedFromText["pubPlace"])
+    }
+
+    @Test
+    fun availabilityIsInheritedFromCorpusWhenAbsentOnText() {
+        val tool = KorapXmlTool()
+        tool.corpusMetadata["TEST"] = mutableMapOf<String, Any>("availability" to "CC-BY-SA")
+        val textData = KrillJsonGenerator.KrillTextData(textId = "TEST_DOC.1")
+
+        applyInheritedKrillMetadata(tool, "TEST_DOC.1", textData)
+
+        assertEquals("CC-BY-SA", textData.headerMetadata["availability"])
+        assertEquals(0, tool.krillMissingAvailabilityCount.get(), "Inherited availability must not count as missing")
+    }
+
+    @Test
+    fun availabilityDefaultsToUnknownAndIsCountedWhenMissingEverywhere() {
+        val tool = KorapXmlTool()
+        val textData = KrillJsonGenerator.KrillTextData(textId = "TEST_DOC.1")
+
+        applyInheritedKrillMetadata(tool, "TEST_DOC.1", textData)
+
+        assertEquals("unknown", textData.headerMetadata["availability"])
+        assertEquals(1, tool.krillMissingAvailabilityCount.get(), "Missing availability must be counted for the summary warning")
     }
 
     @Test

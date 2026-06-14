@@ -1319,6 +1319,9 @@ class KorapXmlTool : Callable<Int> {
     var krillOutputCount = java.util.concurrent.atomic.AtomicInteger(0)
     // Texts dropped from Krill output because they contain no tokens (see enqueueKrillCompression).
     val krillEmptyTextCount = java.util.concurrent.atomic.AtomicInteger(0)
+    // Texts for which no availability metadata could be resolved and that were
+    // defaulted to "unknown" (see applyInheritedKrillMetadata).
+    val krillMissingAvailabilityCount = java.util.concurrent.atomic.AtomicInteger(0)
     private val krillPeakRawPending = AtomicInteger(0)
     private val krillPeakCompressedPending = AtomicInteger(0)
     private val krillPeakCompressionInFlight = AtomicInteger(0)
@@ -1955,6 +1958,10 @@ class KorapXmlTool : Callable<Int> {
                 val emptyDropped = krillEmptyTextCount.get()
                 if (emptyDropped > 0) {
                     LOGGER.warning("Dropped $emptyDropped empty text(s) with no tokens from Krill output")
+                }
+                val missingAvailability = krillMissingAvailabilityCount.get()
+                if (missingAvailability > 0) {
+                    LOGGER.warning("Set availability to \"unknown\" for $missingAvailability text(s) with no availability metadata in their text, doc or corpus header")
                 }
                 LOGGER.info("Closed krill TAR file: $krillOutputFileName (total texts output: $krillOutputCount)")
             } catch (e: Exception) {
@@ -6189,6 +6196,20 @@ class KorapXmlTool : Callable<Int> {
             corpusMetadata = corpusMetadata,
             docMetadata = docMetadata
         )
+
+        // availability is legally crucial for a KorAP instance to serve a text.
+        // resolveHeaderMetadata already inherits it corpus -> doc -> text (a lower
+        // level overrides a higher one); if it is still missing, default to
+        // "unknown" so the field is always present, and record it for a summary
+        // warning. The per-text detail is logged at FINE to avoid flooding the
+        // log when a whole corpus lacks the field.
+        val availability = resolvedMetadata["availability"]
+        if (availability == null || (availability is String && availability.isBlank())) {
+            resolvedMetadata["availability"] = "unknown"
+            krillMissingAvailabilityCount.incrementAndGet()
+            LOGGER.fine("No availability metadata for $textId (absent from text, doc and corpus header); set to \"unknown\"")
+        }
+
         textData.headerMetadata.clear()
         textData.headerMetadata.putAll(resolvedMetadata)
 

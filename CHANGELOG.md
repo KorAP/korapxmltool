@@ -8,6 +8,7 @@
 - Sentence segmentation fallback: when a corpus has no `s` spans in `structure.xml` (common for TEI conversions of custom corpora), sentence boundaries now fall back to other segment-like TEI elements, in order of preference: `posting` (chat/CMC), `l` (verse line), `seg` (segment), `u` (utterance). This makes integrated taggers/parsers and KorAP sentence-based queries work on such corpora.
 - New `dck_sample.zip` test resource: two-text excerpt from the CC BY licensed Dortmunder Chat-Korpus with custom `cmc` tokenization/annotations (in one text the `s` spans are removed to exercise the sentence fallback)
 - Krill output now indexes extra inline `<w>`-level annotations from TEI-derived corpora as their own token layers, alongside POS (`p`) and lemma (`l`): `norm`, `orig`, `phon` and `trans` (read from the correspondingly named `<f>` features in `morpho.xml`). Each becomes a `foundry/<name>=tokens` layer with `foundry/<name>:<value>` terms (original casing preserved), grouped under the `morpho` foundry. The set is intentionally restricted to these four names to keep the Krill hot path fast. These layers are Krill-only and do not affect CoNLL-U output.
+- Krill output now always emits an `availability` field, which is legally required for a KorAP instance to serve a text. It is inherited from the corpus or document header when not set on the text (a lower level overrides a higher one); if no value is found at any level it defaults to `unknown`, logged per text at `FINE` and summarised in a single closing warning with the affected text count.
 
 ### Fixed
 
