@@ -81,6 +81,51 @@ class SparseAnnotationExternalTest {
         }
     }
     
+    @Test
+    fun taggerFoundryWinsOverEchoedInputFoundry() {
+        // Regression: when annotating a corpus that ships its own inline foundry
+        // (e.g. cmc/gingko), the tagger's foundry must name the output, not the
+        // "# foundry =" comment echoed back from the input through the tool.
+        val outputDir = createTempDir("conllu_foundry_precedence")
+        try {
+            val outputZip = File(outputDir, "output.zip")
+            val tool = KorapXmlTool()
+            tool.morphoZipOutputStream = ZipArchiveOutputStream(FileOutputStream(outputZip))
+            tool.tokenSeparator = "\n"
+
+            // Task foundry is the tagger's (tree_tagger); the CoNLL-U the tool
+            // produced still carries the input corpus foundry (cmc).
+            val task = AnnotationWorkerPool.AnnotationTask(
+                text = "",
+                docId = "NDY_115.005255",
+                entryPath = "NDY/115/005255|tree_tagger"
+            )
+            val annotatedConllu = """
+                # foundry = cmc
+                # filename = NDY/115/005255/base/tokens.xml
+                # text_id = NDY_115.005255
+                # start_offsets = 0 0 4 11 18 22 27 32 35 41 46 50 56 64
+                # end_offsets = 65 3 10 17 21 26 31 34 40 45 49 55 64 65
+                7	:)	_	_	EMOASC	_	_	_	_	_
+
+            """.trimIndent()
+
+            tool.parseAndWriteAnnotatedConllu(annotatedConllu, task)
+            tool.morphoZipOutputStream?.close()
+
+            assertTrue(
+                extractFileFromZip(outputZip, Regex(".*tree_tagger/morpho.xml")) != null,
+                "Annotation must be written under the tagger foundry (tree_tagger)"
+            )
+            assertTrue(
+                extractFileFromZip(outputZip, Regex(".*/cmc/morpho.xml")) == null,
+                "Annotation must NOT be written under the echoed input foundry (cmc)"
+            )
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
     // Helper since kotlin-test doesn't strictly have createTempDir anymore in some versions or usually io.tmp
     private fun createTempDir(prefix: String): File {
         val f = java.nio.file.Files.createTempDirectory(prefix).toFile()

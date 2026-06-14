@@ -4851,18 +4851,25 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
-        // Use extracted foundry from CoNLL-U output if available
-        val actualFoundry = if (foundryOverride != null) {
-            foundryOverride!!
-        } else if (extractedFoundry != null) {
-            if (extractedFoundry != foundry) {
-                LOGGER.info("Using foundry from CoNLL-U output: $extractedFoundry (was: $foundry)")
+        // Determine the foundry to write the annotation under. The task already
+        // carries the annotation tool's foundry (from -T / -A detection / -F) in
+        // `foundry`, and that must win: a "# foundry =" comment in the tool's
+        // output usually just echoes the INPUT corpus's own foundry back (e.g. a
+        // custom inline foundry like gingko or cmc), and adopting it would name
+        // the output after — and overwrite — the corpus's existing annotations.
+        // Only fall back to the comment when the tool is unrecognized and the
+        // foundry is the generic "annotated" placeholder.
+        val actualFoundry = when {
+            foundryOverride != null -> foundryOverride!!
+            foundry == "annotated" && extractedFoundry != null -> {
+                if (extractedFoundry != foundry) {
+                    LOGGER.info("Using foundry from CoNLL-U output: $extractedFoundry (was: $foundry)")
+                }
+                // Update the global externalFoundry variable for consistent naming
+                externalFoundry = extractedFoundry
+                extractedFoundry
             }
-            // Update the global externalFoundry variable for consistent naming
-            externalFoundry = extractedFoundry
-            extractedFoundry
-        } else {
-            foundry
+            else -> foundry
         }
 
         try {
