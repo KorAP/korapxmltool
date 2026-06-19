@@ -1314,6 +1314,11 @@ class KorapXmlTool : Callable<Int> {
     val readyKrillTextIds: java.util.concurrent.BlockingQueue<String> = java.util.concurrent.LinkedBlockingQueue()
     val corpusMetadata: ConcurrentHashMap<String, MutableMap<String, Any>> = ConcurrentHashMap()
     val docMetadata: ConcurrentHashMap<String, MutableMap<String, Any>> = ConcurrentHashMap()
+    // I5 <xenoData> fields parsed from headers, kept per level so they inherit
+    // corpus -> doc -> text and are attached to each text's Krill stand-off fields.
+    val corpusXenoData: ConcurrentHashMap<String, MutableList<KrillJsonGenerator.StandoffField>> = ConcurrentHashMap()
+    val docXenoData: ConcurrentHashMap<String, MutableList<KrillJsonGenerator.StandoffField>> = ConcurrentHashMap()
+    val textXenoData: ConcurrentHashMap<String, MutableList<KrillJsonGenerator.StandoffField>> = ConcurrentHashMap()
     val expectedFoundries: MutableSet<String> = mutableSetOf("base")
     val processedFoundries: MutableSet<String> = mutableSetOf()
     var krillOutputCount = java.util.concurrent.atomic.AtomicInteger(0)
@@ -1398,6 +1403,9 @@ class KorapXmlTool : Callable<Int> {
             krillCompressionStartNanos.clear()
             corpusMetadata.clear()
             docMetadata.clear()
+            corpusXenoData.clear()
+            docXenoData.clear()
+            textXenoData.clear()
             zipInventory.clear()
             processedTextsPerZip.clear()
             outputTexts.clear()
@@ -5565,6 +5573,9 @@ class KorapXmlTool : Callable<Int> {
             mergeExtractedKrillMetadata(textData.headerMetadata, extractKrillHeaderMetadata(headerRoot))
             LOGGER.fine("Collected ${textData.headerMetadata.size} metadata fields for $docId")
         }
+        StandoffMetadata.parseXenoData(headerRoot, "text").takeIf { it.isNotEmpty() }?.let {
+            textXenoData[docId] = it.toMutableList()
+        }
     }
 
     private fun extractKrillHeaderMetadata(headerRoot: Element): MutableMap<String, Any> {
@@ -5798,6 +5809,9 @@ class KorapXmlTool : Callable<Int> {
             )
             LOGGER.fine("Collected ${metadata.size} corpus-level metadata fields for $corpusSigle")
         }
+        StandoffMetadata.parseXenoData(headerRoot, "corpus").takeIf { it.isNotEmpty() }?.let {
+            corpusXenoData[corpusSigle] = it.toMutableList()
+        }
     }
 
     // Collect document-level metadata from doc header
@@ -5809,6 +5823,9 @@ class KorapXmlTool : Callable<Int> {
             metadata.putIfNotBlank("docTitle", headerRoot.firstText("d.title") ?: metadata["title"] as? String)
             metadata.putIfNotBlank("docAuthor", headerRoot.firstText("h.author") ?: metadata["author"] as? String)
             LOGGER.fine("Collected ${metadata.size} doc-level metadata fields for $docSigle")
+        }
+        StandoffMetadata.parseXenoData(headerRoot, "doc").takeIf { it.isNotEmpty() }?.let {
+            docXenoData[docSigle] = it.toMutableList()
         }
     }
 
@@ -6213,11 +6230,21 @@ class KorapXmlTool : Callable<Int> {
         textData.headerMetadata.clear()
         textData.headerMetadata.putAll(resolvedMetadata)
 
-        // Attach any stand-off metadata fields for this text (joined by docid).
-        if (standoffMetadata.isNotEmpty()) {
-            standoffMetadata[textId]?.let { fields ->
-                textData.standoffFields = fields.toMutableList()
-            }
+        // Attach stand-off and xenodata metadata fields for this text. Xenodata
+        // inherits corpus -> doc -> text; the per-level key prefixes (corpus*/doc*)
+        // keep the levels distinct so they never clobber each other.
+        val textIdWithSlashes = textId.replace("_", "/").replace(".", "/")
+        val sigleParts = textIdWithSlashes.split("/")
+        val corpusSigle = sigleParts.firstOrNull().orEmpty()
+        val docSigle = sigleParts.take(2).joinToString("/")
+
+        val combinedStandoff = mutableListOf<KrillJsonGenerator.StandoffField>()
+        standoffMetadata[textId]?.let { combinedStandoff.addAll(it) }
+        corpusXenoData[corpusSigle]?.let { combinedStandoff.addAll(it) }
+        docXenoData[docSigle]?.let { combinedStandoff.addAll(it) }
+        textXenoData[textId]?.let { combinedStandoff.addAll(it) }
+        if (combinedStandoff.isNotEmpty()) {
+            textData.standoffFields = combinedStandoff
         }
     }
 

@@ -156,4 +156,136 @@ object StandoffMetadata {
         }
         return result
     }
+
+    /**
+     * Parse the I5 `<xenoData>` block of a header element into ready-to-emit Krill
+     * fields, mirroring KorAP-XML-Krill's `KorAP::XML::Meta::I5` xenodata handling.
+     *
+     * Each `<meta name="..." type="..." [project="..."] [desc="..."]>VALUE</meta>`
+     * becomes one Krill field. The meta `type` selects the field type:
+     *   string -> type:string, keyword -> type:keywords, text -> type:text,
+     *   date -> type:date, attachment -> type:attachement, uri -> type:attachement
+     *   (value wrapped as a korap-link data URI). Unknown types are skipped.
+     *
+     * The field key is `<project>.<name>` (the `<project>.` part only when a
+     * project attribute is present). For doc/corpus headers the meta name is
+     * prefixed with the level ("doc"/"corpus") and upper-cased, so the same meta
+     * name stays a distinct field across levels (text `rcpnt`, doc `docRcpnt`,
+     * corpus `corpusRcpnt`). Repeated keyword metas with the same key accumulate
+     * into a list; repeated scalars keep the last value.
+     *
+     * @param header     the idsHeader root element (may be null)
+     * @param headerType "text", "doc" or "corpus"
+     */
+    fun parseXenoData(header: Element?, headerType: String): List<StandoffField> {
+        if (header == null) return emptyList()
+        val xeno = header.getElementsByTagName("xenoData")
+            .let { if (it.length == 0) null else it.item(0) as? Element }
+            ?: return emptyList()
+
+        // Keyed by the internal (type-prefixed) key so metas only collide when they
+        // would in Perl, too; LinkedHashMap preserves document order of first sight.
+        val ordered = LinkedHashMap<String, XenoEntry>()
+        val metas = xeno.getElementsByTagName("meta")
+        for (i in 0 until metas.length) {
+            val meta = metas.item(i) as? Element ?: continue
+            val name = meta.getAttribute("name").trim()
+            if (name.isEmpty()) continue
+            val value = squish(meta.textContent ?: "")
+            if (value.isEmpty()) continue
+            val xtype = meta.getAttribute("type").trim()
+            if (xtype.isEmpty()) continue
+
+            val typePrefix = when (xtype) {
+                "string" -> "S_"
+                "keyword" -> "K_"
+                "text" -> "T_"
+                "date" -> "D_"
+                "attachment", "uri" -> "A_"
+                else -> {
+                    LOGGER.warning("Unknown xenodata type: $xtype")
+                    continue
+                }
+            }
+            val fieldType = when (xtype) {
+                "string" -> "type:string"
+                "keyword" -> "type:keywords"
+                "text" -> "type:text"
+                "date" -> "type:date"
+                else -> "type:attachement" // attachment, uri
+            }
+            val fieldValue = when (xtype) {
+                "uri" -> korapDataUri(value, meta.getAttribute("desc").trim().ifBlank { value })
+                "attachment" -> if (value.startsWith("data:")) value else "data:,$value"
+                "date" -> normalizeXenoDate(value)
+                else -> value
+            }
+
+            val project = meta.getAttribute("project").trim()
+            val nameKey = if (headerType == "doc" || headerType == "corpus") {
+                headerType + name.replaceFirstChar { it.uppercase() }
+            } else {
+                name
+            }
+            val internalKey = typePrefix + (if (project.isNotEmpty()) "$project." else "") + nameKey
+
+            val entry = ordered.getOrPut(internalKey) { XenoEntry(fieldKey(internalKey), fieldType) }
+            if (xtype == "keyword") {
+                entry.keywords.add(fieldValue)
+            } else {
+                entry.scalar = fieldValue
+            }
+        }
+
+        return ordered.values.map { entry ->
+            if (entry.type == "type:keywords") {
+                StandoffField(entry.key, entry.type, entry.keywords.toList())
+            } else {
+                StandoffField(entry.key, entry.type, entry.scalar ?: "")
+            }
+        }
+    }
+
+    private class XenoEntry(val key: String, val type: String) {
+        val keywords = mutableListOf<String>()
+        var scalar: String? = null
+    }
+
+    /**
+     * Derive the Krill field key from the internal type-prefixed key, mirroring
+     * KorAP::XML::Meta::Base::_k: strip the 2-char type prefix, camel-case `_x`
+     * sequences and upper-case a trailing "id".
+     */
+    private fun fieldKey(internalKey: String): String {
+        var x = internalKey.substring(2)
+        x = Regex("_(\\w)").replace(x) { it.groupValues[1].uppercase() }
+        x = x.replace(Regex("(?i)id$"), "ID")
+        return x
+    }
+
+    /** Collapse internal whitespace runs and trim; an all-dashes value becomes empty. */
+    private fun squish(s: String): String {
+        var v = s.replace(Regex("\\s\\s+"), " ").trim()
+        if (v.matches(Regex("^-+$"))) v = ""
+        return v
+    }
+
+    /** Normalise an 8-digit YYYYMMDD date to YYYY[-MM[-DD]]; pass other forms through. */
+    private fun normalizeXenoDate(value: String): String {
+        val m = Regex("^(\\d{4})(\\d{2})(\\d{2})$").find(value) ?: return value
+        val (y, mo, d) = m.destructured
+        val sb = StringBuilder(y)
+        if (mo != "00") {
+            sb.append("-").append(mo)
+            if (d != "00") sb.append("-").append(d)
+        }
+        return sb.toString()
+    }
+
+    /** Build a `data:application/x.korap-link` URI, mirroring Meta::Base::korap_data_uri. */
+    private fun korapDataUri(data: String, title: String): String =
+        "data:application/x.korap-link;title=${urlEscape(title)},${urlEscape(data)}"
+
+    private fun urlEscape(s: String): String =
+        java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 }

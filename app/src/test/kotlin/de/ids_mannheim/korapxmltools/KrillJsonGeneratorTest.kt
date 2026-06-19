@@ -14,6 +14,7 @@ import java.net.URL
 import java.util.zip.GZIPInputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
@@ -1283,6 +1284,152 @@ class KrillJsonGeneratorTest {
             values,
             "All categories present in the file should be indexed, in rank order"
         )
+    }
+
+    /**
+     * Regression tests for https://github.com/KorAP/korapxmltool/issues/54
+     *
+     * I5 `<xenoData>` blocks carry corpus-provided metadata (e.g. the RPK
+     * denomination) that must reach Krill so it is displayed and searchable.
+     * Mirrors KorAP-XML-Krill commit 24ad3c0 (KorAP::XML::Meta::I5) and its
+     * t/real/ked.t expectations.
+     */
+    @Test
+    fun parseXenoDataMapsTypesKeysAndAccumulatesKeywords() {
+        // Text-level xenoData from KED/KLX/03212 (KorAP-XML-Krill t/real), plus the
+        // project-less text/date metas from the issue's RPK example.
+        val fields = StandoffMetadata.parseXenoData(
+            headerElement(
+                """
+                <idsHeader>
+                  <xenoData>
+                    <meta name="rcpnt" project="KED" type="keyword" desc="recipient group">kinder</meta>
+                    <meta name="rcpntLabel" project="KED" type="attachment" desc="recipient group capitalized">Kinder</meta>
+                    <meta name="strtgy" project="KED" type="keyword" desc="strategy">erklaeren</meta>
+                    <meta name="cover1Herder" project="KED" type="string" desc="text coverage 1k">0.58</meta>
+                    <meta name="cover5Herder" project="KED" type="string">0.66</meta>
+                    <meta name="topicLabel" project="KED" type="attachment">Gesundheit und Krankheit</meta>
+                    <!-- repeated metas: keyword accumulates, scalar keeps the last -->
+                    <meta name="strtgy" project="KED" type="keyword">beschreiben</meta>
+                    <meta name="cover5Herder" project="KED" type="string">0.67</meta>
+                    <meta name="GUID" type="text">37f38083-948d-403c-a2c2-8631e8e4a91d</meta>
+                    <meta name="Datum" type="date">2022-01-27</meta>
+                    <meta name="empty" type="string">   </meta>
+                    <meta name="bogus" type="frobnicate">x</meta>
+                  </xenoData>
+                </idsHeader>
+                """
+            ),
+            "text"
+        ).associateBy { it.key }
+
+        // attachment -> type:attachement, value wrapped as a data: URI
+        assertEquals("type:attachement", fields.getValue("KED.rcpntLabel").type)
+        assertEquals("data:,Kinder", fields.getValue("KED.rcpntLabel").value)
+        assertEquals("data:,Gesundheit und Krankheit", fields.getValue("KED.topicLabel").value)
+
+        // string -> type:string
+        assertEquals("type:string", fields.getValue("KED.cover1Herder").type)
+        assertEquals("0.58", fields.getValue("KED.cover1Herder").value)
+        // repeated scalar keeps the last value
+        assertEquals("0.67", fields.getValue("KED.cover5Herder").value)
+
+        // keyword -> type:keywords; repeats accumulate in document order; singles stay lists
+        assertEquals("type:keywords", fields.getValue("KED.strtgy").type)
+        assertEquals(listOf("erklaeren", "beschreiben"), fields.getValue("KED.strtgy").value)
+        assertEquals(listOf("kinder"), fields.getValue("KED.rcpnt").value)
+
+        // text -> type:text, project-less key (issue's RPK example)
+        assertEquals("type:text", fields.getValue("GUID").type)
+        assertEquals("37f38083-948d-403c-a2c2-8631e8e4a91d", fields.getValue("GUID").value)
+        // date -> type:date, ISO value passes through
+        assertEquals("type:date", fields.getValue("Datum").type)
+        assertEquals("2022-01-27", fields.getValue("Datum").value)
+
+        // Empty values and unknown types are skipped
+        assertFalse(fields.containsKey("empty"))
+        assertFalse(fields.containsKey("bogus"))
+    }
+
+    @Test
+    fun parseXenoDataPrefixesNamesForDocAndCorpusLevels() {
+        val xml =
+            """
+            <idsHeader>
+              <xenoData>
+                <meta name="rcpnt" project="KED" type="keyword" desc="recipient group">kinder</meta>
+                <meta name="rcpntLabel" project="KED" type="attachment">Kinder</meta>
+              </xenoData>
+            </idsHeader>
+            """
+        val docFields = StandoffMetadata.parseXenoData(headerElement(xml), "doc").associateBy { it.key }
+        assertEquals(listOf("kinder"), docFields.getValue("KED.docRcpnt").value)
+        assertEquals("data:,Kinder", docFields.getValue("KED.docRcpntLabel").value)
+
+        val corpusFields = StandoffMetadata.parseXenoData(headerElement(xml), "corpus").associateBy { it.key }
+        assertEquals(listOf("kinder"), corpusFields.getValue("KED.corpusRcpnt").value)
+        assertEquals("data:,Kinder", corpusFields.getValue("KED.corpusRcpntLabel").value)
+    }
+
+    /**
+     * Full-pipeline mirror of KorAP-XML-Krill's t/real/ked.t (commit 24ad3c0):
+     * the KED/KLX/03212 fixture carries xenoData at text, doc and corpus level,
+     * and its Krill JSON must expose every meta as a typed field. The Perl test
+     * asserts on the internal `<typeprefix>_<key>` meta keys (e.g. A_KED.topicLabel);
+     * here the type prefix has become the koral:field `type` and the key is the
+     * remainder (KED.topicLabel), so the assertions correspond one-to-one.
+     */
+    @Test
+    fun xenoDataFromKedCorpusMatchesPerlReference() {
+        val tar = ensureKrillTar("ked_xenodata", "ked_sample.krill.tar") { outputDir ->
+            arrayOf("-t", "krill", "-q", "-D", outputDir.path, loadResource("ked_sample.zip").path)
+        }
+        val json = readKrillJson(tar).getValue("KED-KLX-03212.json")
+
+        fun field(key: String, value: String, type: String) =
+            """"key":"$key","@type":"koral:field","value":"$value","type":"$type""""
+        fun keywords(key: String, vararg values: String) =
+            """"key":"$key","@type":"koral:field","value":[""" +
+                values.joinToString(",") { "\"$it\"" } + """],"type":"type:keywords""""
+
+        // attachment metas -> type:attachement, value wrapped as a data: URI (A_ in ked.t)
+        assertContains(json, field("KED.topicLabel", "data:,Gesundheit und Krankheit", "type:attachement"))
+        assertContains(json, field("KED.strtgyLabel", "data:,Erklären", "type:attachement"))
+        assertContains(json, field("KED.txttypLabel", "data:,Lexikonartikel", "type:attachement"))
+        assertContains(json, field("KED.rcpntLabel", "data:,Kinder", "type:attachement"))
+        assertContains(json, field("KED.nToks", "data:,308", "type:attachement"))
+        assertContains(json, field("KED.nSent", "data:,28", "type:attachement"))
+        assertContains(json, field("KED.nTyps", "data:,188", "type:attachement"))
+        assertContains(json, field("KED.nToksSentMd", "data:,11.0", "type:attachement"))
+        assertContains(json, field("KED.nPunct1kTks", "data:,129.87", "type:attachement"))
+
+        // string metas -> type:string (S_ in ked.t)
+        assertContains(json, field("KED.cover1Herder", "0.58", "type:string"))
+        assertContains(json, field("KED.cover2Herder", "0.61", "type:string"))
+        assertContains(json, field("KED.cover3Herder", "0.62", "type:string"))
+        assertContains(json, field("KED.cover4Herder", "0.65", "type:string"))
+        assertContains(json, field("KED.nPara", "5", "type:string"))
+        // Repeated scalar keeps the last value (0.66 then "added for testing" 0.67)
+        assertContains(json, field("KED.cover5Herder", "0.67", "type:string"))
+
+        // keyword metas -> type:keywords (K_ in ked.t); repeats accumulate in order
+        assertContains(json, keywords("KED.strtgy", "erklaeren", "beschreiben"))
+        assertContains(json, keywords("KED.topic", "gesundheit_krankheit"))
+        assertContains(json, keywords("KED.txttyp", "lexikonartikel"))
+        assertContains(json, keywords("KED.rcpnt", "kinder"))
+
+        // doc- and corpus-level xenoData inherit onto the text under level-prefixed
+        // keys, so they never collide with the text-level rcpnt field.
+        assertContains(json, keywords("KED.docRcpnt", "kinder"))
+        assertContains(json, field("KED.docRcpntLabel", "data:,Kinder", "type:attachement"))
+        assertContains(json, keywords("KED.corpusRcpnt", "kinder"))
+        assertContains(json, field("KED.corpusRcpntLabel", "data:,Kinder", "type:attachement"))
+
+        // Anchor: the sigle and a standard header field are still present. (Sigle
+        // fields use a different property order, so check them order-independently.)
+        assertContains(json, "\"key\":\"textSigle\"")
+        assertContains(json, "\"value\":\"KED/KLX/03212\"")
+        assertContains(json, field("title", "Flöhe", "type:text"))
     }
 
     @Test
