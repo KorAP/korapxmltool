@@ -368,10 +368,12 @@ object KrillJsonGenerator {
                     (it.phon != null && it.phon != "_") || (it.trans != null && it.trans != "_")
                 } ?: false
                 if (hasExtra) {
-                    if (morphoData?.any { it.norm != null && it.norm != "_" } == true) layers.add("norm=tokens")
-                    if (morphoData?.any { it.orig != null && it.orig != "_" } == true) layers.add("orig=tokens")
-                    if (morphoData?.any { it.phon != null && it.phon != "_" } == true) layers.add("phon=tokens")
-                    if (morphoData?.any { it.trans != null && it.trans != "_" } == true) layers.add("trans=tokens")
+                    // hasExtra is only true when morphoData is non-null, so the
+                    // compiler smart-casts it here (no safe call needed).
+                    if (morphoData.any { it.norm != null && it.norm != "_" }) layers.add("norm=tokens")
+                    if (morphoData.any { it.orig != null && it.orig != "_" }) layers.add("orig=tokens")
+                    if (morphoData.any { it.phon != null && it.phon != "_" }) layers.add("phon=tokens")
+                    if (morphoData.any { it.trans != null && it.trans != "_" }) layers.add("trans=tokens")
                 }
             }
         }
