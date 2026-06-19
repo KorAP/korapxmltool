@@ -1,5 +1,19 @@
 # Changelog
 
+## [v4.1.0] - 2026-06-19
+
+### Added
+
+- I5 `<xenoData>` metadata blocks are now passed through to Krill output ([#54](https://github.com/KorAP/korapxmltool/issues/54)). Each `<meta name=… type=… [project=…]>` becomes a typed Krill field (`string` → `type:string`, `keyword` → `type:keywords`, `text` → `type:text`, `date` → `type:date`, `attachment`/`uri` → `type:attachement`), keyed `<project>.<name>`. Fields are collected from text, document and corpus headers and inherited corpus → doc → text, with level-prefixed keys (e.g. `docRcpnt`, `corpusRcpnt`) so the levels stay distinct; repeated keywords accumulate, repeated scalars keep the last value. Mirrors the predecessor tool's `KorAP::XML::Meta::I5` handling. New `ked_sample.zip` regression fixture.
+
+### Fixed
+
+- `creatDate` is now normalised to an ISO date (`YYYY[-MM[-DD]]`) for Krill `type:date` fields. The previous `.` → `-` replacement only handled the canonical year-first form (`1932.03.03`) and mangled day-first values, optionally preceded by a weekday name, found e.g. in RPK (`Donnerstag, 04.10.2018` → `2018-10-04`). Month-only (`2020.05` → `2020-05`) and year-only values keep their reduced precision, and for a date period the first endpoint is kept. The same normalisation applies to the plain `<date>` pubDate fallback.
+
+### Changed
+
+- Dependency updates: `org.apache.opennlp:opennlp-tools` 2.5.8 → 2.5.9, `org.jetbrains.kotlinx:kotlinx-coroutines-core` 1.10.2 → 1.11.0, and Kotlin (`org.jetbrains.kotlin.jvm` plugin and `org.jetbrains.kotlin:kotlin-test`) 2.3.21 → 2.4.0.
+
 ## [v4.0.0] - 2026-06-12
 
 ### Added
