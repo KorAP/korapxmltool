@@ -548,6 +548,53 @@ class KrillJsonGeneratorTest {
     }
 
     @Test
+    fun creatDateIsNormalisedToIsoForVariousI5Forms() {
+        // creatDate appears in several free-text shapes across corpora. Each must
+        // reach the Krill type:date field as an ISO date. The day-first weekday
+        // forms come from the RPK corpus; the year-first dotted form is canonical.
+        val cases = mapOf(
+            "1932.03.03" to "1932-03-03",
+            "Donnerstag, 04.10.2018" to "2018-10-04",
+            "Donnerstag 05.01.2017" to "2017-01-05",
+            "2023.03.09" to "2023-03-09",
+            "1984-01-02" to "1984-01-02",
+            // Month-only and year-only values keep their (reduced) ISO precision.
+            "2020.05" to "2020-05",
+            "2011.02" to "2011-02",
+            "2016" to "2016"
+        )
+        cases.forEach { (input, expected) ->
+            val metadata = collectKrillMetadata(
+                KorapXmlTool(),
+                "TEST_DOC.1",
+                headerElement("<idsHeader><creatDate>$input</creatDate></idsHeader>")
+            )
+            assertEquals(expected, metadata["creationDate"], "creatDate '$input' should normalise to ISO")
+            // creationDate backfills pubDate, so the document carries a clean date pair.
+            assertEquals(expected, metadata["pubDate"], "pubDate should backfill from creatDate '$input'")
+        }
+    }
+
+    @Test
+    fun creatDatePeriodsCollapseToASingleEndpointDate() {
+        // A creatDate is sometimes a period. Krill needs a single date, so we keep
+        // one endpoint (the first when the dates are uniformly formatted). Whichever
+        // endpoint is kept, it must be a valid ISO date from the period.
+        fun creationDateFor(input: String): String? = collectKrillMetadata(
+            KorapXmlTool(),
+            "TEST_DOC.1",
+            headerElement("<idsHeader><creatDate>$input</creatDate></idsHeader>")
+        )["creationDate"] as? String
+
+        // Uniformly dotted periods keep the first date.
+        assertEquals("1920-05-01", creationDateFor("1920.05.01-1923.05.02"))
+        assertEquals("2020-05", creationDateFor("2020.05-2021.06"))
+
+        // A mixed-separator period still collapses to a valid endpoint date.
+        assertContains(setOf("1920-05-01", "1923-05-02"), creationDateFor("1920.05-01-1923.05.02"))
+    }
+
+    @Test
     fun krillInheritedDatesIgnoreEmptyTextValuesAndBackfillEachOther() {
         val tool = KorapXmlTool()
         val textMetadata = collectKrillMetadata(

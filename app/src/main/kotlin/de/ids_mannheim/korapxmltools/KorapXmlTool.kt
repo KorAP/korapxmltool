@@ -5658,8 +5658,8 @@ class KorapXmlTool : Callable<Int> {
             metadata["textClass"] = finalTopics
         }
 
-        headerRoot.firstText("creatDate")?.replace(".", "-")?.let {
-            metadata["creationDate"] = it
+        headerRoot.firstText("creatDate")?.let { raw ->
+            metadata["creationDate"] = normalizeKrillDate(raw) ?: raw.replace(".", "-")
         }
 
         var year: String? = null
@@ -5689,7 +5689,7 @@ class KorapXmlTool : Callable<Int> {
             val dateVal = dateEl?.getAttribute("when")?.trim()?.takeIf { it.isNotEmpty() }
                 ?: dateEl?.textContent?.trim()?.takeIf { it.isNotEmpty() }
             if (dateVal != null) {
-                metadata["pubDate"] = dateVal
+                metadata["pubDate"] = normalizeKrillDate(dateVal) ?: dateVal
             }
         }
 
@@ -5762,6 +5762,35 @@ class KorapXmlTool : Callable<Int> {
         if (pubDate == null && creationDate != null) {
             metadata["pubDate"] = creationDate
         }
+    }
+
+    // Normalise a free-text I5 date (e.g. <creatDate> or a plain <date>) to an ISO
+    // date string (YYYY, YYYY-MM or YYYY-MM-DD), which is what Krill expects for
+    // type:date fields. Handles the canonical year-first dotted form (1932.03.03)
+    // as well as the day-first forms found in some corpora (RPK), optionally
+    // preceded by a weekday name and/or comma ("Donnerstag, 04.10.2018",
+    // "Donnerstag 05.01.2017"). Already-ISO values pass through unchanged. For a
+    // date range the first date wins. Returns null when no date is recognisable.
+    private fun normalizeKrillDate(raw: String?): String? {
+        val s = raw?.trim()?.replace(Regex("\\s+"), " ")?.takeIf { it.isNotEmpty() } ?: return null
+        fun pad(x: String) = x.padStart(2, '0')
+        // Full dates first (most specific), then year-month, then year only.
+        Regex("""\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b""").find(s)?.let {       // dd.mm.yyyy
+            val (d, m, y) = it.destructured
+            return "$y-${pad(m)}-${pad(d)}"
+        }
+        Regex("""\b(\d{4})\.(\d{1,2})\.(\d{1,2})\b""").find(s)?.let {       // yyyy.mm.dd
+            val (y, m, d) = it.destructured
+            return "$y-${pad(m)}-${pad(d)}"
+        }
+        Regex("""\b\d{4}-\d{2}-\d{2}\b""").find(s)?.let { return it.value } // yyyy-mm-dd (ISO)
+        Regex("""\b(\d{4})\.(\d{1,2})\b""").find(s)?.let {                  // yyyy.mm
+            val (y, m) = it.destructured
+            return "$y-${pad(m)}"
+        }
+        Regex("""\b\d{4}-\d{2}\b""").find(s)?.let { return it.value }       // yyyy-mm (ISO)
+        Regex("""\b\d{4}\b""").find(s)?.let { return it.value }            // yyyy
+        return null
     }
 
     private fun composeKrillPubDate(
