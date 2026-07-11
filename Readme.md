@@ -193,6 +193,44 @@ classifier:
   | docker run --rm -i korap/wiki-taxonomy > rei_sample.wikiDomain.meta.xml
 ```
 
+### Updating an existing Krill tar (merge mode)
+
+An existing Krill tar can also be used as *input* and updated with new metadata
+and/or annotation foundries — useful when the original KorAP-XML ZIPs are no longer
+at hand, or when a single annotation foundry (e.g. an improved topic-domain
+classification) must be fixed without re-running the whole conversion. Merge mode is
+switched on simply by listing a `.tar` file among the inputs:
+
+```shell script
+# Update/add a stand-off classification in an existing Krill tar
+./build/bin/korapxmltool -t krill -D out/krill \
+  out/krill/rei_sample.krill.tar rei_sample.wikiDomain.meta.xml
+
+# Replace (or add) the TreeTagger annotations in an existing Krill tar
+./build/bin/korapxmltool -t krill -D out/krill \
+  out/krill/rei_sample.krill.tar app/src/test/resources/rei_sample.tree_tagger.zip
+```
+
+The result is written to a new tar (`<name>.updated.krill.tar`, or the path given
+with `-o`); the input tar is never modified, so an interrupted run cannot damage
+existing data. Properties of the merge:
+
+- Texts not affected by the new inputs are copied through byte-identically, without
+  even being decompressed; affected texts are patched and recompressed in parallel.
+- Every foundry contained in the supplied annotation ZIPs is treated as
+  authoritative: its existing annotations are replaced entirely; other foundries are
+  left untouched. The patched texts are identical to what a full re-export with the
+  same inputs would produce.
+- Metadata fields from stand-off files, `<xenoData>` and header ZIPs replace fields
+  with the same key and are appended otherwise. `creationDate`/`pubDate` are only
+  replaced when a new *text-level* header is supplied, so corpus-level headers cannot
+  clobber per-text dates.
+- Texts present in the new inputs but missing from the tar are ignored with a
+  warning. The base tokenization of the tar cannot be changed:
+  `data.xml`/`tokens.xml`/`structure.xml` entries are ignored as well.
+- Tars produced by korapxml2krill (Perl) are supported; untouched texts and
+  annotations keep their exact original form.
+
 ## Annotation
 
 ### Tagging with integrated MarMoT POS tagger directly to a new KorAP-XML ZIP file

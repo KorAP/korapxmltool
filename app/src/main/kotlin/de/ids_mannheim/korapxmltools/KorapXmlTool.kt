@@ -4,6 +4,7 @@ import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.parse
 import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.taggerFoundries
 import de.ids_mannheim.korapxmltools.formatters.KorapXmlFormatter
 import de.ids_mannheim.korapxmltools.formatters.KrillJsonGenerator
+import de.ids_mannheim.korapxmltools.formatters.KrillJsonPatcher
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.archivers.zip.Zip64Mode
@@ -121,7 +122,7 @@ class KorapXmlTool : Callable<Int> {
     private var targetZipFileName: String? = null
     // Locale is now globally forced to ROOT at startup (see main())
 
-    @Parameters(arity = "0..*", description = ["Input files: KorAP-XML ZIP files or CoNLL-U files (.conllu). If omitted, reads from stdin (requires -o for output path)."])
+    @Parameters(arity = "0..*", description = ["Input files: KorAP-XML ZIP files, CoNLL-U files (.conllu), stand-off metadata XML files, or (with -t krill) an existing Krill tar to update from the other inputs. If omitted, reads from stdin (requires -o for output path)."])
     var zipFileNames: Array<String>? = null
 
     @Option(
@@ -836,6 +837,26 @@ class KorapXmlTool : Callable<Int> {
                 }
             }
 
+            // An existing Krill tar among the inputs switches on merge mode: the tar is
+            // streamed to a new tar, updated from the remaining inputs (KorAP-XML ZIPs
+            // and/or stand-off metadata files).
+            zipFileNames?.filter { it.endsWith(".tar") }?.takeIf { it.isNotEmpty() }?.let { tarInputs ->
+                if (outputFormat != OutputFormat.KRILL) {
+                    throw ParameterException(spec.commandLine(),
+                        "Krill tar input is only supported with -f krill")
+                }
+                if (tarInputs.size > 1) {
+                    throw ParameterException(spec.commandLine(),
+                        "Only one Krill tar can be updated per invocation, got: ${tarInputs.joinToString(", ")}")
+                }
+                krillInputTarPath = tarInputs[0]
+                zipFileNames = zipFileNames!!.filterNot { it in tarInputs }.toTypedArray()
+                if (zipFileNames!!.isEmpty() && standoffMetadata.isEmpty()) {
+                    throw ParameterException(spec.commandLine(),
+                        "Updating a Krill tar requires at least one KorAP-XML ZIP or stand-off metadata file with new data")
+                }
+            }
+
             // For krill format, redirect logging to file before any logging occurs
             if (outputFormat == OutputFormat.KRILL) {
                 // Determine output path for Krill format
@@ -848,6 +869,10 @@ class KorapXmlTool : Callable<Int> {
                     } else {
                         "$finalOutputPath.tar"
                     }
+                } else if (krillInputTarPath != null) {
+                    // Merge mode: never overwrite the input tar by default
+                    val baseName = File(krillInputTarPath!!).name.replace(Regex("(\\.krill)?\\.tar$"), "")
+                    File(outputDir, "$baseName.updated.krill.tar").absolutePath
                 } else {
                     // Find the base ZIP (one without a foundry suffix)
                     val baseZip = zipFileNames!!.firstOrNull { zip ->
@@ -904,8 +929,13 @@ class KorapXmlTool : Callable<Int> {
             // not to the console, so it does not clutter stderr output.
             logCallOptionsAndEnvironment()
 
+            // Krill tar merge mode: update an existing Krill tar from the remaining inputs
+            if (krillInputTarPath != null) {
+                return mergeKrillTar(krillInputTarPath!!, zipFileNames ?: emptyArray())
+            }
+
             // CoNLL-U to KorAP XML ZIP conversion mode
-            val isConlluInput = zipFileNames == null || zipFileNames!!.isEmpty() || 
+            val isConlluInput = zipFileNames == null || zipFileNames!!.isEmpty() ||
                                zipFileNames!!.any { it.endsWith(".conllu") }
             
             if (isConlluInput) {
@@ -1245,6 +1275,8 @@ class KorapXmlTool : Callable<Int> {
     var krillTarOutputStream: TarArchiveOutputStream? = null
     var krillOutputFileName: String? = null
     private var krillOutputPath: String? = null
+    // Set when an existing Krill tar is given as input (merge mode)
+    private var krillInputTarPath: String? = null
     private var textOutputWriter: BufferedWriter? = null
 
     // Fast DocumentBuilderFactory without security features (safe for trusted input)
@@ -2151,44 +2183,7 @@ class KorapXmlTool : Callable<Int> {
                 val headerEntries = allEntries.filter { it.name.contains("header.xml") }
                 
                 headerEntries.forEach { headerEntry ->
-                    try {
-                        val headerBytes = foundryData.zipFile.getInputStream(headerEntry).readBytes()
-                        val headerDoc = safeDomFactory.newDocumentBuilder().parse(ByteArrayInputStream(headerBytes))
-                        val headerRoot = headerDoc.documentElement
-                        headerRoot.normalize()
-
-                        val entryPath = headerEntry.name
-                        val pathParts = entryPath.split('/').filter { it.isNotEmpty() && !it.endsWith("header.xml") }
-
-                        var textSigle = headerRoot.firstText("textSigle")
-                        var docSigle = headerRoot.firstText("dokumentSigle")
-                        var corpusSigle = headerRoot.firstText("korpusSigle")
-
-                        if (textSigle == null && docSigle == null && corpusSigle == null) {
-                            if (pathParts.size == 1) {
-                                corpusSigle = pathParts[0]
-                            } else if (pathParts.size == 2) {
-                                docSigle = "${pathParts[0]}/${pathParts[1]}"
-                            } else if (pathParts.size >= 3) {
-                                textSigle = getTextIdFromPath(entryPath)
-                            }
-                        }
-
-                        val docId = textSigle?.replace('/', '_')
-
-                        // Call appropriate metadata collection function based on what the header contains
-                        if (corpusSigle != null) {
-                            collectCorpusMetadata(corpusSigle, headerRoot)
-                        }
-                        if (docSigle != null) {
-                            collectDocMetadata(docSigle, headerRoot)
-                        }
-                        if (docId != null) {
-                            collectKrillMetadata(docId, headerRoot)
-                        }
-                    } catch (e: Exception) {
-                        LOGGER.warning("Error processing header ${headerEntry.name}: ${e.message}")
-                    }
+                    processKrillHeaderEntry(foundryData.zipFile, headerEntry)
                 }
             }
             LOGGER.info("Completed header processing for metadata")
@@ -2224,6 +2219,303 @@ class KorapXmlTool : Callable<Int> {
         }
     }
     
+    /**
+     * Parse a corpus-, document- or text-level header.xml entry and feed the
+     * corpus/doc/text metadata collectors. Shared between the interleaved Krill
+     * flow and Krill tar merge mode.
+     */
+    private fun processKrillHeaderEntry(zipFile: ApacheZipFile, headerEntry: ZipArchiveEntry) {
+        try {
+            val headerBytes = zipFile.getInputStream(headerEntry).readBytes()
+            val headerDoc = safeDomFactory.newDocumentBuilder().parse(ByteArrayInputStream(headerBytes))
+            val headerRoot = headerDoc.documentElement
+            headerRoot.normalize()
+
+            val entryPath = headerEntry.name
+            val pathParts = entryPath.split('/').filter { it.isNotEmpty() && !it.endsWith("header.xml") }
+
+            var textSigle = headerRoot.firstText("textSigle")
+            var docSigle = headerRoot.firstText("dokumentSigle")
+            var corpusSigle = headerRoot.firstText("korpusSigle")
+
+            if (textSigle == null && docSigle == null && corpusSigle == null) {
+                if (pathParts.size == 1) {
+                    corpusSigle = pathParts[0]
+                } else if (pathParts.size == 2) {
+                    docSigle = "${pathParts[0]}/${pathParts[1]}"
+                } else if (pathParts.size >= 3) {
+                    textSigle = getTextIdFromPath(entryPath)
+                }
+            }
+
+            val docId = textSigle?.replace('/', '_')
+
+            // Call appropriate metadata collection function based on what the header contains
+            if (corpusSigle != null) {
+                collectCorpusMetadata(corpusSigle, headerRoot)
+            }
+            if (docSigle != null) {
+                collectDocMetadata(docSigle, headerRoot)
+            }
+            if (docId != null) {
+                collectKrillMetadata(docId, headerRoot)
+            }
+        } catch (e: Exception) {
+            LOGGER.warning("Error processing header ${headerEntry.name}: ${e.message}")
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Krill tar merge mode
+    // ------------------------------------------------------------------
+
+    /** Text id in the lossy form used for Krill tar entry names ("REI_RBR.00473" -> "REI-RBR-00473"). */
+    private fun normalizeKrillTextId(textId: String): String =
+        textId.replace("_", "-").replace(".", "-")
+
+    /**
+     * Update an existing Krill tar from KorAP-XML ZIPs (annotation foundries and/or
+     * headers) and stand-off metadata files, streaming it into a new tar.
+     *
+     * Texts present in the new inputs but absent from the tar are ignored with a
+     * warning. The base tokenization of the tar texts cannot be changed, so
+     * data.xml/tokens.xml/structure.xml entries are ignored as well.
+     */
+    private fun mergeKrillTar(inputTarPath: String, zips: Array<String>): Int {
+        val inputTar = File(inputTarPath)
+        val outputTar = File(krillOutputPath!!)
+        krillOutputFileName = outputTar.absolutePath
+        if (inputTar.canonicalFile == outputTar.canonicalFile) {
+            LOGGER.severe("Refusing to overwrite the input tar $inputTarPath in place; use -o to choose a different output file")
+            return 1
+        }
+        if (outputTar.exists() && !overwrite) {
+            LOGGER.severe("Output file ${outputTar.path} already exists. Use --force to overwrite.")
+            return 1
+        }
+        outputTar.parentFile?.mkdirs()
+        outputTexts.clear()
+        krillData.clear()
+
+        data class MergeZip(val path: String, val foundry: String, val zipFile: ApacheZipFile)
+
+        val mergeZips = mutableListOf<MergeZip>()
+        // Annotation-layer entries grouped by normalized text id: (zip, docId, entry)
+        val annotationWork = HashMap<String, MutableList<Triple<MergeZip, String, ZipArchiveEntry>>>()
+        var ignoredBaseContentEntries = 0
+        val annotationRegex = Regex(".*(morpho|dependency|sentences|constituency)\\.xml$")
+        val baseContentRegex = Regex(".*(data|tokens|structure)\\.xml$")
+
+        try {
+            zips.forEach { zipPath ->
+                val zipFoundry = getFoundryFromZipFileName(zipPath)
+                val zipFile = try {
+                    openZipFile(zipPath)
+                } catch (e: Exception) {
+                    LOGGER.severe("Failed to open ZIP $zipPath: ${e.message}")
+                    return 1
+                }
+                val mergeZip = MergeZip(zipPath, zipFoundry, zipFile)
+                mergeZips.add(mergeZip)
+                zipFile.entries.asSequence().filter { !it.isDirectory }.forEach { entry ->
+                    val name = entry.name
+                    // Foundry directory of the entry ("<text>/<foundry>/<file>.xml")
+                    val entryDir = name.substringBeforeLast('/', "").substringAfterLast('/')
+                    when {
+                        name.endsWith("header.xml") -> processKrillHeaderEntry(zipFile, entry)
+                        name.matches(annotationRegex) && entryDir != "base" -> {
+                            val docId = getTextIdFromPath(name)
+                            annotationWork.getOrPut(normalizeKrillTextId(docId)) { mutableListOf() }
+                                .add(Triple(mergeZip, docId, entry))
+                        }
+                        name.matches(baseContentRegex) || name.matches(annotationRegex) ->
+                            ignoredBaseContentEntries++
+                    }
+                }
+            }
+            if (ignoredBaseContentEntries > 0) {
+                LOGGER.warning(
+                    "Merge mode cannot change the base tokenization or structure of texts in the tar: " +
+                        "ignoring $ignoredBaseContentEntries data/tokens/structure/base entries"
+                )
+            }
+
+            // Texts with a text-level header in the new inputs (their date fields may be replaced)
+            val textsWithNewHeader = krillData.keys.toSet()
+            val corpusDocMetaProvided = corpusMetadata.isNotEmpty() || docMetadata.isNotEmpty() ||
+                corpusXenoData.isNotEmpty() || docXenoData.isNotEmpty()
+
+            // Normalized text id -> original id, for all texts with per-text metadata updates
+            val textMetaByNorm = HashMap<String, String>()
+            (textsWithNewHeader + standoffMetadata.keys + textXenoData.keys).forEach { docId ->
+                val norm = normalizeKrillTextId(docId)
+                val previous = textMetaByNorm.put(norm, docId)
+                if (previous != null && previous != docId) {
+                    LOGGER.warning("Ambiguous text ids $previous and $docId both normalize to tar entry name $norm")
+                }
+            }
+
+            LOGGER.info(
+                "Updating Krill tar $inputTarPath -> ${outputTar.path}: " +
+                    "${annotationWork.size} texts with new annotations, " +
+                    "${textMetaByNorm.size} texts with new per-text metadata, " +
+                    "corpus/doc-level metadata provided: $corpusDocMetaProvided"
+            )
+
+            val mergeProgressBar = if (!quiet) ProgressBarBuilder()
+                .setTaskName(outputTar.name)
+                .setInitialMax(inputTar.length())
+                .setStyle(ProgressBarStyle.COLORFUL_UNICODE_BAR)
+                .setUpdateIntervalMillis(500)
+                .setUnit(" MB", 1L shl 20)
+                .showSpeed()
+                .build() else null
+
+            val patcher = KrillTarMerger.TextPatcher { normId ->
+                val textMetaDocId = textMetaByNorm[normId]
+                val annotationEntries = annotationWork[normId]
+                if (!corpusDocMetaProvided && textMetaDocId == null && annotationEntries == null) {
+                    null
+                } else {
+                    { json ->
+                        patchKrillText(json, normId, textMetaDocId, textsWithNewHeader,
+                            annotationEntries?.map { (mz, docId, entry) ->
+                                Triple(mz.zipFile to mz.path, mz.foundry to docId, entry)
+                            })
+                    }
+                }
+            }
+
+            val stats = try {
+                KrillTarMerger(LOGGER, maxThreads).merge(inputTar, outputTar, patcher) { bytesRead ->
+                    mergeProgressBar?.stepTo(bytesRead)
+                }
+            } finally {
+                mergeProgressBar?.close()
+            }
+
+            // Texts in the new inputs that the tar does not contain are ignored with a warning
+            val unmatchedNorms = (textMetaByNorm.keys + annotationWork.keys) - stats.seenTextIds
+            if (unmatchedNorms.isNotEmpty()) {
+                val displayIds = unmatchedNorms.map { norm ->
+                    textMetaByNorm[norm] ?: annotationWork[norm]?.firstOrNull()?.second ?: norm
+                }.sorted()
+                displayIds.take(20).forEach { docId ->
+                    LOGGER.warning("Ignoring text $docId from the new input(s): not present in $inputTarPath")
+                }
+                if (displayIds.size > 20) {
+                    LOGGER.warning("... and ${displayIds.size - 20} more texts not present in $inputTarPath")
+                }
+                LOGGER.warning("Ignored ${displayIds.size} text(s) from the new input(s) that are not in the input tar")
+            }
+
+            LOGGER.info(
+                "Krill tar update complete: ${stats.entries} entries " +
+                    "(${stats.patched} updated, ${stats.copied} copied unchanged) -> ${outputTar.path}"
+            )
+            return 0
+        } finally {
+            mergeZips.forEach { mz ->
+                try {
+                    mz.zipFile.close()
+                } catch (e: Exception) {
+                    LOGGER.warning("Failed to close ZIP ${mz.path}: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Patch a single text's Krill JSON: merge new metadata fields (from headers,
+     * stand-off metadata and xenodata) and replace/add annotation foundries.
+     * Runs on merge worker threads; per-text state is keyed by docId so
+     * concurrent texts don't interfere.
+     */
+    private fun patchKrillText(
+        json: String,
+        normId: String,
+        textMetaDocId: String?,
+        textsWithNewHeader: Set<String>,
+        annotationEntries: List<Triple<Pair<ApacheZipFile, String>, Pair<String, String>, ZipArchiveEntry>>?
+    ): String {
+        // Recover the real text id: the entry file name is lossy, the JSON's own
+        // textSigle ("REI/RBR/00473") is authoritative.
+        val sigle = KrillJsonPatcher.extractTextSigle(json)
+        val docId = when {
+            sigle != null && sigle.count { it == '/' } >= 2 ->
+                sigle.replaceFirst("/", "_").replaceFirst("/", ".")
+            sigle != null -> sigle.replace('/', '_')
+            else -> textMetaDocId ?: annotationEntries?.firstOrNull()?.second?.second
+        }
+        if (docId == null) {
+            LOGGER.warning("Cannot determine text id for tar entry $normId; leaving it unchanged")
+            return json
+        }
+
+        var result = json
+
+        // ---- metadata fields ----
+        val stub = KrillJsonGenerator.KrillTextData(textId = docId)
+        (krillData[docId] ?: textMetaDocId?.let { krillData[it] })
+            ?.headerMetadata?.let { stub.headerMetadata.putAll(it) }
+
+        val corpusSigle = docId.substringBefore('_')
+        val docSigle = "$corpusSigle/${docId.substringAfter('_').substringBefore('.')}"
+        val combinedStandoff = mutableListOf<KrillJsonGenerator.StandoffField>()
+        (standoffMetadata[docId] ?: textMetaDocId?.let { standoffMetadata[it] })
+            ?.let { combinedStandoff.addAll(it) }
+        corpusXenoData[corpusSigle]?.let { combinedStandoff.addAll(it) }
+        docXenoData[docSigle]?.let { combinedStandoff.addAll(it) }
+        (textXenoData[docId] ?: textMetaDocId?.let { textXenoData[it] })
+            ?.let { combinedStandoff.addAll(it) }
+        stub.standoffFields = combinedStandoff
+
+        val fieldEntries = KrillJsonGenerator.buildMetadataFieldEntries(
+            stub, corpusMetadata, docMetadata, legacyFieldNames
+        )
+        val hasNewTextHeader = docId in textsWithNewHeader ||
+            (textMetaDocId != null && textMetaDocId in textsWithNewHeader)
+        val fieldPatches = fieldEntries.mapNotNull { entry ->
+            when {
+                // Sigle fields are identity, never touched in a merge
+                entry.origin == KrillJsonGenerator.FieldOrigin.SIGLE -> null
+                // Dates inherited from corpus/doc headers must not clobber per-text
+                // dates in the tar; only a new text-level header may replace them.
+                entry.origin == KrillJsonGenerator.FieldOrigin.HEADER &&
+                    (entry.key == "creationDate" || entry.key == "pubDate") && !hasNewTextHeader ->
+                    KrillJsonPatcher.FieldPatch(entry.key, entry.json, KrillJsonPatcher.FieldMode.APPEND_IF_MISSING)
+                else ->
+                    KrillJsonPatcher.FieldPatch(entry.key, entry.json, KrillJsonPatcher.FieldMode.REPLACE_OR_APPEND)
+            }
+        }
+        if (fieldPatches.isNotEmpty()) {
+            result = KrillJsonPatcher.patchFields(result, fieldPatches)
+        }
+
+        // ---- annotation foundries ----
+        if (!annotationEntries.isNullOrEmpty()) {
+            val entryDocId = annotationEntries.first().second.second
+            annotationEntries.forEach { (zipInfo, foundryInfo, entry) ->
+                processZipEntry(zipInfo.first, zipInfo.second, foundryInfo.first, entry, false)
+            }
+            val textData = krillData[entryDocId]
+            if (textData != null) {
+                result = KrillJsonPatcher.patchFoundries(result, textData)
+            } else {
+                LOGGER.warning("No annotation data collected for $entryDocId; foundries unchanged")
+            }
+            // Free per-text state
+            krillData.remove(entryDocId)
+            fnames.remove(entryDocId)
+            sentences.remove(entryDocId)
+            tokens.remove(entryDocId)
+            texts.remove(entryDocId)
+            morpho.remove(entryDocId)
+        }
+
+        return result
+    }
+
     /**
      * Submit a single text's entries for a specific foundry to the work-stealing queue.
      */

@@ -3,6 +3,7 @@ package de.ids_mannheim.korapxmltools.formatters
 import de.ids_mannheim.korapxmltools.KorapXmlTool.MorphoSpan
 import de.ids_mannheim.korapxmltools.KorapXmlTool.Span
 import de.ids_mannheim.korapxmltools.NonBmpString
+import java.util.SortedSet
 import java.util.logging.Logger
 
 /**
@@ -100,6 +101,281 @@ object KrillJsonGenerator {
         return sb.toString()
     }
 
+    /** Short layer prefix used in the token stream and layerInfos, or null for "base". */
+    fun foundryPrefix(foundry: String): String? = when (foundry) {
+        "base" -> null
+        "tree_tagger" -> "tt"
+        "marmot-malt" -> "marmot"
+        else -> foundry
+    }
+
+    /** Full foundry name used in the "foundries" summary string. */
+    fun foundryFullNameForPrefix(prefix: String): String =
+        if (prefix == "tt") "treetagger" else prefix
+
+    /**
+     * Layer descriptors (e.g. "p=tokens", "d=rels") a foundry's morpho data
+     * contributes to layerInfos. Shared between [generateTo] and the tar merge path.
+     */
+    fun computeFoundryLayers(foundry: String, morphoData: Collection<MorphoSpan>?): SortedSet<String> {
+        val layers = sortedSetOf<String>()
+
+        // Check if this foundry has dependency annotations
+        val hasDependencies = morphoData?.any {
+            it.head != null && it.head != "_" && it.deprel != null && it.deprel != "_"
+        } ?: false
+
+        if (hasDependencies) {
+            layers.add("d=rels")
+        }
+
+        // Check if this foundry has lemma annotations
+        val hasLemma = morphoData?.any {
+            it.lemma != null && it.lemma != "_"
+        } ?: false
+        if (hasLemma) {
+            layers.add("l=tokens")
+        }
+
+        // Check if this foundry has POS annotations (xpos or upos)
+        val hasPos = morphoData?.any {
+            (it.xpos != null && it.xpos != "_") || (it.upos != null && it.upos != "_")
+        } ?: false
+        if (hasPos) {
+            layers.add("p=tokens")
+        }
+
+        // Check if this foundry has morphological features
+        val hasFeatures = morphoData?.any {
+            it.feats != null && it.feats != "_"
+        } ?: false
+        if (hasFeatures) {
+            layers.add("m=tokens")
+        }
+
+        // Check if this foundry has UPOS (skip for tree_tagger)
+        if (foundry != "tree_tagger") {
+            val hasUpos = morphoData?.any {
+                it.upos != null && it.upos != "_"
+            } ?: false
+            if (hasUpos) {
+                layers.add("u=tokens")
+            }
+        }
+
+        // Extra inline w-attribute layers (norm, orig, phon, trans) are
+        // rare; a single short-circuiting scan gates the four per-attribute
+        // checks so corpora without them pay at most one extra pass.
+        val hasExtra = morphoData?.any {
+            (it.norm != null && it.norm != "_") || (it.orig != null && it.orig != "_") ||
+            (it.phon != null && it.phon != "_") || (it.trans != null && it.trans != "_")
+        } ?: false
+        if (hasExtra) {
+            // hasExtra is only true when morphoData is non-null, so the
+            // compiler smart-casts it here (no safe call needed).
+            if (morphoData.any { it.norm != null && it.norm != "_" }) layers.add("norm=tokens")
+            if (morphoData.any { it.orig != null && it.orig != "_" }) layers.add("orig=tokens")
+            if (morphoData.any { it.phon != null && it.phon != "_" }) layers.add("phon=tokens")
+            if (morphoData.any { it.trans != null && it.trans != "_" }) layers.add("trans=tokens")
+        }
+        return layers
+    }
+
+    /** Resolve a CoNLL-U or offset-based head reference to a 0-based token index, or null. */
+    internal fun resolveHeadIndex(headStr: String, offsetToIndex: Map<String, Int>): Int? =
+        if (headStr.contains("-")) {
+            offsetToIndex[headStr]
+        } else {
+            val idx = headStr.toIntOrNull()
+            if (idx != null && idx > 0) idx - 1 else null
+        }
+
+    internal fun isRootHead(headStr: String): Boolean =
+        headStr == "0" || (headStr.contains("-") && headStr.startsWith("0-"))
+
+    /** Inverse dependency edge annotation ("<:foundry/d:rel$<b>32<i>dependent"). */
+    internal fun inverseDependencyAnnotation(prefix: String, deprel: String, dependentIndex: Int): String =
+        "<:$prefix/d:${deprel.escapeKrillValue()}\$<b>32<i>$dependentIndex"
+
+    /** Span annotation for a structural span whose token range is already resolved. */
+    internal fun structureSpanAnnotation(span: StructureSpan): String =
+        if (span.attributes.isEmpty()) {
+            "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}"
+        } else {
+            "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}<s>${span.depth}"
+        }
+
+    /**
+     * Resolve tokenFrom/tokenTo (exclusive) of a structural span against the token
+     * list, mirroring the resolution used during full generation.
+     */
+    fun resolveStructureSpanTokenRange(span: StructureSpan, tokens: List<Span>): StructureSpan {
+        if (span.tokenFrom >= 0 && span.tokenTo >= 0) {
+            return span
+        }
+        var tokenFrom = lowerBoundTokenFrom(tokens, span.from)
+        if (tokenFrom >= tokens.size || tokens[tokenFrom].from >= span.to) {
+            tokenFrom = -1
+        }
+
+        var lastTokenIndex = upperBoundTokenTo(tokens, span.to) - 1
+        if (lastTokenIndex < 0 || tokens[lastTokenIndex].to <= span.from) {
+            lastTokenIndex = -1
+        }
+
+        // Handle edge cases
+        if (tokenFrom == -1) tokenFrom = 0
+        if (lastTokenIndex == -1) lastTokenIndex = tokens.size - 1
+
+        // tokenTo is exclusive: one past the last token
+        return span.copy(tokenFrom = tokenFrom, tokenTo = lastTokenIndex + 1)
+    }
+
+    /**
+     * The raw (unquoted) stream annotations a single foundry contributes to one
+     * token: morphological features, POS, lemma, UPOS, extra w-attribute layers,
+     * and the outgoing/ROOT dependency edge. Shared between [forEachStreamItem]
+     * and the tar merge path so both emit identical strings.
+     */
+    internal fun morphoAnnotationsForToken(
+        prefix: String?,
+        foundry: String,
+        morphoSpan: MorphoSpan,
+        token: Span,
+        index: Int,
+        offsetToIndex: Map<String, Int>
+    ): List<String> {
+        val tokenAnnotations = mutableListOf<String>()
+
+        if (prefix != null) {
+            // Morphological features (sorted)
+            if (morphoSpan.feats != null && morphoSpan.feats != "_") {
+                val features = mutableListOf<String>()
+                morphoSpan.feats!!.split("|").forEach { feat ->
+                    val parts = feat.split("=")
+                    if (parts.size == 2) {
+                        val key = parts[0].lowercase().escapeKrillValue()
+                        val value = parts[1].lowercase().escapeKrillValue()
+                        features.add("$prefix/m:$key:$value")
+                    }
+                }
+                features.sorted().forEach { tokenAnnotations.add(it) }
+            }
+
+            // POS (xpos) with optional byte encoding - sorted by descending probability
+            if (morphoSpan.xpos != null && morphoSpan.xpos != "_") {
+                val xposList = morphoSpan.xpos!!.split("|")
+                val miscList = if (morphoSpan.misc != null && morphoSpan.misc != "_") {
+                    morphoSpan.misc!!.split("|")
+                } else {
+                    emptyList()
+                }
+
+                // Sort by descending probability if probabilities are available
+                val sortedPairs = if (miscList.size == xposList.size &&
+                                     miscList.all { it.toDoubleOrNull() != null }) {
+                    xposList.mapIndexed { index, xpos ->
+                        val certainty = miscList[index].toDoubleOrNull() ?: 0.0
+                        Pair(xpos, certainty)
+                    }.sortedByDescending { it.second }
+                } else {
+                    // If probabilities don't match, keep original order
+                    xposList.mapIndexed { index, xpos ->
+                        val certainty = if (index < miscList.size) {
+                            miscList[index].toDoubleOrNull()
+                        } else {
+                            null
+                        }
+                        Pair(xpos, certainty)
+                    }
+                }
+
+                sortedPairs.forEach { (xpos, certainty) ->
+                    if (certainty != null && sortedPairs.size > 1) {
+                        val payload = kotlin.math.round(certainty * 255).toInt()
+                        tokenAnnotations.add("$prefix/p:${xpos.escapeKrillValue()}\$<b>129<b>$payload")
+                    } else {
+                        tokenAnnotations.add("$prefix/p:${xpos.escapeKrillValue()}")
+                    }
+                }
+            }
+
+            // Lemma - sorted by descending probability if probabilities are available
+            if (morphoSpan.lemma != null && morphoSpan.lemma != "_") {
+                val lemmaList = morphoSpan.lemma!!.split("|").distinct()
+                val miscList = if (morphoSpan.misc != null && morphoSpan.misc != "_") {
+                    morphoSpan.misc!!.split("|")
+                } else {
+                    emptyList()
+                }
+
+                // Extract probabilities from misc (exclude Offset= parts)
+                val probabilities = miscList.filter { !it.startsWith("Offset=") }
+                    .mapNotNull { it.toDoubleOrNull() }
+
+                val sortedLemmas = if (probabilities.size == lemmaList.size) {
+                    // Sort by descending probability
+                    lemmaList.mapIndexed { index, lemma ->
+                        val certainty = probabilities.getOrNull(index) ?: 0.0
+                        Pair(lemma, certainty)
+                    }.sortedByDescending { it.second }.map { it.first }
+                } else {
+                    // If probabilities don't match, keep original order
+                    lemmaList
+                }
+
+                sortedLemmas.forEach { lemma ->
+                    tokenAnnotations.add("$prefix/l:${lemma.escapeKrillValue()}")
+                }
+            }
+
+            // UPOS (skip for tree_tagger as it only has xpos)
+            if (morphoSpan.upos != null && morphoSpan.upos != "_" && foundry != "tree_tagger") {
+                tokenAnnotations.add("$prefix/u:${morphoSpan.upos!!.escapeKrillValue()}")
+            }
+
+            // Extra inline w-attribute layers (norm, orig, phon, trans),
+            // each emitted under its own key like pos (p:) and lemma (l:).
+            if (morphoSpan.norm != null && morphoSpan.norm != "_") {
+                morphoSpan.norm!!.split("|").forEach {
+                    tokenAnnotations.add("$prefix/norm:${it.escapeKrillValue()}")
+                }
+            }
+            if (morphoSpan.orig != null && morphoSpan.orig != "_") {
+                morphoSpan.orig!!.split("|").forEach {
+                    tokenAnnotations.add("$prefix/orig:${it.escapeKrillValue()}")
+                }
+            }
+            if (morphoSpan.phon != null && morphoSpan.phon != "_") {
+                morphoSpan.phon!!.split("|").forEach {
+                    tokenAnnotations.add("$prefix/phon:${it.escapeKrillValue()}")
+                }
+            }
+            if (morphoSpan.trans != null && morphoSpan.trans != "_") {
+                morphoSpan.trans!!.split("|").forEach {
+                    tokenAnnotations.add("$prefix/trans:${it.escapeKrillValue()}")
+                }
+            }
+        }
+
+        // Dependency relations
+        if (morphoSpan.head != null && morphoSpan.head != "_" && morphoSpan.deprel != null && morphoSpan.deprel != "_") {
+            // Head can be either an offset (e.g., "100-110") or a token index (e.g., "1")
+            val headStr = morphoSpan.head!!
+            val resolvedHeadIndex = resolveHeadIndex(headStr, offsetToIndex)
+
+            if (resolvedHeadIndex != null) {
+                // Regular dependency - outgoing edge to head
+                tokenAnnotations.add(">:$prefix/d:${morphoSpan.deprel!!.escapeKrillValue()}\$<b>32<i>$resolvedHeadIndex")
+            } else if (isRootHead(headStr)) {
+                // ROOT node - use incoming edge format with full span info
+                tokenAnnotations.add("<:$prefix/d:${morphoSpan.deprel!!.escapeKrillValue()}\$<b>34<i>${token.from}<i>${token.to}<i>$index<i>1")
+            }
+        }
+
+        return tokenAnnotations
+    }
+
     // Krill metadata field keys that were named misleadingly early on. By default we
     // emit the corrected names; the original names map to their proper meaning:
     //   textClass  -> dmozDomain (DMOZ-based topic-domain classification)
@@ -110,49 +386,49 @@ object KrillJsonGenerator {
         "textDomain" to "idsColumn"
     )
 
-    fun generateTo(
-        out: Appendable,
+    /** Where a metadata field object originated. The Krill tar merge path uses this
+     *  to apply different replacement policies per origin. */
+    enum class FieldOrigin { SIGLE, HEADER, STANDOFF }
+
+    /** A ready-to-emit metadata field: its emitted key and complete JSON object. */
+    data class FieldEntry(val key: String, val json: String, val origin: FieldOrigin)
+
+    /**
+     * Build the metadata field objects for a text, in emission order (sigles, header
+     * fields, stand-off fields). Shared between [generateTo] and the Krill tar merge
+     * path so both produce identical field JSON.
+     */
+    fun buildMetadataFieldEntries(
         textData: KrillTextData,
-        corpusMetadata: Map<String, MutableMap<String, Any>>,
-        docMetadata: Map<String, MutableMap<String, Any>>,
-        includeNonWordTokens: Boolean,
+        corpusMetadata: Map<String, Map<String, Any>>,
+        docMetadata: Map<String, Map<String, Any>>,
         legacyFieldNames: Boolean = false
-    ) {
-        val sb = StringBuilder()
-        sb.append("{")
-
-        // @context, @type, and version
-        sb.append("\"@context\":\"http://korap.ids-mannheim.de/ns/koral/0.4/context.jsonld\",")
-        sb.append("\"@type\":\"koral:corpus\",")
-        sb.append("\"version\":\"0.4\",")
-
-        // fields (metadata)
-        sb.append("\"fields\":[")
-        val fields = mutableListOf<String>()
+    ): List<FieldEntry> {
+        val fields = mutableListOf<FieldEntry>()
 
         // Extract corpus, doc, and text sigle from textId (e.g., "WUD24_I0083.95367")
         // Convert underscores to slashes for proper format
         val textIdWithSlashes = textData.textId.replace("_", "/").replace(".", "/")
         val sigleParts = textIdWithSlashes.split("/")
         if (sigleParts.size >= 3) {
-            fields.add(jsonObject(listOf(
+            fields.add(FieldEntry("corpusSigle", jsonObject(listOf(
                 "value" to jsonString(sigleParts[0]),
                 "type" to jsonString("type:string"),
                 "@type" to jsonString("koral:field"),
                 "key" to jsonString("corpusSigle")
-            )))
-            fields.add(jsonObject(listOf(
+            )), FieldOrigin.SIGLE))
+            fields.add(FieldEntry("docSigle", jsonObject(listOf(
                 "@type" to jsonString("koral:field"),
                 "value" to jsonString("${sigleParts[0]}/${sigleParts[1]}"),
                 "type" to jsonString("type:string"),
                 "key" to jsonString("docSigle")
-            )))
-            fields.add(jsonObject(listOf(
+            )), FieldOrigin.SIGLE))
+            fields.add(FieldEntry("textSigle", jsonObject(listOf(
                 "@type" to jsonString("koral:field"),
                 "type" to jsonString("type:string"),
                 "value" to jsonString(textIdWithSlashes),
                 "key" to jsonString("textSigle")
-            )))
+            )), FieldOrigin.SIGLE))
         }
 
         val resolvedHeaderMetadata = resolveHeaderMetadata(
@@ -256,12 +532,12 @@ object KrillJsonGenerator {
             }
 
             val outKey = if (legacyFieldNames) key else CORRECTED_FIELD_NAMES[key] ?: key
-            fields.add(jsonObject(listOf(
+            fields.add(FieldEntry(outKey, jsonObject(listOf(
                 "key" to jsonString(outKey),
                 "@type" to jsonString("koral:field"),
                 "value" to fieldValue,
                 "type" to jsonString(fieldType)
-            )))
+            )), FieldOrigin.HEADER))
         }
 
         // Stand-off metadata fields (already typed/selected upstream). Skip any key
@@ -275,15 +551,37 @@ object KrillJsonGenerator {
                 is List<*> -> jsonArray(v.map { jsonString(it.toString()) })
                 else -> jsonString(v.toString())
             }
-            fields.add(jsonObject(listOf(
+            fields.add(FieldEntry(field.key, jsonObject(listOf(
                 "key" to jsonString(field.key),
                 "@type" to jsonString("koral:field"),
                 "value" to fieldValue,
                 "type" to jsonString(field.type)
-            )))
+            )), FieldOrigin.STANDOFF))
         }
 
-        sb.append(fields.joinToString(","))
+        return fields
+    }
+
+    fun generateTo(
+        out: Appendable,
+        textData: KrillTextData,
+        corpusMetadata: Map<String, MutableMap<String, Any>>,
+        docMetadata: Map<String, MutableMap<String, Any>>,
+        includeNonWordTokens: Boolean,
+        legacyFieldNames: Boolean = false
+    ) {
+        val sb = StringBuilder()
+        sb.append("{")
+
+        // @context, @type, and version
+        sb.append("\"@context\":\"http://korap.ids-mannheim.de/ns/koral/0.4/context.jsonld\",")
+        sb.append("\"@type\":\"koral:corpus\",")
+        sb.append("\"version\":\"0.4\",")
+
+        // fields (metadata)
+        sb.append("\"fields\":[")
+        sb.append(buildMetadataFieldEntries(textData, corpusMetadata, docMetadata, legacyFieldNames)
+            .joinToString(",") { it.json })
         sb.append("],")
 
         // data section
@@ -307,74 +605,10 @@ object KrillJsonGenerator {
         // Collect layers by foundry type (checking what data actually exists)
         val foundryLayers = mutableMapOf<String, MutableSet<String>>()
         textData.morphoByFoundry.keys.sorted().forEach { foundry ->
-            val shortFoundry = when(foundry) {
-                "base" -> null
-                "tree_tagger" -> "tt"
-                "marmot-malt" -> "marmot"
-                else -> foundry
-            }
+            val shortFoundry = foundryPrefix(foundry)
             if (shortFoundry != null) {
-                val layers = foundryLayers.getOrPut(shortFoundry) { mutableSetOf() }
-                val morphoData = textData.morphoByFoundry[foundry]?.values
-
-                // Check if this foundry has dependency annotations
-                val hasDependencies = morphoData?.any {
-                    it.head != null && it.head != "_" && it.deprel != null && it.deprel != "_"
-                } ?: false
-
-                if (hasDependencies) {
-                    layers.add("d=rels")
-                }
-
-                // Check if this foundry has lemma annotations
-                val hasLemma = morphoData?.any {
-                    it.lemma != null && it.lemma != "_"
-                } ?: false
-                if (hasLemma) {
-                    layers.add("l=tokens")
-                }
-
-                // Check if this foundry has POS annotations (xpos or upos)
-                val hasPos = morphoData?.any {
-                    (it.xpos != null && it.xpos != "_") || (it.upos != null && it.upos != "_")
-                } ?: false
-                if (hasPos) {
-                    layers.add("p=tokens")
-                }
-
-                // Check if this foundry has morphological features
-                val hasFeatures = morphoData?.any {
-                    it.feats != null && it.feats != "_"
-                } ?: false
-                if (hasFeatures) {
-                    layers.add("m=tokens")
-                }
-
-                // Check if this foundry has UPOS (skip for tree_tagger)
-                if (foundry != "tree_tagger") {
-                    val hasUpos = morphoData?.any {
-                        it.upos != null && it.upos != "_"
-                    } ?: false
-                    if (hasUpos) {
-                        layers.add("u=tokens")
-                    }
-                }
-
-                // Extra inline w-attribute layers (norm, orig, phon, trans) are
-                // rare; a single short-circuiting scan gates the four per-attribute
-                // checks so corpora without them pay at most one extra pass.
-                val hasExtra = morphoData?.any {
-                    (it.norm != null && it.norm != "_") || (it.orig != null && it.orig != "_") ||
-                    (it.phon != null && it.phon != "_") || (it.trans != null && it.trans != "_")
-                } ?: false
-                if (hasExtra) {
-                    // hasExtra is only true when morphoData is non-null, so the
-                    // compiler smart-casts it here (no safe call needed).
-                    if (morphoData.any { it.norm != null && it.norm != "_" }) layers.add("norm=tokens")
-                    if (morphoData.any { it.orig != null && it.orig != "_" }) layers.add("orig=tokens")
-                    if (morphoData.any { it.phon != null && it.phon != "_" }) layers.add("phon=tokens")
-                    if (morphoData.any { it.trans != null && it.trans != "_" }) layers.add("trans=tokens")
-                }
+                foundryLayers.getOrPut(shortFoundry) { mutableSetOf() }
+                    .addAll(computeFoundryLayers(foundry, textData.morphoByFoundry[foundry]?.values))
             }
         }
 
@@ -523,12 +757,7 @@ object KrillJsonGenerator {
             .map { (foundry, morphoSpans) ->
                 FoundryMorphoData(
                     foundry = foundry,
-                    prefix = when (foundry) {
-                        "tree_tagger" -> "tt"
-                        "marmot-malt" -> "marmot"
-                        "base" -> null
-                        else -> foundry
-                    },
+                    prefix = foundryPrefix(foundry),
                     morphoSpans = morphoSpans
                 )
             }
@@ -552,13 +781,8 @@ object KrillJsonGenerator {
                     val prefix = foundryData.prefix ?: foundryData.foundry
 
                     // Check if this is a ROOT dependency (head == 0)
-                    if (!(headStr == "0" || (headStr.contains("-") && headStr.startsWith("0-")))) {
-                        val resolvedHeadIndex = if (headStr.contains("-")) {
-                            offsetToIndex[headStr]
-                        } else {
-                            val idx = headStr.toIntOrNull()
-                            if (idx != null && idx > 0) idx - 1 else null
-                        }
+                    if (!isRootHead(headStr)) {
+                        val resolvedHeadIndex = resolveHeadIndex(headStr, offsetToIndex)
 
                         if (resolvedHeadIndex != null) {
                             inverseDeps.getOrPut(resolvedHeadIndex) { mutableListOf() }
@@ -642,29 +866,7 @@ object KrillJsonGenerator {
         // Resolve tokenFrom and tokenTo for structural spans
         // Note: tokenTo is exclusive (one past the last token index)
         val resolvedStructureSpans = allStructureSpans.map { span ->
-            if (span.tokenFrom >= 0 && span.tokenTo >= 0) {
-                // Already resolved
-                span
-            } else {
-                var tokenFrom = lowerBoundTokenFrom(tokens, span.from)
-                if (tokenFrom >= tokens.size || tokens[tokenFrom].from >= span.to) {
-                    tokenFrom = -1
-                }
-
-                var lastTokenIndex = upperBoundTokenTo(tokens, span.to) - 1
-                if (lastTokenIndex < 0 || tokens[lastTokenIndex].to <= span.from) {
-                    lastTokenIndex = -1
-                }
-
-                // Handle edge cases
-                if (tokenFrom == -1) tokenFrom = 0
-                if (lastTokenIndex == -1) lastTokenIndex = tokens.size - 1
-
-                // tokenTo is exclusive: one past the last token
-                val tokenTo = lastTokenIndex + 1
-
-                span.copy(tokenFrom = tokenFrom, tokenTo = tokenTo)
-            }
+            resolveStructureSpanTokenRange(span, tokens)
         }
 
         val resolvedSentenceFoundries = resolvedStructureSpans.foundriesWithSentenceSpans()
@@ -708,14 +910,7 @@ object KrillJsonGenerator {
                 // Add all structural spans that start at token 0 or cover the whole document
                 val spansAtZero = spansByToken[0].orEmpty()
                 spansAtZero.forEach { span ->
-                    val spanAnnotation = if (span.attributes.isEmpty()) {
-                        "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}"
-                    } else {
-                        // Spans with attributes get a unique ID
-                        val attrId = span.depth
-                        "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}<s>$attrId"
-                    }
-                    tokenAnnotations.add(jsonString(spanAnnotation))
+                    tokenAnnotations.add(jsonString(structureSpanAnnotation(span)))
 
                     // Add attribute annotations
                     span.attributes.forEach { (key, value) ->
@@ -730,12 +925,7 @@ object KrillJsonGenerator {
             } else {
                 // Add structural spans that start at this token
                 spansByToken[index]?.forEach { span ->
-                    val spanAnnotation = if (span.attributes.isEmpty()) {
-                        "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}"
-                    } else {
-                        "<>:${span.layer}\$<b>64<i>${span.from}<i>${span.to}<i>${span.tokenTo}<b>${span.depth}<s>${span.depth}"
-                    }
-                    tokenAnnotations.add(jsonString(spanAnnotation))
+                    tokenAnnotations.add(jsonString(structureSpanAnnotation(span)))
 
                     span.attributes.forEach { (key, value) ->
                         val attrAnnotation = if (value.isEmpty()) {
@@ -771,148 +961,16 @@ object KrillJsonGenerator {
 
             // Add inverse dependency annotations (<:) for dependents pointing to this token as head
             inverseDeps[index]?.sortedBy { "${it.foundry}/${it.deprel}" }?.forEach { inv ->
-                tokenAnnotations.add(jsonString("<:${inv.foundry}/d:${inv.deprel.escapeKrillValue()}\$<b>32<i>${inv.dependentIndex}"))
+                tokenAnnotations.add(jsonString(inverseDependencyAnnotation(inv.foundry, inv.deprel, inv.dependentIndex)))
             }
 
             // Collect annotations from all foundries for this token
             sortedFoundries.forEach { foundryData ->
-                val foundry = foundryData.foundry
                 val morphoSpan = foundryData.morphoSpans[spanKey]
                 if (morphoSpan != null) {
-                    val prefix = foundryData.prefix
-
-                    if (prefix != null) {
-                        // Morphological features (sorted)
-                        if (morphoSpan.feats != null && morphoSpan.feats != "_") {
-                            val features = mutableListOf<String>()
-                            morphoSpan.feats!!.split("|").forEach { feat ->
-                                val parts = feat.split("=")
-                                if (parts.size == 2) {
-                                    val key = parts[0].lowercase().escapeKrillValue()
-                                    val value = parts[1].lowercase().escapeKrillValue()
-                                    features.add("$prefix/m:$key:$value")
-                                }
-                            }
-                            features.sorted().forEach { tokenAnnotations.add(jsonString(it)) }
-                        }
-
-                        // POS (xpos) with optional byte encoding - sorted by descending probability
-                        if (morphoSpan.xpos != null && morphoSpan.xpos != "_") {
-                            val xposList = morphoSpan.xpos!!.split("|")
-                            val miscList = if (morphoSpan.misc != null && morphoSpan.misc != "_") {
-                                morphoSpan.misc!!.split("|")
-                            } else {
-                                emptyList()
-                            }
-
-                            // Sort by descending probability if probabilities are available
-                            val sortedPairs = if (miscList.size == xposList.size && 
-                                                 miscList.all { it.toDoubleOrNull() != null }) {
-                                xposList.mapIndexed { index, xpos ->
-                                    val certainty = miscList[index].toDoubleOrNull() ?: 0.0
-                                    Pair(xpos, certainty)
-                                }.sortedByDescending { it.second }
-                            } else {
-                                // If probabilities don't match, keep original order
-                                xposList.mapIndexed { index, xpos ->
-                                    val certainty = if (index < miscList.size) {
-                                        miscList[index].toDoubleOrNull()
-                                    } else {
-                                        null
-                                    }
-                                    Pair(xpos, certainty)
-                                }
-                            }
-
-                            sortedPairs.forEach { (xpos, certainty) ->
-                                if (certainty != null && sortedPairs.size > 1) {
-                                    val payload = kotlin.math.round(certainty * 255).toInt()
-                                    tokenAnnotations.add(jsonString("$prefix/p:${xpos.escapeKrillValue()}\$<b>129<b>$payload"))
-                                } else {
-                                    tokenAnnotations.add(jsonString("$prefix/p:${xpos.escapeKrillValue()}"))
-                                }
-                            }
-                        }
-
-                        // Lemma - sorted by descending probability if probabilities are available
-                        if (morphoSpan.lemma != null && morphoSpan.lemma != "_") {
-                            val lemmaList = morphoSpan.lemma!!.split("|").distinct()
-                            val miscList = if (morphoSpan.misc != null && morphoSpan.misc != "_") {
-                                morphoSpan.misc!!.split("|")
-                            } else {
-                                emptyList()
-                            }
-                            
-                            // Extract probabilities from misc (exclude Offset= parts)
-                            val probabilities = miscList.filter { !it.startsWith("Offset=") }
-                                .mapNotNull { it.toDoubleOrNull() }
-                            
-                            val sortedLemmas = if (probabilities.size == lemmaList.size) {
-                                // Sort by descending probability
-                                lemmaList.mapIndexed { index, lemma ->
-                                    val certainty = probabilities.getOrNull(index) ?: 0.0
-                                    Pair(lemma, certainty)
-                                }.sortedByDescending { it.second }.map { it.first }
-                            } else {
-                                // If probabilities don't match, keep original order
-                                lemmaList
-                            }
-                            
-                            sortedLemmas.forEach { lemma ->
-                                tokenAnnotations.add(jsonString("$prefix/l:${lemma.escapeKrillValue()}"))
-                            }
-                        }
-
-                        // UPOS (skip for tree_tagger as it only has xpos)
-                        if (morphoSpan.upos != null && morphoSpan.upos != "_" && foundry != "tree_tagger") {
-                            tokenAnnotations.add(jsonString("$prefix/u:${morphoSpan.upos!!.escapeKrillValue()}"))
-                        }
-
-                        // Extra inline w-attribute layers (norm, orig, phon, trans),
-                        // each emitted under its own key like pos (p:) and lemma (l:).
-                        if (morphoSpan.norm != null && morphoSpan.norm != "_") {
-                            morphoSpan.norm!!.split("|").forEach {
-                                tokenAnnotations.add(jsonString("$prefix/norm:${it.escapeKrillValue()}"))
-                            }
-                        }
-                        if (morphoSpan.orig != null && morphoSpan.orig != "_") {
-                            morphoSpan.orig!!.split("|").forEach {
-                                tokenAnnotations.add(jsonString("$prefix/orig:${it.escapeKrillValue()}"))
-                            }
-                        }
-                        if (morphoSpan.phon != null && morphoSpan.phon != "_") {
-                            morphoSpan.phon!!.split("|").forEach {
-                                tokenAnnotations.add(jsonString("$prefix/phon:${it.escapeKrillValue()}"))
-                            }
-                        }
-                        if (morphoSpan.trans != null && morphoSpan.trans != "_") {
-                            morphoSpan.trans!!.split("|").forEach {
-                                tokenAnnotations.add(jsonString("$prefix/trans:${it.escapeKrillValue()}"))
-                            }
-                        }
-                    }
-
-                    // Dependency relations
-                    if (morphoSpan.head != null && morphoSpan.head != "_" && morphoSpan.deprel != null && morphoSpan.deprel != "_") {
-                        // Head can be either an offset (e.g., "100-110") or a token index (e.g., "1")
-                        val headStr = morphoSpan.head!!
-                        val resolvedHeadIndex = if (headStr.contains("-")) {
-                            // Offset format - resolve to token index
-                            offsetToIndex[headStr]
-                        } else {
-                            // Already a token index (1-based CoNLL-U format)
-                            val idx = headStr.toIntOrNull()
-                            if (idx != null && idx > 0) idx - 1 else null  // Convert 1-based to 0-based
-                        }
-
-                        if (resolvedHeadIndex != null) {
-                            // Regular dependency - outgoing edge to head
-                            tokenAnnotations.add(jsonString(">:$prefix/d:${morphoSpan.deprel!!.escapeKrillValue()}\$<b>32<i>$resolvedHeadIndex"))
-                        } else if (headStr == "0" || (headStr.contains("-") && headStr.startsWith("0-"))) {
-                            // ROOT node - use incoming edge format with full span info
-                            tokenAnnotations.add(jsonString("<:$prefix/d:${morphoSpan.deprel!!.escapeKrillValue()}\$<b>34<i>${token.from}<i>${token.to}<i>$index<i>1"))
-                        }
-                    }
+                    morphoAnnotationsForToken(
+                        foundryData.prefix, foundryData.foundry, morphoSpan, token, index, offsetToIndex
+                    ).forEach { tokenAnnotations.add(jsonString(it)) }
                 }
             }
 
@@ -1044,6 +1102,9 @@ object KrillJsonGenerator {
     }
 
     private fun jsonString(value: String): String = "\"${value.escapeJson()}\""
+
+    /** Quote and escape a stream annotation exactly like full generation does (for the merge path). */
+    internal fun quoteJson(value: String): String = jsonString(value)
 
     private fun jsonArray(items: List<String>): String = items.joinToString(",", "[", "]")
 

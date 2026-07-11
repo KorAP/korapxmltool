@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Krill tars can now be used as *input* and updated in place of a full re-export ("merge mode"): listing an existing `.krill.tar` among the inputs with `-t krill` streams it to a new tar (`<name>.updated.krill.tar`, or `-o`), updated from the remaining inputs. Two use cases: (1) adding or fixing metadata (stand-off `<standOff>` files, `<xenoData>`, header ZIPs) when the original KorAP-XML ZIPs are no longer available, and (2) replacing or adding single annotation foundries (e.g. an improved wiki-taxonomy topic-domain classification) without touching the rest. Texts unaffected by the new inputs are copied through byte-identically without being decompressed; affected texts are patched surgically at the JSON level and recompressed in parallel, and end up identical to a full re-export with the same inputs. New metadata fields replace same-key fields (including legacy/corrected name pairs such as `textClass`/`dmozDomain`) and are appended otherwise; `creationDate`/`pubDate` are only replaced when a new text-level header is supplied, so corpus-level headers cannot clobber per-text dates. Texts present in the new inputs but missing from the tar are ignored with a warning; base tokenization/structure entries are ignored as well. Tars produced by korapxml2krill (Perl) are supported. The input tar is never modified, and the regular Krill export path is unchanged.
+
 ## [v4.1.0] - 2026-06-19
 
 ### Added
