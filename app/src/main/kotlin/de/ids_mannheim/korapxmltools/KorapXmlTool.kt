@@ -37,6 +37,7 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.stream.IntStream
 import java.util.zip.GZIPOutputStream
+import java.util.zip.ZipException
 import java.util.zip.ZipFile
 import kotlin.text.Charsets
 import me.tongfei.progressbar.ProgressBar
@@ -2125,9 +2126,10 @@ class KorapXmlTool : Callable<Int> {
         val queue: java.util.concurrent.BlockingQueue<String> = java.util.concurrent.LinkedBlockingQueue()
         zips.forEach { queue.put(it) }
         val executor = Executors.newFixedThreadPool(parallelism)
+        val completions = java.util.concurrent.ExecutorCompletionService<Unit>(executor)
         val active = java.util.concurrent.atomic.AtomicInteger(0)
         repeat(parallelism) {
-            executor.submit {
+            completions.submit(Callable {
                 active.incrementAndGet()
                 val activeNow = activeZipWorkers.incrementAndGet()
                 peakActiveZipWorkers.accumulateAndGet(activeNow, ::maxOf)
@@ -2154,13 +2156,23 @@ class KorapXmlTool : Callable<Int> {
                     active.decrementAndGet()
                     activeZipWorkers.decrementAndGet()
                 }
-            }
+                Unit
+            })
         }
         executor.shutdown()
         try {
-            executor.awaitTermination(7, java.util.concurrent.TimeUnit.DAYS)
+            repeat(parallelism) {
+                try {
+                    completions.take().get()
+                } catch (e: java.util.concurrent.ExecutionException) {
+                    executor.shutdownNow()
+                    throw (e.cause ?: e)
+                }
+            }
         } catch (ie: InterruptedException) {
+            executor.shutdownNow()
             Thread.currentThread().interrupt()
+            throw ie
         }
     }
     
@@ -2798,6 +2810,35 @@ class KorapXmlTool : Callable<Int> {
         return zipFile
     }
 
+    private fun processTextStreamingZip(
+        path: String,
+        foundry: String,
+        waitForMorpho: Boolean
+    ) {
+        val javaZip = try {
+            openJavaZipFile(path)
+        } catch (e: ZipException) {
+            LOGGER.warning(
+                "Java ZIP reader rejected $path (${e.message}); " +
+                    "retrying with Apache Commons Compress"
+            )
+            null
+        }
+
+        if (javaZip != null) {
+            javaZip.use { zipFile ->
+                LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $path: archive-order entries, no text-ID sorting")
+                processZipEntriesStreaming(zipFile, path, foundry, waitForMorpho)
+            }
+            return
+        }
+
+        openZipFile(path).use { zipFile ->
+            LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $path with Apache ZIP reader: archive-order entries, no text-ID sorting")
+            processZipEntriesStreaming(zipFile, path, foundry, waitForMorpho)
+        }
+    }
+
     private fun getFoundryFromZipFileName(zipFileName: String): String {
         if (!zipFileName.matches(Regex(".*\\.([^/.]+)\\.zip$"))) {
             return "base"
@@ -2971,10 +3012,7 @@ class KorapXmlTool : Callable<Int> {
                 val requireRelatedMorpho =
                     if (outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) useLemma else true
                 if (useJavaZipForTextStreaming()) {
-                    openJavaZipFile(zip).use { zipFile ->
-                        LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zip: archive-order entries, no text-ID sorting")
-                        processZipEntriesStreaming(zipFile, zip, zipFoundry, requireRelatedMorpho)
-                    }
+                    processTextStreamingZip(zip, zipFoundry, requireRelatedMorpho)
                 } else {
                     openZipFile(zip).use { zipFile ->
                         processZipEntriesWithPool(zipFile, zip, zipFoundry, requireRelatedMorpho)
@@ -2986,10 +3024,7 @@ class KorapXmlTool : Callable<Int> {
             try {
                 // If no corresponding base ZIP exists, this IS the base ZIP
                 if (useJavaZipForTextStreaming()) {
-                    openJavaZipFile(zipFilePath).use { zipFile ->
-                        LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zipFilePath: archive-order entries, no text-ID sorting")
-                        processZipEntriesStreaming(zipFile, zipFilePath, foundry, false)
-                    }
+                    processTextStreamingZip(zipFilePath, foundry, false)
                 } else {
                     openZipFile(zipFilePath).use { zipFile ->
                         LOGGER.fine("Calling processZipEntriesWithPool, foundry=$foundry")
@@ -3000,6 +3035,7 @@ class KorapXmlTool : Callable<Int> {
             } catch (e: Exception) {
                 LOGGER.severe("Error processing ZIP: ${e.message}")
                 e.printStackTrace()
+                throw e
             }
         }
         // Don't close the ZIP here if using external annotation - it will be closed after worker pool finishes
@@ -3039,10 +3075,7 @@ class KorapXmlTool : Callable<Int> {
                 val requireRelatedMorpho =
                     if (outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) useLemma else true
                 if (useJavaZipForTextStreaming()) {
-                    openJavaZipFile(zip).use { zipFile ->
-                        LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zip: archive-order entries, no text-ID sorting")
-                        processZipEntriesStreaming(zipFile, zip, zipFoundry, requireRelatedMorpho)
-                    }
+                    processTextStreamingZip(zip, zipFoundry, requireRelatedMorpho)
                 } else {
                     openZipFile(zip).use { zipFile ->
                         // Iterate entries sorted by text ID to ensure consistent processing order
@@ -3057,10 +3090,7 @@ class KorapXmlTool : Callable<Int> {
             }
         } else {
             if (useJavaZipForTextStreaming()) {
-                openJavaZipFile(zipFilePath).use { zipFile ->
-                    LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zipFilePath: archive-order entries, no text-ID sorting")
-                    processZipEntriesStreaming(zipFile, zipFilePath, foundry, false)
-                }
+                processTextStreamingZip(zipFilePath, foundry, false)
             } else {
                 openZipFile(zipFilePath).use { zipFile ->
                     zipFile.entries.toList()

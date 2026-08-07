@@ -11,6 +11,7 @@
 ### Fixed
 
 - Stabilized large `word2vec`/`NOW` exports: ZIP readers now share one bounded XML-entry backlog instead of multiplying the backlog by every open ZIP, plain-output document claims are released when each ZIP closes instead of growing for the whole corpus, annotation ZIPs are not re-reading the same base ZIP for surface output, and unused late annotation layers no longer repopulate cleaned document state.
+- `word2vec`/`NOW` lemma exports now fall back to Apache Commons Compress when Java's ZIP reader rejects ZIP64 metadata in annotation archives such as `.tree_tagger.zip`. Parallel ZIP-reader failures are also propagated to the main command instead of being silently discarded and yielding an empty output file with exit status 0.
 
 ## [v4.1.0] - 2026-06-19
 
