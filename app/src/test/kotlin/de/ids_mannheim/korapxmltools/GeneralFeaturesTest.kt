@@ -158,6 +158,57 @@ class GeneralFeaturesTest {
     }
 
     @Test
+    fun textStreamingSeparatesZipAndEntryParallelism() {
+        val tool = KorapXmlTool()
+        tool.maxThreads = 128
+
+        assertEquals(8, tool.effectiveZipParallelism(2600))
+        tool.zipParallelism = 3
+        assertEquals(3, tool.effectiveZipParallelism(2600))
+        assertEquals(2, tool.effectiveZipParallelism(2))
+    }
+
+    @Test
+    fun zipParallelismMustBePositive() {
+        val exitCode = debug(arrayOf(
+            "-t", "w2v", "--zip-parallelism", "0", loadResource("wdf19.zip").path
+        ))
+
+        assertTrue(exitCode != 0)
+        assertContains(errContent.toString(), "--zip-parallelism': must be at least 1")
+    }
+
+    @Test
+    fun zipSchedulingKeepsArgumentOrderByDefaultAndLargestFirstIsOptIn() {
+        val tool = KorapXmlTool()
+        val small = "/tmp/small.zip"
+        val large = "/tmp/large.zip"
+        tool.registerZipProgress(small, 10L)
+        tool.registerZipProgress(large, 100L)
+
+        assertEquals(
+            listOf(small, large),
+            tool.orderZipInputsForProcessing(arrayOf(small, large)).toList()
+        )
+
+        tool.largestFirst = true
+        assertEquals(
+            listOf(large, small),
+            tool.orderZipInputsForProcessing(arrayOf(small, large)).toList()
+        )
+    }
+
+    @Test
+    fun surfaceWord2VecUsesEachBaseZipOnlyOnce() {
+        val tool = KorapXmlTool()
+        tool.outputFormat = OutputFormat.WORD2VEC
+        val base = loadResource("goe.zip").path
+        val annotation = loadResource("goe.tree_tagger.zip").path
+
+        assertEquals(listOf(base), tool.planPlainSurfaceTextInputs(arrayOf(annotation, base)).toList())
+    }
+
+    @Test
     fun singleBaseConlluOutputCanUseArchiveOrderStreaming() {
         val tool = KorapXmlTool()
         tool.outputFormat = OutputFormat.CONLLU

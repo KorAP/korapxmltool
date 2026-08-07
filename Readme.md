@@ -47,6 +47,8 @@ Key options for korapxmltool (>= v3.1):
 
 - `-t FORMAT`, `--to FORMAT`: Output format (`zip`, `conllu`, `w2v`, `now`, `krill`)
 - `-j N`, `--jobs N`, `--threads N`: Number of threads/jobs to use
+- `--zip-parallelism N`: Maximum ZIP files read concurrently (default: up to 8); XML entry work still uses `--threads`
+- `--largest-first`: Schedule larger input ZIPs first (opt-in; the default is argument order)
 - `-T TAGGER[:MODEL]`, `--tag-with TAGGER[:MODEL]`: POS tagger and optional model
 - `-P PARSER[:MODEL]`, `--parse-with PARSER[:MODEL]`: Parser and optional model  
 - `-f`, `--force`: Overwrite existing output files
@@ -134,20 +136,21 @@ If a lemma for a token is missing (`_`) the surface form is used as fallback.
 
 - `--lemma-only`: For `-t w2v` and `-t now`, skip loading `data.xml` and output only lemmas from `morpho.xml`. This reduces memory and speeds up throughput.
 - `--sequential`: Process entries inside each zip sequentially (zips can still run in parallel). Recommended for `w2v`/`now` to keep locality and lower memory.
+- Parallel `w2v`/`now` runs schedule ZIPs in argument order and use a single bounded entry backlog across all open ZIPs. Completion and output order can still vary when multiple ZIPs run concurrently. Use `--largest-first` to opt into size-descending scheduling when minimizing the low-parallelism tail matters more than corpus order. For reproducible server runs, set both `--threads` and `--zip-parallelism` explicitly.
 - `--exclude-zip-glob GLOB` (repeatable): Skip zip basenames that match the glob (e.g., `--exclude-zip-glob 'w?d24.tree_tagger.zip'`).
 
 Example for large NOW export with progress and exclusions:
 
 ```
 KORAPXMLTOOL_XMX=64g KORAPXMLTOOL_MODELS_PATH=/data/models KORAPXMLTOOL_JAVA_OPTS="-XX:+UseG1GC -Djdk.util.zip.disableMemoryMapping=true -Djdk.util.zip.reuseInflater=true" \
-     ./build/bin/korapxmltool -l info -j 100 \
+     ./build/bin/korapxmltool -l info -j 100 --zip-parallelism 8 \
      --lemma-only --sequential -t now \
      --exclude-zip-glob 'w?d24.tree_tagger.zip' \
      /vol/corpora/DeReKo/current/KorAP/zip/*24.tree_tagger.zip | pv > dach2024.lemma.txt
 ```
 
 At INFO level the tool logs:
-- The zip processing order with file sizes (largest-first in `--lemma-only`).
+- The ZIP processing order with file sizes (argument order by default, or size-descending with `--largest-first`).
 - For each zip: start message including its size and a completion line with cumulative progress, ETA and average MB/s.
 
 ### Conversion to Krill (KoralQuery) JSON format

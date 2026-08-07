@@ -5,6 +5,7 @@ import org.junit.Before
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.net.URL
+import picocli.CommandLine
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFalse
@@ -115,5 +116,30 @@ class Word2VecFormatterTest {
         val out = outContent.toString()
         assertContains(out, "automatique")
         assertFalse(out.contains("Gedanken"))
+    }
+
+    @Test
+    fun streamingClaimsAreReleasedAfterZipCompletes() {
+        val tool = KorapXmlTool()
+        val exitCode = CommandLine(tool).execute(
+            "-t", "w2v", "-j", "4", loadResource("wdf19.zip").path
+        )
+
+        assertTrue(exitCode == 0)
+        assertTrue(tool.outputTexts.isEmpty(), "Plain w2v must not retain all emitted document IDs")
+        assertTrue(tool.streamingOutputClaimCount() == 0, "Per-ZIP claims must be released when the ZIP closes")
+    }
+
+    @Test
+    fun surfaceWord2VecSupportsMorphoTokenizationWithoutRetainingMorpho() {
+        val tool = KorapXmlTool()
+        val exitCode = CommandLine(tool).execute(
+            "-t", "w2v", "-j", "2", loadResource("dck_sample.zip").path
+        )
+
+        assertTrue(exitCode == 0)
+        assertTrue(outContent.size() > 0, "Custom morpho tokenization should produce surface output")
+        assertTrue(tool.morpho.isEmpty(), "Surface w2v must not retain unused morpho maps")
+        assertTrue(tool.fnames.isEmpty(), "Late optional layers must not repopulate per-document state")
     }
 }

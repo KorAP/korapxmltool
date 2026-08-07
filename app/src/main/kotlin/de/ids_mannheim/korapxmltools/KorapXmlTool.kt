@@ -265,6 +265,31 @@ class KorapXmlTool : Callable<Int> {
         System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", threads.toString())
     }
 
+    var zipParallelism: Int = 0  // 0 = auto-detect after --threads is resolved
+
+    @Option(
+        names = ["--zip-parallelism"],
+        paramLabel = "ZIPS",
+        description = [
+            "Maximum number of ZIP files read concurrently. Default: up to 8; entry processing still uses --threads."
+        ]
+    )
+    fun configureZipParallelism(parallelism: Int) {
+        if (parallelism < 1) {
+            throw ParameterException(spec.commandLine(), String.format(Locale.ROOT,
+                "Invalid value `%d' for option '--zip-parallelism': must be at least 1", parallelism))
+        }
+        zipParallelism = parallelism
+    }
+
+    @Option(
+        names = ["--largest-first"],
+        description = [
+            "Schedule larger input ZIPs first. By default ZIPs are scheduled in argument order."
+        ]
+    )
+    var largestFirst: Boolean = false
+
 
     @Option(
         names = ["--sequential"],
@@ -693,6 +718,8 @@ class KorapXmlTool : Callable<Int> {
         if (outputFile != null)       sb.appendLine("  Output file:    $outputFile")
         if (outputDir != ".")         sb.appendLine("  Output dir:     $outputDir")
         sb.appendLine("  Threads:        $maxThreads")
+        sb.appendLine("  ZIP parallelism:${if (zipParallelism > 0) "  $zipParallelism" else "  auto"}")
+        sb.appendLine("  ZIP order:      ${if (largestFirst) "largest first" else "argument order"}")
         sb.appendLine("  Log level:      $logLevel")
 
         // Annotation options
@@ -1070,6 +1097,21 @@ class KorapXmlTool : Callable<Int> {
             else -> outputFormat.name
         }
 
+    internal fun effectiveZipParallelism(zipCount: Int): Int {
+        if (zipCount <= 0) return 1
+        val requested = if (zipParallelism > 0) zipParallelism else minOf(maxThreads, 8)
+        return requested.coerceIn(1, zipCount)
+    }
+
+    internal fun orderZipInputsForProcessing(zips: Array<String>): Array<String> =
+        if (largestFirst) {
+            zips.sortedByDescending { zipSizes[it] ?: 0L }.toTypedArray()
+        } else {
+            zips.copyOf()
+        }
+
+    internal fun streamingOutputClaimCount(): Int = streamingOutputClaims.values.sumOf { it.size }
+
     internal fun canUseStaxTextParsing(): Boolean =
         outputFormat == OutputFormat.CONLLU ||
             outputFormat == OutputFormat.WORD2VEC ||
@@ -1171,6 +1213,12 @@ class KorapXmlTool : Callable<Int> {
 
     // Single priority-based executor for all entry processing
     private var entryExecutor: java.util.concurrent.ExecutorService? = null
+    private var streamEntryPermits: java.util.concurrent.Semaphore? = null
+    private val streamEntriesInFlight = AtomicInteger(0)
+    private val streamEntriesPeak = AtomicInteger(0)
+    private val activeZipWorkers = AtomicInteger(0)
+    private val peakActiveZipWorkers = AtomicInteger(0)
+    private val textStreamWorkerNumber = AtomicInteger(0)
 
     private val MONTH_ORDER = mapOf(
         "JAN" to 1, "FEB" to 2, "MAR" to 3, "MRZ" to 3, "APR" to 4,
@@ -1389,6 +1437,11 @@ class KorapXmlTool : Callable<Int> {
     // Track which texts have been output to avoid counting duplicates (thread-safe)
     val outputTexts: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
+    // Plain streaming output only needs duplicate protection while one ZIP is open.
+    // Keeping every emitted ID in outputTexts made memory grow with total corpus size.
+    private val streamingOutputClaims: ConcurrentHashMap<String, MutableSet<String>> = ConcurrentHashMap()
+    private val streamingZipUsers: ConcurrentHashMap<String, AtomicInteger> = ConcurrentHashMap()
+
     // Scheduled executor for periodic scanning
     var incrementalOutputScheduler: java.util.concurrent.ScheduledExecutorService? = null
 
@@ -1413,8 +1466,31 @@ class KorapXmlTool : Callable<Int> {
         return if (File(baseZip).exists()) baseZip else null
     }
 
+    internal fun planPlainSurfaceTextInputs(zips: Array<String>): Array<String> {
+        if ((outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW) || useLemma) {
+            return zips
+        }
+        val planned = LinkedHashMap<String, String>()
+        zips.forEach { input ->
+            val usefulInput = input.correspondingBaseZip() ?: input
+            val identity = try {
+                File(usefulInput).canonicalPath
+            } catch (_: Exception) {
+                File(usefulInput).absolutePath
+            }
+            planned.putIfAbsent(identity, usefulInput)
+        }
+        return planned.values.toTypedArray()
+    }
+
     fun korapxml2conllu(args: Array<String>) {
         outputTexts.clear()
+        streamingOutputClaims.clear()
+        streamingZipUsers.clear()
+        streamEntriesInFlight.set(0)
+        streamEntriesPeak.set(0)
+        activeZipWorkers.set(0)
+        peakActiveZipWorkers.set(0)
         firstTextOutputLogged.set(false)
         // Reset Krill state for fresh run (important for tests)
         if (outputFormat == OutputFormat.KRILL) {
@@ -1468,12 +1544,16 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.info("Initialized work-stealing scheduler with $maxThreads worker threads for Krill output")
         } else if (canUseArchiveOrderTextStreaming()) {
             entryExecutor = java.util.concurrent.Executors.newFixedThreadPool(maxThreads) { r ->
-                Thread(r, "TextStreamWorker-${Thread.currentThread().threadId()}")
+                Thread(r, "TextStreamWorker-${textStreamWorkerNumber.incrementAndGet()}")
             }
+            // One global budget bounds all open ZIPs together. The old per-ZIP budget
+            // grew quadratically with --threads (128 * 512 queued entries at -j 128).
+            val maxStreamEntries = maxOf(maxThreads * 2, 32)
+            streamEntryPermits = java.util.concurrent.Semaphore(maxStreamEntries, true)
             val textParserMode = if (shouldParseDataXmlWithStax()) "StAX" else "DOM"
             LOGGER.info(
                 "Initialized ${textStreamingModeLabel()} streaming mode: archive-order entries, parallel entry processing, " +
-                    "no text-ID scheduling, data.xml via $textParserMode"
+                    "global in-flight limit=$maxStreamEntries, data.xml via $textParserMode"
             )
         } else {
             // For other formats, use priority-based executor
@@ -1691,6 +1771,17 @@ class KorapXmlTool : Callable<Int> {
                 LOGGER.info("Excluded $excluded of $before zip(s) by glob(s): ${excludeZipGlobs.joinToString(", ")}")
             }
         }
+        if (canUseArchiveOrderTextStreaming() && !useLemma) {
+            val before = zips.size
+            zips = planPlainSurfaceTextInputs(zips)
+            val skipped = before - zips.size
+            if (skipped > 0) {
+                LOGGER.info(
+                    "Surface ${textStreamingModeLabel()} output reduced $before inputs to ${zips.size} unique base ZIP(s); " +
+                        "annotation ZIPs do not affect surface tokens"
+                )
+            }
+        }
         // Initialize zip progress tracking and sizes
         startTimeMillis = System.currentTimeMillis()
         processedZipBytes.set(0)
@@ -1702,10 +1793,10 @@ class KorapXmlTool : Callable<Int> {
             registerZipProgress(zip, try { File(zip).length() } catch (_: Exception) { 0L })
         }
         totalZipBytes = zipSizes.values.sum()
-        // In lemma-only mode, process largest zips first
-        if (lemmaOnly) {
-            zips = zips.sortedByDescending { zipSizes[it] ?: 0L }.toTypedArray()
-        }
+        // Keep caller-controlled order by default. Size-descending scheduling can
+        // improve worker utilization near the end, but may put one large corpus
+        // domain at the beginning of word2vec training data, so it is opt-in.
+        zips = orderZipInputsForProcessing(zips)
         zips.forEachIndexed { index, zip -> zipOrdinals[zip] = index + 1 }
 
         // Log zip order with sizes so the user can verify sorting
@@ -1752,9 +1843,13 @@ class KorapXmlTool : Callable<Int> {
 
         if (maxThreads > 1) {
             val foundry = getFoundryFromZipFileNames(zips)
-            val parallelism = maxThreads.coerceAtLeast(1)
+            val parallelism = effectiveZipParallelism(zips.size)
             if (canUseArchiveOrderTextStreaming()) {
-                LOGGER.info("Processing zips in ${textStreamingModeLabel()} streaming mode; zip parallelism=$parallelism; entry order=archive")
+                LOGGER.info(
+                    "Processing zips in ${textStreamingModeLabel()} streaming mode; " +
+                        "zip parallelism=$parallelism; entry threads=$maxThreads; " +
+                        "ZIP order=${if (largestFirst) "largest first" else "argument order"}"
+                )
             } else {
                 LOGGER.info("Processing zips with ordered queue; parallelism=$parallelism; entries ${if (sequentialInZip) "sequential" else "parallel"}")
             }
@@ -1764,6 +1859,13 @@ class KorapXmlTool : Callable<Int> {
             Arrays.stream(zips).forEachOrdered { zipFilePath ->
                 processZipFileSequentially(zipFilePath, getFoundryFromZipFileNames(zips))
             }
+        }
+
+        if (canUseArchiveOrderTextStreaming()) {
+            LOGGER.info(
+                "Text streaming scheduler summary: peak ZIP workers=${peakActiveZipWorkers.get()}, " +
+                    "peak entries in flight=${streamEntriesPeak.get()}, retained claims=${streamingOutputClaimCount()}"
+            )
         }
 
         } finally {
@@ -2027,6 +2129,8 @@ class KorapXmlTool : Callable<Int> {
         repeat(parallelism) {
             executor.submit {
                 active.incrementAndGet()
+                val activeNow = activeZipWorkers.incrementAndGet()
+                peakActiveZipWorkers.accumulateAndGet(activeNow, ::maxOf)
                 try {
                     while (true) {
                         val zipPath = queue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS)
@@ -2048,6 +2152,7 @@ class KorapXmlTool : Callable<Int> {
                     }
                 } finally {
                     active.decrementAndGet()
+                    activeZipWorkers.decrementAndGet()
                 }
             }
         }
@@ -2863,14 +2968,16 @@ class KorapXmlTool : Callable<Int> {
                 } else {
                     foundry  // Keep original foundry for non-krill formats
                 }
+                val requireRelatedMorpho =
+                    if (outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) useLemma else true
                 if (useJavaZipForTextStreaming()) {
                     openJavaZipFile(zip).use { zipFile ->
                         LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zip: archive-order entries, no text-ID sorting")
-                        processZipEntriesStreaming(zipFile, zip, zipFoundry, true)
+                        processZipEntriesStreaming(zipFile, zip, zipFoundry, requireRelatedMorpho)
                     }
                 } else {
                     openZipFile(zip).use { zipFile ->
-                        processZipEntriesWithPool(zipFile, zip, zipFoundry, true)
+                        processZipEntriesWithPool(zipFile, zip, zipFoundry, requireRelatedMorpho)
                     }
                 }
             }
@@ -2929,10 +3036,12 @@ class KorapXmlTool : Callable<Int> {
                 } else {
                     foundry  // Keep original foundry for non-krill formats
                 }
+                val requireRelatedMorpho =
+                    if (outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) useLemma else true
                 if (useJavaZipForTextStreaming()) {
                     openJavaZipFile(zip).use { zipFile ->
                         LOGGER.info("Using ${textStreamingModeLabel()} streaming mode for $zip: archive-order entries, no text-ID sorting")
-                        processZipEntriesStreaming(zipFile, zip, zipFoundry, true)
+                        processZipEntriesStreaming(zipFile, zip, zipFoundry, requireRelatedMorpho)
                     }
                 } else {
                     openZipFile(zip).use { zipFile ->
@@ -2941,7 +3050,7 @@ class KorapXmlTool : Callable<Int> {
                             .filter { extractMetadataRegex.isNotEmpty() || !it.name.contains("header.xml") }
                             .sortedBy { getTextIdFromPath(it.name) }
                             .forEach { zipEntry ->
-                                processZipEntry(zipFile, zip, zipFoundry, zipEntry, true)
+                                processZipEntry(zipFile, zip, zipFoundry, zipEntry, requireRelatedMorpho)
                             }
                     }
                 }
@@ -2990,10 +3099,18 @@ class KorapXmlTool : Callable<Int> {
             val pct = (done * 100.0 / total).coerceIn(0.0, 100.0)
             val humanSpeed = String.format(Locale.ROOT, "%.2f MB/s", speedBytesPerSec / (1024.0 * 1024.0))
             val etaStr = if (etaSeconds >= 0) formatDuration(etaSeconds) else "unknown"
+            val entryPool = entryExecutor as? java.util.concurrent.ThreadPoolExecutor
+            val schedulerState = if (canUseArchiveOrderTextStreaming()) {
+                ", workers{zip=${activeZipWorkers.get()},entry=${entryPool?.activeCount ?: 0}," +
+                    "queued=${entryPool?.queue?.size ?: 0},inFlight=${streamEntriesInFlight.get()}," +
+                    "claims=${streamingOutputClaims.values.sumOf { it.size }}}"
+            } else {
+                ""
+            }
             LOGGER.info(
                 "Finished zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} " +
                         "(${humanBytes(size)}). Progress: ${String.format(Locale.ROOT, "%.1f", pct)}%, " +
-                        "ETA ${etaStr} at ${humanSpeed}"
+                        "ETA ${etaStr} at ${humanSpeed}$schedulerState"
             )
         } catch (e: Exception) {
             LOGGER.fine("Failed to log zip progress for $zipFilePath: ${e.message}")
@@ -3042,74 +3159,118 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
-    private fun tryProcessReadyText(docId: String, foundry: String): Boolean {
-        if (!outputTexts.add(docId)) return false
+    private fun tryProcessReadyText(zipPath: String, docId: String, foundry: String): Boolean {
+        val claims = if (canUseArchiveOrderTextStreaming()) {
+            streamingOutputClaims.computeIfAbsent(zipPath) { ConcurrentHashMap.newKeySet() }
+        } else {
+            outputTexts
+        }
+        if (!claims.add(docId)) return false
         return try {
             processText(docId, foundry)
             noteFirstTextOutput(docId)
             true
         } catch (t: Throwable) {
-            outputTexts.remove(docId)
+            claims.remove(docId)
+            throw t
+        }
+    }
+
+    private fun beginStreamingZip(zipPath: String) {
+        streamingZipUsers.computeIfAbsent(zipPath) { AtomicInteger(0) }.incrementAndGet()
+    }
+
+    private fun endStreamingZip(zipPath: String) {
+        val users = streamingZipUsers[zipPath] ?: return
+        if (users.decrementAndGet() == 0) {
+            streamingZipUsers.remove(zipPath, users)
+            streamingOutputClaims.remove(zipPath)
+        }
+    }
+
+    private fun isRelevantStreamingEntry(name: String, zipFoundry: String): Boolean {
+        if (name.contains("header.xml")) return extractMetadataRegex.isNotEmpty()
+        if (outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW) return true
+        return when {
+            name.endsWith("data.xml") -> !lemmaOnly
+            name.endsWith("tokens.xml") || name.endsWith("structure.xml") -> true
+            // A base ZIP may use morpho.xml as its tokenization layer. Surface-form
+            // output extracts only those spans and does not retain morpho features.
+            name.endsWith("morpho.xml") -> useLemma || zipFoundry == "base"
+            else -> false
+        }
+    }
+
+    private fun submitStreamingEntry(phaser: java.util.concurrent.Phaser, task: () -> Unit) {
+        val permits = streamEntryPermits
+        permits?.acquireUninterruptibly()
+        phaser.register()
+        val inFlight = streamEntriesInFlight.incrementAndGet()
+        streamEntriesPeak.accumulateAndGet(inFlight) { current, update -> maxOf(current, update) }
+        try {
+            entryExecutor!!.execute {
+                try {
+                    task()
+                } finally {
+                    streamEntriesInFlight.decrementAndGet()
+                    permits?.release()
+                    phaser.arriveAndDeregister()
+                }
+            }
+        } catch (t: Throwable) {
+            streamEntriesInFlight.decrementAndGet()
+            permits?.release()
+            phaser.arriveAndDeregister()
             throw t
         }
     }
 
     private fun processZipEntriesStreaming(zipFile: ApacheZipFile, zipPath: String, foundry: String, waitForMorpho: Boolean) {
-        LOGGER.fine("Streaming NOW entries in archive order for $zipPath without text-ID sorting")
+        LOGGER.fine("Streaming ${textStreamingModeLabel()} entries in archive order for $zipPath")
         val enumEntries = zipFile.entries
+        val zipFoundry = getFoundryFromZipFileName(zipPath)
         val phaser = java.util.concurrent.Phaser(1)
-        val maxInFlight = maxOf(maxThreads * 4, 32)
-        val permits = java.util.concurrent.Semaphore(maxInFlight)
-
-        while (enumEntries.hasMoreElements()) {
-            val entry = enumEntries.nextElement()
-            if (extractMetadataRegex.isEmpty() && entry.name.contains("header.xml")) continue
-            if (entryExecutor != null && maxThreads > 1 && !sequentialInZip) {
-                permits.acquireUninterruptibly()
-                phaser.register()
-                entryExecutor!!.execute {
-                    try {
+        beginStreamingZip(zipPath)
+        try {
+            while (enumEntries.hasMoreElements()) {
+                val entry = enumEntries.nextElement()
+                if (!isRelevantStreamingEntry(entry.name, zipFoundry)) continue
+                if (entryExecutor != null && maxThreads > 1 && !sequentialInZip) {
+                    submitStreamingEntry(phaser) {
                         processZipEntry(zipFile, zipPath, foundry, entry, waitForMorpho)
-                    } finally {
-                        permits.release()
-                        phaser.arriveAndDeregister()
                     }
+                } else {
+                    processZipEntry(zipFile, zipPath, foundry, entry, waitForMorpho)
                 }
-            } else {
-                processZipEntry(zipFile, zipPath, foundry, entry, waitForMorpho)
             }
+            phaser.arriveAndAwaitAdvance()
+        } finally {
+            endStreamingZip(zipPath)
         }
-
-        phaser.arriveAndAwaitAdvance()
     }
 
     private fun processZipEntriesStreaming(zipFile: ZipFile, zipPath: String, foundry: String, waitForMorpho: Boolean) {
-        LOGGER.fine("Streaming NOW entries in archive order for $zipPath without text-ID sorting")
+        LOGGER.fine("Streaming ${textStreamingModeLabel()} entries in archive order for $zipPath")
         val enumEntries = zipFile.entries()
+        val zipFoundry = getFoundryFromZipFileName(zipPath)
         val phaser = java.util.concurrent.Phaser(1)
-        val maxInFlight = maxOf(maxThreads * 4, 32)
-        val permits = java.util.concurrent.Semaphore(maxInFlight)
-
-        while (enumEntries.hasMoreElements()) {
-            val entry = enumEntries.nextElement()
-            if (extractMetadataRegex.isEmpty() && entry.name.contains("header.xml")) continue
-            if (entryExecutor != null && maxThreads > 1 && !sequentialInZip) {
-                permits.acquireUninterruptibly()
-                phaser.register()
-                entryExecutor!!.execute {
-                    try {
+        beginStreamingZip(zipPath)
+        try {
+            while (enumEntries.hasMoreElements()) {
+                val entry = enumEntries.nextElement()
+                if (!isRelevantStreamingEntry(entry.name, zipFoundry)) continue
+                if (entryExecutor != null && maxThreads > 1 && !sequentialInZip) {
+                    submitStreamingEntry(phaser) {
                         processZipEntry(zipFile, zipPath, foundry, entry, waitForMorpho)
-                    } finally {
-                        permits.release()
-                        phaser.arriveAndDeregister()
                     }
+                } else {
+                    processZipEntry(zipFile, zipPath, foundry, entry, waitForMorpho)
                 }
-            } else {
-                processZipEntry(zipFile, zipPath, foundry, entry, waitForMorpho)
             }
+            phaser.arriveAndAwaitAdvance()
+        } finally {
+            endStreamingZip(zipPath)
         }
-
-        phaser.arriveAndAwaitAdvance()
     }
 
     private fun processZipEntriesWithPool(zipFile: ApacheZipFile, zipPath: String, foundry: String, waitForMorpho: Boolean) {
@@ -3507,8 +3668,12 @@ class KorapXmlTool : Callable<Int> {
                     }
 
                     "morpho.xml" -> {
-                        waitForMorpho = true
-                        fnames[docId] = zipEntry.name
+                        if (useLemma || (outputFormat != OutputFormat.WORD2VEC && outputFormat != OutputFormat.NOW)) {
+                            waitForMorpho = true
+                        }
+                        val surfaceTextOutput =
+                            (outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) && !useLemma
+                        if (!surfaceTextOutput) fnames[docId] = zipEntry.name
                         LOGGER.info("Processing morpho.xml for $docId with foundry=$annotationFoundry from ${zipEntry.name}")
                         val fsSpans: NodeList = doc.getElementsByTagName("span")
                         val morphoSpans = extractMorphoSpans(fsSpans)
@@ -3521,6 +3686,13 @@ class KorapXmlTool : Callable<Int> {
                                 val morphoTokens = extractSpans(fsSpans, docId)
                                 tokens[docId] = morphoTokens
                                 collectKrillTokensFromMorpho(docId, morphoFoundry, morphoTokens)
+                            }
+                        } else if ((outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) && !useLemma) {
+                            // Surface-form text output needs morpho.xml only as a token-span
+                            // fallback for base ZIPs without tokens.xml. Do not retain the much
+                            // larger lemma/POS map after the text may already have been emitted.
+                            if (_foundry == "base" && tokens[docId] == null) {
+                                tokens[docId] = extractSpans(fsSpans, docId)
                             }
                         } else {
                             // For other formats, use the shared morpho map
@@ -3646,7 +3818,7 @@ class KorapXmlTool : Callable<Int> {
                     && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
                 ) {
                     LOGGER.fine("All data ready for $docId, calling processText")
-                    tryProcessReadyText(docId, annotationFoundry)
+                    tryProcessReadyText(zipPath, docId, annotationFoundry)
                 } else {
                     LOGGER.fine("NOT ready to process $docId yet: textOK=${texts[docId] != null || !textRequired}, sentencesOK=${sentences[docId] != null}, tokensOK=${tokens[docId] != null}, morphoOK=${!morphoRequired || morpho[docId] != null}")
                 }
@@ -3716,7 +3888,7 @@ class KorapXmlTool : Callable<Int> {
                         && (!morphoRequired || morpho[docId] != null)
                     ) {
                         LOGGER.info("Processing text (meta-ready): $docId in thread ${Thread.currentThread().threadId()}")
-                        tryProcessReadyText(docId, foundry)
+                        tryProcessReadyText(zipPath, docId, foundry)
                     }
                 }
             }
@@ -3786,7 +3958,14 @@ class KorapXmlTool : Callable<Int> {
                     }
                 }
                 "morpho.xml" -> {
-                    fnames[docId] = zipEntry.name
+                    val surfaceTextOutput =
+                        (outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) && !useLemma
+                    if (surfaceTextOutput && tokens[docId] != null) {
+                        // Standard base ZIPs already supplied tokens.xml. Avoid parsing and
+                        // allocating an unused lemma/POS map from a later morpho layer.
+                        return
+                    }
+                    if (!surfaceTextOutput) fnames[docId] = zipEntry.name
                     val (morphoSpans, allSpans) = extractMorphoSpansStax(reader)
 
                     if (outputFormat == OutputFormat.KRILL) {
@@ -3795,6 +3974,11 @@ class KorapXmlTool : Callable<Int> {
                         if (_foundry == "base") {
                             tokens[docId] = allSpans
                             collectKrillTokensFromMorpho(docId, morphoFoundry, allSpans)
+                        }
+                    } else if (surfaceTextOutput) {
+                        // See the DOM path above: surface output uses only token offsets.
+                        if (_foundry == "base" && tokens[docId] == null) {
+                            tokens[docId] = allSpans
                         }
                     } else {
                         val morphoMap = synchronized(morpho) {
@@ -3854,7 +4038,9 @@ class KorapXmlTool : Callable<Int> {
                 processedTextsPerZip.getOrPut(zipPath) { mutableSetOf() }.add(docId)
             }
             
-            val effectiveWaitForMorpho = if (fileName == "morpho.xml") true else waitForMorpho
+            val surfaceTextOutput =
+                (outputFormat == OutputFormat.WORD2VEC || outputFormat == OutputFormat.NOW) && !useLemma
+            val effectiveWaitForMorpho = if (fileName == "morpho.xml" && !surfaceTextOutput) true else waitForMorpho
             
              val finalMorphoRequired = when {
                 taggerName != null || parserName != null -> false
@@ -3875,7 +4061,7 @@ class KorapXmlTool : Callable<Int> {
                 && (!finalMorphoRequired || morpho[docId] != null)
                 && (extractMetadataRegex.isEmpty() || metadata[docId] != null)
             ) {
-                tryProcessReadyText(docId, annotationFoundry)
+                tryProcessReadyText(zipPath, docId, annotationFoundry)
             }
 
         } catch (e: Exception) {
@@ -3956,7 +4142,18 @@ class KorapXmlTool : Callable<Int> {
             if (outputFormat == OutputFormat.KORAP_XML && annotationWorkerPool == null) {
                 formatKorapXmlOutput(getMorphoFoundry(), docId)
             } else {
-                formatConlluOutput(foundry, docId)
+                // In archive-order mode, data/structure/morpho entries for one text
+                // finish concurrently. Derive an input annotation foundry from the
+                // retained annotation filename so the last base-layer task cannot
+                // nondeterministically relabel custom morpho data as "base".
+                val inputFile = fnames[docId]
+                val outputFoundry = if (inputFile != null &&
+                    (inputFile.endsWith("morpho.xml") || inputFile.endsWith("dependency.xml"))) {
+                    annotationFoundryFor(inputFile, File(inputFile).name, foundry)
+                } else {
+                    foundry
+                }
+                formatConlluOutput(outputFoundry, docId)
             }
         }
 
@@ -4142,7 +4339,9 @@ class KorapXmlTool : Callable<Int> {
             val max = rt.maxMemory() / (1024 * 1024)
             LOGGER.info(
                 "MEM-STATS docs=${count} usedMB=${used} totalMB=${total} maxMB=${max} " +
-                        "maps{texts=${texts.size},tokens=${tokens.size},sentences=${sentences.size},morpho=${morpho.size}}"
+                        "maps{texts=${texts.size},tokens=${tokens.size},sentences=${sentences.size},morpho=${morpho.size}} " +
+                        "stream{zipActive=${activeZipWorkers.get()},entriesInFlight=${streamEntriesInFlight.get()}," +
+                        "entriesPeak=${streamEntriesPeak.get()},claims=${streamingOutputClaims.values.sumOf { it.size }}}"
             )
         } catch (e: Exception) {
             LOGGER.warning("Failed to log memory stats: ${e.message}")
