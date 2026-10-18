@@ -2874,11 +2874,11 @@ class KorapXmlTool : Callable<Int> {
 
     private fun useJavaZipForTextStreaming(): Boolean = canUseArchiveOrderTextStreaming()
 
-    private fun processZipFile(zipFilePath: String, foundry: String = "base") {
-        val ord = zipOrdinals[zipFilePath] ?: 0
-        val size = zipSizes[zipFilePath] ?: 0L
-        LOGGER.info("Processing zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} (${humanBytes(size)}) in thread ${Thread.currentThread().threadId()}")
-        LOGGER.info("Foundry: $foundry $dbFactory")
+    /**
+     * Opens the annotation output ZIP (and its log file) for KorAP-XML output on first use.
+     * Shared by the parallel and the sequential ZIP processing paths.
+     */
+    private fun initKorapXmlOutputZipIfNeeded(zipFilePath: String) {
         if (outputFormat == OutputFormat.KORAP_XML && dbFactory == null) {
             // Determine output zip label. Prefer combined label if both tagger and parser are active
             var targetFoundry = "base"
@@ -2993,6 +2993,14 @@ class KorapXmlTool : Callable<Int> {
         } else {
             LOGGER.info("Skipping ZIP initialization: dbFactory=${dbFactory != null}, outputFormat=$outputFormat")
         }
+    }
+
+    private fun processZipFile(zipFilePath: String, foundry: String = "base") {
+        val ord = zipOrdinals[zipFilePath] ?: 0
+        val size = zipSizes[zipFilePath] ?: 0L
+        LOGGER.info("Processing zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} (${humanBytes(size)}) in thread ${Thread.currentThread().threadId()}")
+        LOGGER.info("Foundry: $foundry $dbFactory")
+        initKorapXmlOutputZipIfNeeded(zipFilePath)
         LOGGER.fine("About to process ZIP entries: hasCorrespondingBaseZip=${zipFilePath.hasCorrespondingBaseZip()}")
         if (zipFilePath.hasCorrespondingBaseZip()) {
             val baseZip = zipFilePath.correspondingBaseZip()!!
@@ -3057,6 +3065,7 @@ class KorapXmlTool : Callable<Int> {
         val ord = zipOrdinals[zipFilePath] ?: 0
         val size = zipSizes[zipFilePath] ?: 0L
         LOGGER.info("Processing zip ${if (ord>0) ord else "?"}/$totalZips: ${zipFilePath} (${humanBytes(size)}) in thread ${Thread.currentThread().threadId()}")
+        initKorapXmlOutputZipIfNeeded(zipFilePath)
         if (zipFilePath.hasCorrespondingBaseZip()) {
             // Process the two related zips strictly sequentially to limit memory growth
             val baseZip = zipFilePath.correspondingBaseZip()!!
@@ -3101,6 +3110,13 @@ class KorapXmlTool : Callable<Int> {
                         }
                 }
             }
+        }
+        // Don't close the ZIP here if using external annotation - it will be closed after worker pool finishes
+        if (outputFormat == OutputFormat.KORAP_XML && annotationWorkerPool == null) {
+            LOGGER.fine("Closing output ZIP file in processZipFileSequentially (no annotation worker pool)")
+            morphoZipOutputStream!!.close()
+        } else if (outputFormat == OutputFormat.KORAP_XML) {
+            LOGGER.fine("NOT closing ZIP in processZipFileSequentially - will close after worker pool finishes")
         }
         logZipProgress(zipFilePath)
 

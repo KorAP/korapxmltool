@@ -131,6 +131,34 @@ class KorapXmlFormatterTest {
     }
 
     @Test
+    fun singleThreadedTaggingWritesKorapXmlZip() {
+        // With one thread the sequential ZIP path is used, which used to skip opening the
+        // output ZIP and silently produced nothing (exit code 0).
+        val model = listOf(File("libs/de-pos-maxent.bin"), File("../libs/de-pos-maxent.bin")).firstOrNull { it.exists() }
+        org.junit.Assume.assumeTrue("OpenNLP model file not found", model != null)
+
+        val outputDir = File.createTempFile("sequential_zip_test", "").apply {
+            delete()
+            mkdirs()
+        }
+        try {
+            val args = arrayOf("-j", "1", "-t", "zip", "-f", "-q", "-D", outputDir.path,
+                "-T", "opennlp:${model!!.path}", loadResource("wud24_sample.zip").path)
+            assertEquals(0, debug(args))
+
+            val outputZip = File(outputDir, "wud24_sample.opennlp.zip")
+            assertTrue(outputZip.exists(), "Output ZIP should exist at ${outputZip.path}")
+            val morphoFiles = org.apache.commons.compress.archivers.zip.ZipFile.builder()
+                .setFile(outputZip)
+                .get()
+                .use { zip -> zip.entries.asSequence().map { it.name }.filter { it.endsWith("/opennlp/morpho.xml") }.toList() }
+            assertEquals(3, morphoFiles.size, "Should have morpho.xml files for all 3 documents")
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun externalFoundryDetection() {
         val baseZip = loadResource("wdd17sample.zip").path
         val cmcConlluAnnotation = loadResource("wdd17sample.cmc.conllu").path
