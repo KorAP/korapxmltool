@@ -69,13 +69,11 @@ class KorapXmlFormatterTest {
 
     @Test
     fun corenlpConstituencyParsing() {
-        val taggerModel = File("libs/german-fast.tagger")
-        val parserModel = File("libs/germanSR.ser.gz")
-
-        if (!taggerModel.exists() || !parserModel.exists()) {
-            System.err.println("Skipping CoreNLP test: model files not found")
-            return
-        }
+        // Gradle runs tests from app/, while the models live in the repository's libs/
+        fun model(name: String) = listOf(File("libs/$name"), File("../libs/$name")).firstOrNull { it.exists() }
+        val taggerModel = model("german-fast.tagger")
+        val parserModel = model("germanSR.ser.gz")
+        org.junit.Assume.assumeTrue("CoreNLP model files not found", taggerModel != null && parserModel != null)
 
         val baseZip = loadResource("wud24_sample.zip").path
         val outputDir = File.createTempFile("corenlp_test", "").apply {
@@ -89,8 +87,8 @@ class KorapXmlFormatterTest {
                 "-f",
                 "-q",
                 "-D", outputDir.path,
-                "-T", "corenlp:${taggerModel.path}",
-                "-P", "corenlp:${parserModel.path}",
+                "-T", "corenlp:${taggerModel!!.path}",
+                "-P", "corenlp:${parserModel!!.path}",
                 baseZip
             )
 
