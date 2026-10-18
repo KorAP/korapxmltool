@@ -1,44 +1,27 @@
 package de.ids_mannheim.korapxmltools
 
-import edu.stanford.nlp.ling.CoreAnnotations
-import edu.stanford.nlp.ling.CoreLabel
-import edu.stanford.nlp.pipeline.Annotation
-import edu.stanford.nlp.pipeline.StanfordCoreNLP
-import edu.stanford.nlp.util.CoreMap
+import edu.stanford.nlp.ling.HasWord
+import edu.stanford.nlp.ling.Word
+import edu.stanford.nlp.tagger.maxent.MaxentTagger
 import java.io.File
-import java.util.*
 import java.util.logging.Logger
 
 class CoreNLPTaggerBridge(override val model: String, override val logger: Logger) : TaggerToolBridge() {
     override val foundry = "corenlp"
 
-    private val pipeline: StanfordCoreNLP
+    private val tagger: MaxentTagger
 
     init {
         logger.info("Initializing CoreNLP tagger with model $model")
-        val props = Properties()
 
-        // Basic annotators for POS tagging
-        props.setProperty("annotators", "tokenize,ssplit,pos")
-
-        // Set the POS model from the model parameter
-        if (File(model).exists()) {
-            props.setProperty("pos.model", model)
-            logger.info("Loading POS model from $model")
-        } else {
+        if (!File(model).exists()) {
             throw IllegalArgumentException("Model file not found: $model")
         }
 
-        // Configure for German if model name suggests it
-        if (model.contains("german") || model.contains("German")) {
-            logger.info("Detected German model")
-        }
-
-        // Use whitespace tokenization since we have our own tokens
-        props.setProperty("tokenize.whitespace", "true")
-        props.setProperty("ssplit.eolonly", "true")
-
-        pipeline = StanfordCoreNLP(props)
+        // Use the MaxentTagger directly on our tokens instead of a StanfordCoreNLP pipeline:
+        // even its whitespace tokenizer splits tokens at characters like U+2009 or U+000B and
+        // drops whitespace-only tokens, which shifted all following POS tags in the sentence.
+        tagger = MaxentTagger(model)
         logger.info("CoreNLP tagger initialized successfully")
     }
 
@@ -50,38 +33,28 @@ class CoreNLPTaggerBridge(override val model: String, override val logger: Logge
     ) {
         if (sentenceTokens.isEmpty()) return
 
-        // Build sentence text from tokens
-        val sentenceText = sentenceTokens.joinToString(" ")
-
         try {
-            // Annotate with CoreNLP
-            val annotation = Annotation(sentenceText)
-            pipeline.annotate(annotation)
+            val words: List<HasWord> = sentenceTokens.map { Word(it) }
+            val taggedWords = tagger.tagSentence(words)
 
-            // Get the annotated sentence
-            val sentences: List<CoreMap> = annotation.get(CoreAnnotations.SentencesAnnotation::class.java)
-            if (sentences.isEmpty()) {
-                logger.warning("CoreNLP produced no sentences for: $sentenceText")
+            if (taggedWords.size != sentenceTokens.size) {
+                logger.warning(
+                    "CoreNLP tagger token count mismatch: tagger=${taggedWords.size}, input=${sentenceTokens.size}; " +
+                        "skipping sentence to avoid misalignment"
+                )
                 return
             }
 
-            val sentence = sentences[0]
-            val tokens: List<CoreLabel> = sentence.get(CoreAnnotations.TokensAnnotation::class.java)
-
-            // Map POS tags back to our tokens
-            tokens.forEachIndexed { idx, token ->
-                if (idx < sentenceTokenOffsets.size) {
-                    val pos = token.get(CoreAnnotations.PartOfSpeechAnnotation::class.java)
-                    val lemma = token.get(CoreAnnotations.LemmaAnnotation::class.java)
-
-                    val taggedWord = KorapXmlTool.MorphoSpan(
-                        lemma = lemma ?: "_",
-                        xpos = pos ?: "_",
+            taggedWords.forEachIndexed { idx, taggedWord ->
+                morphoMap?.set(
+                    sentenceTokenOffsets[idx],
+                    KorapXmlTool.MorphoSpan(
+                        lemma = "_",  // the CoreNLP tagger does not lemmatize
+                        xpos = taggedWord.tag() ?: "_",
                         upos = "_",  // CoreNLP doesn't provide universal POS by default
                         feats = "_"
                     )
-                    morphoMap?.set(sentenceTokenOffsets[idx], taggedWord)
-                }
+                )
             }
         } catch (e: Exception) {
             logger.warning("Failed to tag sentence: ${e.message}")

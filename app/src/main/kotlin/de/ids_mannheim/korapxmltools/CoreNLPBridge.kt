@@ -103,15 +103,45 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
             }
             mergeMorphoPosAssignmentsByExactOffsets(assignments, tokens, morpho, logger)
         }
+
+        /**
+         * Builds a single-sentence annotation directly from the base tokens, so that the
+         * parser sees exactly one leaf per token (no CoreNLP tokenization involved).
+         */
+        internal fun buildSentenceAnnotation(sentenceTokens: List<KorapXmlTool.Span>, text: NonBmpString): Annotation {
+            val coreLabels = sentenceTokens.mapIndexed { idx, token ->
+                val word = text.substring(token.from, token.to)
+                CoreLabel().apply {
+                    setWord(word)
+                    setValue(word)
+                    setOriginalText(word)
+                    setBeginPosition(token.from)
+                    setEndPosition(token.to)
+                    setIndex(idx + 1)
+                    setSentIndex(0)
+                }
+            }
+            val sentenceText = coreLabels.joinToString(" ") { it.word() }
+            val sentence = Annotation(sentenceText).apply {
+                set(CoreAnnotations.TokensAnnotation::class.java, coreLabels)
+                set(CoreAnnotations.SentenceIndexAnnotation::class.java, 0)
+                set(CoreAnnotations.TokenBeginAnnotation::class.java, 0)
+                set(CoreAnnotations.TokenEndAnnotation::class.java, coreLabels.size)
+            }
+            return Annotation(sentenceText).apply {
+                set(CoreAnnotations.TokensAnnotation::class.java, coreLabels)
+                set(CoreAnnotations.SentencesAnnotation::class.java, listOf<CoreMap>(sentence))
+            }
+        }
     }
 
     init {
         logger.info("Initializing CoreNLP parser with model $model" + (if (taggerModel != null) " and tagger model $taggerModel" else ""))
         val props = Properties()
 
-        // Basic annotators for constituency parsing
-        // tokenize and ssplit are needed, but we'll provide our own sentence splitting
-        props.setProperty("annotators", "tokenize,ssplit,pos,parse")
+        // Tokens and sentences are supplied as pre-built CoreLabels (see buildSentenceAnnotation),
+        // so neither tokenize nor ssplit runs and CoreNLP cannot re-split or drop tokens.
+        props.setProperty("annotators", "pos,parse")
 
         // Set the parse model from the model parameter
         if (File(model).exists()) {
@@ -133,12 +163,7 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
             logger.warning("No POS model specified for parser - CoreNLP may fail. Use both -t and -P with corenlp.")
         }
 
-        // Use the tool's tokenization and sentence boundaries to keep constituency
-        // and morpho output aligned with the input ZIP token layer.
-        props.setProperty("tokenize.whitespace", "true")
-        props.setProperty("ssplit.eolonly", "true")
-
-        pipeline = StanfordCoreNLP(props)
+        pipeline = StanfordCoreNLP(props, false)
         logger.info("CoreNLP parser initialized successfully")
     }
 
@@ -165,10 +190,7 @@ class CoreNLPBridge(override val model: String, override val logger: Logger, val
                     return@forEachIndexed
                 }
 
-                val sentenceText = sentenceTokens.joinToString(" ") { token ->
-                    text.substring(token.from, token.to)
-                }
-                val annotation = Annotation(sentenceText)
+                val annotation = buildSentenceAnnotation(sentenceTokens, text)
                 pipeline.annotate(annotation)
                 val sentences = annotation.get(CoreAnnotations.SentencesAnnotation::class.java)
                 if (sentences.isEmpty()) {

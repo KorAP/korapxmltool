@@ -12,6 +12,7 @@
 
 - Stabilized large `word2vec`/`NOW` exports: ZIP readers now share one bounded XML-entry backlog instead of multiplying the backlog by every open ZIP, plain-output document claims are released when each ZIP closes instead of growing for the whole corpus, annotation ZIPs are not re-reading the same base ZIP for surface output, and unused late annotation layers no longer repopulate cleaned document state.
 - `word2vec`/`NOW` lemma exports now fall back to Apache Commons Compress when Java's ZIP reader rejects ZIP64 metadata in annotation archives such as `.tree_tagger.zip`. Parallel ZIP-reader failures are also propagated to the main command instead of being silently discarded and yielding an empty output file with exit status 0.
+- CoreNLP POS tags no longer shift within a sentence after tokens that contain characters such as U+2009 (thin space), U+000B or U+2028, or that consist only of U+3000. The CoreNLP tagger now tags the base tokens directly with `MaxentTagger` instead of re-tokenizing them with CoreNLP's whitespace tokenizer, and the CoreNLP parser receives pre-built tokens, so such sentences are no longer skipped with a "token count mismatch" warning either.
 
 ## [v4.1.0] - 2026-06-19
 
