@@ -84,6 +84,39 @@ $ ./build/bin/korapxmltool app/src/test/resources/wdf19.zip | head -10
 
 ```
 
+## Conversion from CoNLL-U / CoNLL-U Plus back to KorAP-XML
+
+Annotated CoNLL-U (`.conllu`) or [CoNLL-U Plus](https://universaldependencies.org/ext-format.html) (`.conllup`) files
+that keep the `# foundry`, `# text_id`, `# start_offsets` and `# end_offsets` comments from the CoNLL-U export
+can be converted back into a KorAP-XML annotation ZIP (`<foundry>/morpho.xml`, plus `dependency.xml` if HEAD/DEPREL are set):
+
+```shell script
+./build/bin/korapxmltool -t zip annotated.conllup   # writes annotated.zip
+```
+
+In CoNLL-U Plus files, the `# global.columns` header determines which column holds which field (it must declare an `ID` column).
+A named-entity column called `NE` or `NER` (optionally namespaced, e.g. `MONAPIPE:NER`) is written to a separate
+`<foundry>/ne.xml` layer in the CoreNLP named-entity format, one span per tagged token, tags kept verbatim (e.g. `B-PER`).
+As with POS tags, a foundry has one NE layer: alternative tags go into the same column, separated by `|`
+(e.g. `B-PER|B-ORG`, kept in this order). A second NE annotation belongs into its own foundry, i.e. its own file;
+several NE columns in one file are rejected.
+
+```
+# global.columns = ID FORM LEMMA UPOS XPOS FEATS HEAD DEPREL DEPS MISC NER
+# foundry = monapipe
+# text_id = TG26-part1_Alberti-Konrad.00001
+# start_offsets = 0 0 7 15
+# end_offsets = 16 6 14 16
+1	Konrad	Konrad	PROPN	NE	Case=Nom	_	_	_	_	B-PER
+2	Alberti	Alberti	PROPN	NE	Case=Nom	_	_	_	_	I-PER
+3	-	-	PUNCT	$(	_	_	_	_	_	_
+```
+
+The Krill export (`-t krill`) indexes such layers, as well as CoreNLP's `corenlp/ne_<model>.xml`, as token
+annotations `<foundry>/ne:<tag>`, so they can be searched e.g. with `[monapipe/ne=B-PER]`. As in korapxml2krill,
+several NE models of the same foundry (e.g. `ne_dewac_175m_600.xml` and `ne_hgc_175m_600.xml`) share this layer:
+where the models disagree, both tags are kept as alternatives; where they agree, the tag is indexed once.
+
 ## Conversion to language model training data input format from KorAP-XML
 
 ```shell script

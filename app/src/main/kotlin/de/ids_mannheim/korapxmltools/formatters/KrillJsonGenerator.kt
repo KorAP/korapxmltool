@@ -163,12 +163,13 @@ object KrillJsonGenerator {
             }
         }
 
-        // Extra inline w-attribute layers (norm, orig, phon, trans) are
-        // rare; a single short-circuiting scan gates the four per-attribute
-        // checks so corpora without them pay at most one extra pass.
+        // Extra inline w-attribute layers (norm, orig, phon, trans) and named
+        // entities are rare; a single short-circuiting scan gates the
+        // per-layer checks so corpora without them pay at most one extra pass.
         val hasExtra = morphoData?.any {
             (it.norm != null && it.norm != "_") || (it.orig != null && it.orig != "_") ||
-            (it.phon != null && it.phon != "_") || (it.trans != null && it.trans != "_")
+            (it.phon != null && it.phon != "_") || (it.trans != null && it.trans != "_") ||
+            (it.ne != null && it.ne != "_")
         } ?: false
         if (hasExtra) {
             // hasExtra is only true when morphoData is non-null, so the
@@ -177,6 +178,7 @@ object KrillJsonGenerator {
             if (morphoData.any { it.orig != null && it.orig != "_" }) layers.add("orig=tokens")
             if (morphoData.any { it.phon != null && it.phon != "_" }) layers.add("phon=tokens")
             if (morphoData.any { it.trans != null && it.trans != "_" }) layers.add("trans=tokens")
+            if (morphoData.any { it.ne != null && it.ne != "_" }) layers.add("ne=tokens")
         }
         return layers
     }
@@ -354,6 +356,13 @@ object KrillJsonGenerator {
             if (morphoSpan.trans != null && morphoSpan.trans != "_") {
                 morphoSpan.trans!!.split("|").forEach {
                     tokenAnnotations.add("$prefix/trans:${it.escapeKrillValue()}")
+                }
+            }
+
+            // Named entities (e.g. corenlp/ne:I-LOC)
+            if (morphoSpan.ne != null && morphoSpan.ne != "_") {
+                morphoSpan.ne!!.split("|").forEach {
+                    tokenAnnotations.add("$prefix/ne:${it.escapeKrillValue()}")
                 }
             }
         }
@@ -654,15 +663,18 @@ object KrillJsonGenerator {
             // Use full name "treetagger" instead of "tt" in foundries list
             val foundryFullName = if (foundry == "tt") "treetagger" else foundry
             foundries.add(foundryFullName)
-            foundryLayers[foundry]?.sorted()?.forEach { layer ->
-                // Convert layer format: "d=rels" -> "dependency", "p=tokens" -> "morpho", etc.
-                val layerName = when {
+            // Convert layer format: "d=rels" -> "dependency", "p=tokens" -> "morpho", etc.
+            // Sorted by name so that the tar merge path (KrillJsonPatcher) reproduces the order.
+            foundryLayers[foundry]?.map { layer ->
+                when {
                     layer.startsWith("d=") -> "dependency"
                     layer.startsWith("l=") || layer.startsWith("p=") || layer.startsWith("m=") || layer.startsWith("u=") ||
                         layer.startsWith("norm=") || layer.startsWith("orig=") ||
                         layer.startsWith("phon=") || layer.startsWith("trans=") -> "morpho"
+                    layer.startsWith("ne=") -> "namedentities"
                     else -> layer.split("=")[0]
                 }
+            }?.distinct()?.sorted()?.forEach { layerName ->
                 val foundryLayer = "$foundryFullName/$layerName"
                 if (!foundries.contains(foundryLayer)) {
                     foundries.add(foundryLayer)

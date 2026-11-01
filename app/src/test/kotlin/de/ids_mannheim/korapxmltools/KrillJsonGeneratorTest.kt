@@ -1598,4 +1598,140 @@ class KrillJsonGeneratorTest {
         assertEquals("https://www.genios.de/document/WELT__216199263", metadata["externalLink"])
         assertEquals("GENIOS", metadata["externalLinkTitle"])
     }
+
+    // A CoNLL-U Plus NER column for the first two tokens of WUD24_Z0087.65594
+    // ("Dein" 1-5, "Konto" 6-11), converted to a mona foundry ZIP.
+    private fun namedEntityZip(dir: File): File {
+        val conllup = File(dir, "wud24_ne.conllup")
+        conllup.writeText(
+            "# global.columns = ID FORM LEMMA UPOS XPOS FEATS HEAD DEPREL DEPS MISC NER\n" +
+            "# foundry = mona\n" +
+            "# text_id = WUD24_Z0087.65594\n" +
+            "# start_offsets = 1 1 6\n" +
+            "# end_offsets = 11 5 11\n" +
+            "1\tDein\t_\t_\t_\t_\t_\t_\t_\t_\t_\n" +
+            "2\tKonto\t_\t_\t_\t_\t_\t_\t_\t_\tB-ORG\n\n"
+        )
+        val zip = File(dir, "wud24_sample.mona.zip")
+        assertEquals(0, debug(arrayOf("-t", "zip", "-o", zip.path, conllup.path)), "CoNLL-U Plus conversion should succeed")
+        return zip
+    }
+
+    private fun krillJsonFor(tar: File, textFile: String): String =
+        readKrillJson(tar)[textFile] ?: error("$textFile not found in ${tar.path}")
+
+    @Test
+    fun krillIndexesNamedEntityLayer() {
+        val dir = File.createTempFile("krill_ne", "").apply { delete(); mkdirs() }
+        try {
+            val neZip = namedEntityZip(dir)
+            assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", dir.path, loadResource("wud24_sample.zip").path, neZip.path)))
+            val json = krillJsonFor(File(dir, "wud24_sample.krill.tar"), "WUD24-Z0087-65594.json")
+
+            assertContains(json, "\"mona/ne:B-ORG\"")
+            assertEquals(1, Regex("mona/ne:").findAll(json).count(), "Only the tagged token carries an ne term")
+            assertContains(json.substringAfter("\"layerInfos\":").substringBefore("\","), "mona/ne=tokens")
+            assertContains(json.substringAfter("\"foundries\":").substringBefore("\","), "mona/namedentities")
+            // The ne term sits on the second token ("Konto", 6-11)
+            val konto = json.substringAfter("\"_1\$<i>6<i>11\"").substringBefore("]")
+            assertContains(konto, "mona/ne:B-ORG")
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun krillReadsCoreNlpModelSpecificNamedEntityFiles() {
+        val dir = File.createTempFile("krill_corenlp_ne", "").apply { delete(); mkdirs() }
+        try {
+            // Repackage the ne layer the way CoreNLP ships it: corenlp/ne_<model>.xml
+            val neXml = org.apache.commons.compress.archivers.zip.ZipFile.builder().setFile(namedEntityZip(dir)).get().use { zip ->
+                zip.getInputStream(zip.getEntry("WUD24/Z0087/65594/mona/ne.xml")).readBytes()
+            }
+            val corenlpZip = File(dir, "wud24_sample.corenlp.zip")
+            java.util.zip.ZipOutputStream(corenlpZip.outputStream()).use { out ->
+                out.putNextEntry(java.util.zip.ZipEntry("WUD24/Z0087/65594/corenlp/ne_dewac_175m_600.xml"))
+                out.write(neXml)
+                out.closeEntry()
+            }
+            File(dir, "wud24_sample.mona.zip").delete()
+
+            assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", dir.path, loadResource("wud24_sample.zip").path, corenlpZip.path)))
+            val json = krillJsonFor(File(dir, "wud24_sample.krill.tar"), "WUD24-Z0087-65594.json")
+            assertContains(json, "\"corenlp/ne:B-ORG\"")
+            assertContains(json.substringAfter("\"layerInfos\":").substringBefore("\","), "corenlp/ne=tokens")
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    // A CoreNLP ne layer tagging "Konto" (6-11) in WUD24_Z0087.65594
+    private fun coreNlpNeXml(tag: String) = """<?xml version="1.0" encoding="UTF-8"?>
+        <layer xmlns="http://ids-mannheim.de/ns/KorAP" docid="WUD24_Z0087.65594" version="KorAP-0.4">
+          <spanList>
+            <span id="s_1" from="6" to="11">
+              <fs xmlns="http://www.tei-c.org/ns/1.0" type="ne"><f name="ne"><fs><f name="ent">$tag</f></fs></f></fs>
+            </span>
+          </spanList>
+        </layer>""".trimIndent()
+
+    private fun kontoNamedEntities(json: String): List<String> =
+        Regex("\"([^\"]+/ne:[^\"]+)\"").findAll(json.substringAfter("\"_1\$<i>6<i>11\"").substringBefore("]"))
+            .map { it.groupValues[1] }.toList()
+
+    private fun coreNlpNamedEntitiesForKonto(models: List<Pair<String, String>>): List<String> {
+        val dir = File.createTempFile("krill_ne_models", "").apply { delete(); mkdirs() }
+        try {
+            val corenlpZip = File(dir, "wud24_sample.corenlp.zip")
+            java.util.zip.ZipOutputStream(corenlpZip.outputStream()).use { out ->
+                models.forEach { (model, tag) ->
+                    out.putNextEntry(java.util.zip.ZipEntry("WUD24/Z0087/65594/corenlp/ne_${model}_175m_600.xml"))
+                    out.write(coreNlpNeXml(tag).toByteArray())
+                    out.closeEntry()
+                }
+            }
+            assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", dir.path, loadResource("wud24_sample.zip").path, corenlpZip.path)))
+            return kontoNamedEntities(krillJsonFor(File(dir, "wud24_sample.krill.tar"), "WUD24-Z0087-65594.json"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun krillKeepsDisagreeingNamedEntityModelsAsAlternativesInEitherOrder() {
+        val forward = coreNlpNamedEntitiesForKonto(listOf("dewac" to "B-PER", "hgc" to "B-ORG"))
+        val reverse = coreNlpNamedEntitiesForKonto(listOf("hgc" to "B-ORG", "dewac" to "B-PER"))
+        assertEquals(listOf("corenlp/ne:B-ORG", "corenlp/ne:B-PER"), forward, "Neither model may overwrite the other")
+        assertEquals(forward, reverse, "Result must not depend on the order of the ne files")
+    }
+
+    @Test
+    fun krillMergesAgreeingNamedEntityModels() {
+        assertEquals(listOf("corenlp/ne:B-PER"),
+            coreNlpNamedEntitiesForKonto(listOf("dewac" to "B-PER", "hgc" to "B-PER")))
+    }
+
+    @Test
+    fun krillIndexesNamedEntityAlternativesInGivenOrder() {
+        val dir = File.createTempFile("krill_ne_alternatives", "").apply { delete(); mkdirs() }
+        try {
+            val conllup = File(dir, "wud24_ne_alt.conllup")
+            conllup.writeText(
+                "# global.columns = ID FORM NER\n" +
+                "# foundry = mona\n" +
+                "# text_id = WUD24_Z0087.65594\n" +
+                "# start_offsets = 1 1 6\n" +
+                "# end_offsets = 11 5 11\n" +
+                "1\tDein\t_\n" +
+                "2\tKonto\tB-PER|B-ORG\n\n"
+            )
+            val neZip = File(dir, "wud24_sample.mona.zip")
+            assertEquals(0, debug(arrayOf("-t", "zip", "-o", neZip.path, conllup.path)))
+            assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", dir.path, loadResource("wud24_sample.zip").path, neZip.path)))
+            val json = krillJsonFor(File(dir, "wud24_sample.krill.tar"), "WUD24-Z0087-65594.json")
+            assertEquals(listOf("mona/ne:B-PER", "mona/ne:B-ORG"), kontoNamedEntities(json))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

@@ -60,6 +60,25 @@ import javax.xml.stream.XMLStreamReader
 
 val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
 
+// Named-entity layers: ne.xml, CoreNLP's model-specific ne_<model>.xml
+// (e.g. ne_dewac_175m_600.xml) and namedentities.xml
+private const val NAMED_ENTITY_FILES = "/ne|/ne_[^/]*|/namedentities"
+private val NAMED_ENTITY_FILE_NAME = Regex("(ne|ne_[^/]*|namedentities)\\.xml")
+
+/**
+ * "|"-separated named-entity alternatives without "_" and duplicates. Like POS
+ * alternatives they keep their given order; [sorted] is used when merging several
+ * NE layer files of one foundry, so the result does not depend on the file order.
+ */
+internal fun mergeNamedEntities(values: List<String?>, sorted: Boolean = false): String {
+    val tags = values.filterNotNull().flatMap { it.split("|") }.filter { it.isNotEmpty() && it != "_" }.distinct()
+    return (if (sorted) tags.sorted() else tags).joinToString("|").ifEmpty { "_" }
+}
+
+// CoNLL-U (.conllu) and CoNLL-U Plus (.conllup) input files
+private val CONLLU_EXTENSION = Regex("\\.conllup?$")
+private val CONLLU_FILE_NAME = Regex(".*\\.conllup?$")
+
 @Command(
     name = "korapxmltool",
     mixinStandardHelpOptions = true,
@@ -123,7 +142,7 @@ class KorapXmlTool : Callable<Int> {
     private var targetZipFileName: String? = null
     // Locale is now globally forced to ROOT at startup (see main())
 
-    @Parameters(arity = "0..*", description = ["Input files: KorAP-XML ZIP files, CoNLL-U files (.conllu), stand-off metadata XML files, or (with -t krill) an existing Krill tar to update from the other inputs. If omitted, reads from stdin (requires -o for output path)."])
+    @Parameters(arity = "0..*", description = ["Input files: KorAP-XML ZIP files, CoNLL-U or CoNLL-U Plus files (.conllu, .conllup), stand-off metadata XML files, or (with -t krill) an existing Krill tar to update from the other inputs. If omitted, reads from stdin (requires -o for output path)."])
     var zipFileNames: Array<String>? = null
 
     @Option(
@@ -964,7 +983,7 @@ class KorapXmlTool : Callable<Int> {
 
             // CoNLL-U to KorAP XML ZIP conversion mode
             val isConlluInput = zipFileNames == null || zipFileNames!!.isEmpty() ||
-                               zipFileNames!!.any { it.endsWith(".conllu") }
+                               zipFileNames!!.any { it.matches(CONLLU_FILE_NAME) }
             
             if (isConlluInput) {
                 // Validate: CoNLL-U mode requires -t zip (default or explicit)
@@ -988,7 +1007,7 @@ class KorapXmlTool : Callable<Int> {
                     }
                     
                     // Case 2: CoNLL-U file(s) specified
-                    zipFileNames!!.all { it.endsWith(".conllu") } -> {
+                    zipFileNames!!.all { it.matches(CONLLU_FILE_NAME) } -> {
                         zipFileNames!!.forEach { conlluFile ->
                             val outputPath = when {
                                 outputFile != null -> {
@@ -997,11 +1016,11 @@ class KorapXmlTool : Callable<Int> {
                                 }
                                 else -> {
                                     // Auto-infer from input filename
-                                    val baseName = File(conlluFile).name.replace(Regex("\\.conllu$"), ".zip")
+                                    val baseName = File(conlluFile).name.replace(CONLLU_EXTENSION, ".zip")
                                     if (outputDir != ".") {
                                         File(outputDir, baseName).path
                                     } else {
-                                        conlluFile.replace(Regex("\\.conllu$"), ".zip")
+                                        conlluFile.replace(CONLLU_EXTENSION, ".zip")
                                     }
                                 }
                             }
@@ -1013,10 +1032,10 @@ class KorapXmlTool : Callable<Int> {
                         return 0
                     }
                     
-                    // Case 3: Mixed input (some .conllu, some .zip) - not supported
+                    // Case 3: Mixed input (some .conllu/.conllup, some .zip) - not supported
                     else -> {
                         throw ParameterException(spec.commandLine(),
-                            "Cannot mix CoNLL-U (.conllu) and ZIP files in the same invocation")
+                            "Cannot mix CoNLL-U (.conllu, .conllup) and ZIP files in the same invocation")
                     }
                 }
             }
@@ -2201,7 +2220,7 @@ class KorapXmlTool : Callable<Int> {
                     try {
                         val zipFile = openZipFile(zipPath)
                         val entries = zipFile.entries.toList()
-                            .filter { !it.isDirectory && it.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency|header)\\.xml$")) }
+                            .filter { !it.isDirectory && it.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency|header|$NAMED_ENTITY_FILES)\\.xml$")) }
                         
                         val entriesByTextId = entries.groupBy { getTextIdFromPath(it.name) }
                         
@@ -2420,7 +2439,7 @@ class KorapXmlTool : Callable<Int> {
         // Annotation-layer entries grouped by normalized text id: (zip, docId, entry)
         val annotationWork = HashMap<String, MutableList<Triple<MergeZip, String, ZipArchiveEntry>>>()
         var ignoredBaseContentEntries = 0
-        val annotationRegex = Regex(".*(morpho|dependency|sentences|constituency)\\.xml$")
+        val annotationRegex = Regex(".*(morpho|dependency|sentences|constituency|$NAMED_ENTITY_FILES)\\.xml$")
         val baseContentRegex = Regex(".*(data|tokens|structure)\\.xml$")
 
         try {
@@ -2855,7 +2874,7 @@ class KorapXmlTool : Callable<Int> {
         if (zipFoundry != "base") return zipFoundry
         when (fileName) {
             "morpho.xml", "dependency.xml", "sentences.xml", "constituency.xml" -> {}
-            else -> return zipFoundry
+            else -> if (!fileName.matches(NAMED_ENTITY_FILE_NAME)) return zipFoundry
         }
         val parts = entryName.split('/')
         val dir = parts.getOrNull(parts.size - 2)
@@ -3622,7 +3641,7 @@ class KorapXmlTool : Callable<Int> {
         }
 
         try {
-            if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency)\\.xml$"))) {
+            if (zipEntry.name.matches(Regex(".*(data|tokens|structure|morpho|dependency|sentences|constituency|$NAMED_ENTITY_FILES)\\.xml$"))) {
                  val isStructure = zipEntry.name.endsWith("structure.xml")
                  val needsDom = isStructure && (extractAttributesRegex.isNotEmpty() || outputFormat == OutputFormat.KRILL)
                  val isConstituency = zipEntry.name.endsWith("constituency.xml")
@@ -4077,6 +4096,13 @@ class KorapXmlTool : Callable<Int> {
                 }
                 "structure.xml" -> {
                     sentences[docId] = extractSentenceSpansStax(reader, docId)
+                }
+                else -> {
+                    if (outputFormat == OutputFormat.KRILL && fileName.matches(NAMED_ENTITY_FILE_NAME)) {
+                        // Named entities share the tagger's foundry (see convertConlluToZip)
+                        val neFoundry = getFoundryForLayer(annotationFoundry, "morpho")
+                        collectKrillMorphoDataDirect(docId, neFoundry, extractNamedEntitySpansStax(reader), "ne")
+                    }
                 }
             }
             
@@ -5107,6 +5133,43 @@ class KorapXmlTool : Callable<Int> {
         return res
     }
 
+    // Named-entity tags from <f name="ent"> features (CoreNLP ne layer structure)
+    private fun extractNamedEntitySpansStax(reader: XMLStreamReader): MutableMap<String, MorphoSpan> {
+        val res: MutableMap<String, MorphoSpan> = HashMap()
+        var currentFromTo: String? = null
+        var inEnt = false
+        val textAccumulator = StringBuilder()
+
+        while (reader.hasNext()) {
+            when (reader.next()) {
+                XMLStreamConstants.START_ELEMENT -> {
+                    if (reader.localName == "span") {
+                        currentFromTo = "${reader.getAttributeValue(null, "from")}-${reader.getAttributeValue(null, "to")}"
+                    } else if (reader.localName == "f" && currentFromTo != null && reader.getAttributeValue(null, "name") == "ent") {
+                        inEnt = true
+                        textAccumulator.clear()
+                    }
+                }
+                XMLStreamConstants.CHARACTERS -> {
+                    if (inEnt) textAccumulator.append(reader.text)
+                }
+                XMLStreamConstants.END_ELEMENT -> {
+                    if (reader.localName == "f" && inEnt) {
+                        val value = textAccumulator.toString().trim()
+                        if (value.isNotEmpty()) {
+                            val span = res.getOrPut(currentFromTo!!) { MorphoSpan() }
+                            span.ne = mergeNamedEntities(listOf(span.ne, value))
+                        }
+                        inEnt = false
+                    } else if (reader.localName == "span") {
+                        currentFromTo = null
+                    }
+                }
+            }
+        }
+        return res
+    }
+
     private fun extractDependencySpans(
         depSpans: NodeList
     ): MutableMap<String, MorphoSpan> {
@@ -5268,8 +5331,57 @@ class KorapXmlTool : Callable<Int> {
         var norm: String? = "_",
         var orig: String? = "_",
         var phon: String? = "_",
-        var trans: String? = "_"
+        var trans: String? = "_",
+        // Named-entity tag (e.g. B-PER) from a CoNLL-U Plus NE/NER column or an
+        // ne.xml layer, emitted as its own Krill layer (foundry/ne:).
+        var ne: String? = "_"
     )
+
+    /**
+     * Column positions of a CoNLL-U (Plus) file. CoNLL-U Plus files declare their
+     * column layout in a "# global.columns = ..." header; plain CoNLL-U uses the
+     * fixed ten columns and has no named-entity column.
+     */
+    internal class ConlluColumns(names: List<String>) {
+        private val index = names.withIndex().associate { (i, name) -> name.uppercase() to i }
+        val size = names.size
+        val id = index["ID"] ?: throw IllegalArgumentException(
+            "CoNLL-U Plus format error: '# global.columns' declares no ID column: ${names.joinToString(" ")}")
+        val lemma = index["LEMMA"]
+        val upos = index["UPOS"]
+        val xpos = index["XPOS"]
+        val feats = index["FEATS"]
+        val head = index["HEAD"]
+        val deprel = index["DEPREL"]
+        val deps = index["DEPS"]
+        val misc = index["MISC"]
+        // Named entities have no standard column name; accept NE / NER, optionally
+        // namespaced as in CoNLL-U Plus (e.g. MONAPIPE:NER). As for POS, a foundry has
+        // one NE layer (alternatives go into one column, separated by "|"), so several
+        // NE columns would have to be different foundries and are rejected.
+        val ne = names.indices.filter { names[it].uppercase().substringAfterLast(':') in setOf("NE", "NER") }
+            .also { neColumns ->
+                if (neColumns.size > 1) throw IllegalArgumentException(
+                    "CoNLL-U Plus format error: '# global.columns' declares more than one named-entity column " +
+                        "(${neColumns.joinToString(", ") { names[it] }}); put each NE annotation into its own file with its own '# foundry'")
+            }.singleOrNull()
+
+        fun idOf(fields: List<String>): String = fields.getOrNull(id) ?: ""
+
+        fun toMorphoSpan(fields: List<String>): MorphoSpan {
+            fun field(i: Int?) = i?.let { fields.getOrNull(it) }?.takeIf { it.isNotEmpty() } ?: "_"
+            return MorphoSpan(field(lemma), field(upos), field(xpos), field(feats), field(head),
+                field(deprel), field(deps), field(misc), ne = mergeNamedEntities(listOf(field(ne))))
+        }
+
+        companion object {
+            const val GLOBAL_COLUMNS_PREFIX = "# global.columns ="
+            val STANDARD = ConlluColumns(listOf("ID", "FORM", "LEMMA", "UPOS", "XPOS", "FEATS", "HEAD", "DEPREL", "DEPS", "MISC"))
+
+            fun fromHeader(line: String) =
+                ConlluColumns(line.substring(GLOBAL_COLUMNS_PREFIX.length).trim().split(Regex("\\s+")))
+        }
+    }
 
     internal fun parseAndWriteAnnotatedConllu(annotatedConllu: String, task: AnnotationWorkerPool.AnnotationTask?) {
         LOGGER.fine("parseAndWriteAnnotatedConllu called with ${annotatedConllu.length} chars, task=$task")
@@ -5557,9 +5669,14 @@ class KorapXmlTool : Callable<Int> {
         var currentTextId: String? = null
         var currentFoundry: String? = null
         var currentLines = mutableListOf<String>()
+        var conlluColumns = ConlluColumns.STANDARD
 
         reader.forEachLine { line ->
             when {
+                line.startsWith(ConlluColumns.GLOBAL_COLUMNS_PREFIX) -> {
+                    conlluColumns = ConlluColumns.fromHeader(line)
+                    if (conlluColumns.ne != null) LOGGER.info("Reading named entities from CoNLL-U Plus column ${conlluColumns.ne!! + 1}")
+                }
                 line.startsWith("# text_id = ") -> {
                     // Save previous document if exists
                     if (currentTextId != null && currentFoundry != null && currentLines.isNotEmpty()) {
@@ -5650,11 +5767,10 @@ class KorapXmlTool : Callable<Int> {
                         }
                         !line.startsWith("#") -> {
                             val fields = line.split("\t")
-                            if (fields.size < 10) continue
+                            if (fields.size < conlluColumns.size) continue
 
-                            val idStr = fields[0]
-                            val rangeMatch = Regex("^([0-9]+)-([0-9]+)$").find(idStr)
-                            
+                            val idStr = conlluColumns.idOf(fields)
+
                             // If it's a range (e.g. 1-2), we might want to skip it if it's just surface form 
                             // coverage for following tokens, OR process it if we want to annotate the MWT.
                             // However, the internal logic expects 1-to-1 mapping with offsets list for tokens.
@@ -5666,15 +5782,6 @@ class KorapXmlTool : Callable<Int> {
                             if (id != null) {
                                 // CoNLL-U IDs are 1-based, offsets lists are 0-based relative to tokens
                                 val tokenIndex = id - 1
-                                
-                                val lemma = if (fields.size > 2) fields[2] else "_"
-                                val upos = if (fields.size > 3) fields[3] else "_"
-                                val xpos = if (fields.size > 4) fields[4] else "_"
-                                val feats = if (fields.size > 5) fields[5] else "_"
-                                val head = if (fields.size > 6) fields[6] else "_"
-                                val deprel = if (fields.size > 7) fields[7] else "_"
-                                val deps = if (fields.size > 8) fields[8] else "_"
-                                val misc = if (fields.size > 9) fields[9] else "_"
 
                                 if (currentStartOffsets == null || currentEndOffsets == null) {
                                     LOGGER.severe("Token found before offset comments in text ${doc.textId}")
@@ -5689,7 +5796,7 @@ class KorapXmlTool : Callable<Int> {
                                     val spanTo = currentEndOffsets[tokenIndex]
                                     val spanKey = "$spanFrom-$spanTo"
 
-                                    morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
+                                    morphoSpans[spanKey] = conlluColumns.toMorphoSpan(fields)
                                 }
                             }
                         }
@@ -5801,6 +5908,18 @@ class KorapXmlTool : Callable<Int> {
                         LOGGER.severe("ERROR generating dependency.xml for ${doc.textId}: ${e.message}")
                         throw e
                     }
+                }
+
+                // Generate ne.xml if a named-entity column was present, in the
+                // tagger's foundry next to morpho.xml
+                if (morphoSpans.values.any { it.ne != null && it.ne != "_" }) {
+                    val nePath = "${textIdToPath(doc.textId)}/$morphoFoundry/ne.xml"
+                    val neZipEntry = ZipArchiveEntry(nePath)
+                    neZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+                    zipOutputStream.putArchiveEntry(neZipEntry)
+                    KorapXmlFormatter.formatNamedEntitiesToStream(doc.textId, morphoSpans, dBuilder!!, zipOutputStream)
+                    zipOutputStream.closeArchiveEntry()
+                    LOGGER.fine("Wrote $nePath")
                 }
 
                 // Cleanup temp data
@@ -6509,6 +6628,8 @@ class KorapXmlTool : Callable<Int> {
                     // Copy only dependency annotations (head, deprel)
                     filteredSpan.head = span.head
                     filteredSpan.deprel = span.deprel
+                } else if (annotationType == "ne") {
+                    filteredSpan.ne = span.ne
                 }
                 filteredSpan
             }.toMutableMap()
@@ -6532,6 +6653,12 @@ class KorapXmlTool : Callable<Int> {
                                 // Only update dependency fields
                                 if (newSpan.head != null && newSpan.head != "_") existingSpan.head = newSpan.head
                                 if (newSpan.deprel != null && newSpan.deprel != "_") existingSpan.deprel = newSpan.deprel
+                            } else if (annotationType == "ne") {
+                                // A second NE layer file of this foundry (e.g. CoreNLP's ne_dewac and
+                                // ne_hgc): disagreeing tags become alternatives, agreeing ones merge
+                                if (newSpan.ne != null && newSpan.ne != "_") existingSpan.ne =
+                                    if (existingSpan.ne == null || existingSpan.ne == "_") newSpan.ne
+                                    else mergeNamedEntities(listOf(existingSpan.ne, newSpan.ne), sorted = true)
                             } else if (annotationType == "morpho") {
                                 // Only update morphological fields (check for "_" since MorphoSpan defaults to "_", not null)
                                 if (newSpan.lemma != null && newSpan.lemma != "_" && (existingSpan.lemma == null || existingSpan.lemma == "_")) existingSpan.lemma = newSpan.lemma

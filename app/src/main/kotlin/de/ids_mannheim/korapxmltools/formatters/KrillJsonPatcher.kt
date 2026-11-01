@@ -443,7 +443,7 @@ object KrillJsonPatcher {
         kept.forEach {
             val name = it.substringBefore('/')
             val layer = it.substringAfter('/', "")
-            if (layer == "morpho" || layer == "dependency") {
+            if (layer == "morpho" || layer == "dependency" || layer == "namedentities") {
                 annLayers.getOrPut(name) { sortedSetOf() }.add(layer)
             }
         }
@@ -454,7 +454,8 @@ object KrillJsonPatcher {
             val layers = annLayers.getOrPut(c.fullName) { sortedSetOf() }
             layers.clear()
             if (c.morphoLayers.any { it == "d=rels" }) layers.add("dependency")
-            if (c.morphoLayers.any { it != "d=rels" }) layers.add("morpho")
+            if (c.morphoLayers.any { it == "ne=tokens" }) layers.add("namedentities")
+            if (c.morphoLayers.any { it != "d=rels" && it != "ne=tokens" }) layers.add("morpho")
         }
 
         val result = mutableListOf<String>()

@@ -1,6 +1,7 @@
 package de.ids_mannheim.korapxmltools.formatters
 
 import de.ids_mannheim.korapxmltools.ConstituencyParserBridge
+import de.ids_mannheim.korapxmltools.KorapXmlTool.MorphoSpan
 import org.w3c.dom.Document
 import java.io.OutputStream
 import java.io.StringWriter
@@ -220,6 +221,62 @@ object KorapXmlFormatter : OutputFormatter {
      */
     fun formatDependencyToStream(context: OutputContext, dBuilder: DocumentBuilder, out: OutputStream) {
         transformToStream(buildDependencyDocument(context, dBuilder), out)
+    }
+
+    /**
+     * Build the named-entity DOM document: one span per tagged token, in the
+     * CoreNLP ne layer structure (fs type="ne" / f name="ne" / f name="ent").
+     */
+    private fun buildNamedEntitiesDocument(docId: String, morpho: Map<String, MorphoSpan>, dBuilder: DocumentBuilder): Document {
+        val doc: Document = dBuilder.newDocument()
+
+        val layer = doc.createElement("layer")
+        layer.setAttribute("xmlns", "http://ids-mannheim.de/ns/KorAP")
+        layer.setAttribute("version", "KorAP-0.4")
+        layer.setAttribute("docid", docId)
+        doc.appendChild(layer)
+
+        val spanList = doc.createElement("spanList")
+        layer.appendChild(spanList)
+
+        var i = 0
+        morpho.forEach { (spanString, mfs) ->
+            if (mfs.ne == null || mfs.ne == "_") return@forEach
+            i++
+            val offsets = spanString.split("-")
+            val spanNode = doc.createElement("span")
+            spanNode.setAttribute("id", "ne_$i")
+            spanNode.setAttribute("from", offsets[0])
+            spanNode.setAttribute("to", offsets[1])
+
+            // One feature structure per tag (several NE columns may tag the same token)
+            mfs.ne!!.split("|").forEach { tag ->
+                val fs = doc.createElement("fs")
+                fs.setAttribute("type", "ne")
+                fs.setAttribute("xmlns", "http://www.tei-c.org/ns/1.0")
+                spanNode.appendChild(fs)
+                val f = doc.createElement("f")
+                f.setAttribute("name", "ne")
+                fs.appendChild(f)
+                val innerFs = doc.createElement("fs")
+                f.appendChild(innerFs)
+                val ent = doc.createElement("f")
+                ent.setAttribute("name", "ent")
+                ent.textContent = tag
+                innerFs.appendChild(ent)
+            }
+
+            spanList.appendChild(spanNode)
+        }
+
+        return doc
+    }
+
+    /**
+     * Stream named-entity annotations as a KorAP-XML ne.xml layer.
+     */
+    fun formatNamedEntitiesToStream(docId: String, morpho: Map<String, MorphoSpan>, dBuilder: DocumentBuilder, out: OutputStream) {
+        transformToStream(buildNamedEntitiesDocument(docId, morpho, dBuilder), out)
     }
 
     /**

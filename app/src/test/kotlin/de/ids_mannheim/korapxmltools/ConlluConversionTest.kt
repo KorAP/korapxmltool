@@ -417,6 +417,136 @@ class ConlluConversionTest {
         )
     }
     @Test
+    fun conlluPlusNamedEntitiesBecomeNeLayer() {
+        val outputDir = createTempDir("conllup_ne")
+        try {
+            // Columns deliberately reordered: global.columns decides which field is which
+            val conllup = File(outputDir, "mona_ner.conllup")
+            conllup.writeText(
+                "# global.columns = ID FORM NER LEMMA UPOS XPOS FEATS HEAD DEPREL DEPS MISC\n" +
+                "# foundry = monapipe\n" +
+                "# text_id = TG26-part1_Alberti-Konrad.00001\n" +
+                "# start_offsets = 0 0 7 15\n" +
+                "# end_offsets = 16 6 14 16\n" +
+                "1\tKonrad\tB-PER\tKonrad\tPROPN\tNE\tCase=Nom\t_\t_\t_\t_\n" +
+                "2\tAlberti\tI-PER\tAlberti\tPROPN\tNE\tCase=Nom\t_\t_\t_\t_\n" +
+                "3\t-\t_\t-\tPUNCT\t\$(\t_\t_\t_\t_\t_\n\n"
+            )
+
+            val exitCode = debug(arrayOf("-t", "zip", "-D", outputDir.path, conllup.path))
+            assertEquals(0, exitCode, "CoNLL-U Plus conversion should succeed")
+            val outputZip = File(outputDir, "mona_ner.zip")
+            assertTrue(outputZip.exists(), "Output ZIP should be auto-inferred as mona_ner.zip")
+
+            val basePath = "TG26-part1/Alberti-Konrad/00001/monapipe"
+            val morphoXml = extractFileFromZip(outputZip, "$basePath/morpho.xml")
+            assertTrue(morphoXml.contains("<f name=\"lemma\">Alberti</f>"), "Lemma should be read from its declared column")
+            assertTrue(morphoXml.contains("<f name=\"pos\">NE</f>"), "XPOS should be read from its declared column")
+            assertFalse(morphoXml.contains("PER"), "NE tags must not leak into morpho.xml")
+
+            val neXml = extractFileFromZip(outputZip, "$basePath/ne.xml")
+            assertTrue(neXml.contains("type=\"ne\""), "ne.xml should use the CoreNLP ne feature structure")
+            assertTrue(Regex("""from="0"[^>]*to="6"[^>]*>\s*<fs[^>]*>\s*<f name="ne">\s*<fs>\s*<f name="ent">B-PER</f>""")
+                .containsMatchIn(neXml), "B-PER should be on span 0-6:\n$neXml")
+            assertTrue(Regex("""from="7"[^>]*to="14"[\s\S]*?<f name="ent">I-PER</f>""").containsMatchIn(neXml),
+                "I-PER should be on span 7-14:\n$neXml")
+            assertEquals(2, Regex("<span ").findAll(neXml).count(), "Untagged tokens get no ne span")
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
+    private fun convertConllup(outputDir: File, content: String): Pair<Int, File> {
+        val conllup = File(outputDir, "input.conllup")
+        conllup.writeText(content)
+        val outputZip = File(outputDir, "input.zip")
+        return debug(arrayOf("-t", "zip", "-o", outputZip.path, conllup.path)) to outputZip
+    }
+
+    private val konradHeader =
+        "# foundry = monapipe\n" +
+        "# text_id = TG26-part1_Alberti-Konrad.00001\n" +
+        "# start_offsets = 0 0 7\n" +
+        "# end_offsets = 14 6 14\n"
+
+    @Test
+    fun conlluPlusIdColumnIsResolvedFromHeader() {
+        val outputDir = createTempDir("conllup_id_column")
+        try {
+            val (exitCode, outputZip) = convertConllup(outputDir,
+                "# global.columns = FORM ID NER\n" + konradHeader +
+                "Konrad\t1\tB-PER\nAlberti\t2\tI-PER\n\n")
+            assertEquals(0, exitCode)
+            val neXml = extractFileFromZip(outputZip, "TG26-part1/Alberti-Konrad/00001/monapipe/ne.xml")
+            assertTrue(Regex("""from="0"[^>]*to="6"[\s\S]*?<f name="ent">B-PER</f>""").containsMatchIn(neXml),
+                "Token 1 must be found via the ID column declared in global.columns:\n$neXml")
+            assertTrue(Regex("""from="7"[^>]*to="14"[\s\S]*?<f name="ent">I-PER</f>""").containsMatchIn(neXml),
+                "Token 2 must be found via the ID column declared in global.columns:\n$neXml")
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun conlluPlusWithoutIdColumnIsRejected() {
+        val outputDir = createTempDir("conllup_no_id")
+        try {
+            val (exitCode, _) = convertConllup(outputDir,
+                "# global.columns = FORM NER\n" + konradHeader + "Konrad\tB-PER\nAlberti\tI-PER\n\n")
+            assertTrue(exitCode != 0, "global.columns without ID must not silently produce an empty ZIP")
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun conlluPlusRejectsSeveralNerColumns() {
+        val outputDir = createTempDir("conllup_two_ner")
+        try {
+            // One NE layer per foundry: a second NE annotation belongs into its own foundry
+            val (exitCode, outputZip) = convertConllup(outputDir,
+                "# global.columns = ID FORM A:NER B:NER\n" + konradHeader +
+                "1\tKonrad\tB-PER\tB-ORG\n2\tAlberti\t_\tI-ORG\n\n")
+            assertTrue(exitCode != 0, "Several NER columns must be rejected, not silently merged or dropped")
+            assertFalse(outputZip.exists(), "No output ZIP should be written")
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun conlluPlusKeepsNerAlternativesInGivenOrder() {
+        val outputDir = createTempDir("conllup_ner_alternatives")
+        try {
+            // Alternatives within one column work like POS alternatives (ADJD|ADV)
+            val (exitCode, outputZip) = convertConllup(outputDir,
+                "# global.columns = ID FORM NER\n" + konradHeader +
+                "1\tKonrad\tB-PER|B-ORG|B-PER\n2\tAlberti\tI-PER\n\n")
+            assertEquals(0, exitCode)
+            val neXml = extractFileFromZip(outputZip, "TG26-part1/Alberti-Konrad/00001/monapipe/ne.xml")
+            val konrad = neXml.substringAfter("from=\"0\"").substringBefore("</span>")
+            assertEquals(listOf("B-PER", "B-ORG"),
+                Regex("<f name=\"ent\">([^<]+)</f>").findAll(konrad).map { it.groupValues[1] }.toList(),
+                "Each alternative gets its own feature structure, in the given order, without duplicates:\n$neXml")
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun conlluWithoutNeColumnWritesNoNeLayer() {
+        val outputDir = createTempDir("conllu_no_ne")
+        try {
+            val outputZip = File(outputDir, "output.zip")
+            debug(arrayOf("-t", "zip", "-o", outputZip.path, loadResource("wud24_sample.spacy.conllu").path))
+            assertFalse(extractZipFileList(outputZip).any { it.endsWith("/ne.xml") },
+                "Plain CoNLL-U has no NE column and should not produce ne.xml")
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun sparseAnnotationRespectsTokenIds() {
         val outputDir = createTempDir("conllu_sparse")
         try {
