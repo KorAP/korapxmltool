@@ -47,6 +47,17 @@ class AnnotationToolBridgeFactory {
             return null
         }
 
+        const val nerFoundries = "corenlp"
+
+        // Get a named-entity recognizer
+        fun getNer(foundry: String, model: String, LOGGER: Logger, mapTags: Boolean = false): TaggerToolBridge? {
+            when (foundry) {
+                "corenlp" -> return CoreNLPNerBridge(model, LOGGER, mapTags)
+                else -> LOGGER.severe("Unknown named-entity recognizer $foundry")
+            }
+            return null
+        }
+
         // Get a parser specifically (dependency or constituency)
         fun getParser(foundry: String, model: String, LOGGER: Logger, taggerModel: String? = null): AnnotationToolBridge? {
             when (foundry) {

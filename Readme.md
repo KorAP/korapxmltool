@@ -51,6 +51,7 @@ Key options for korapxmltool (>= v3.1):
 - `--largest-first`: Schedule larger input ZIPs first (opt-in; the default is argument order)
 - `-T TAGGER[:MODEL]`, `--tag-with TAGGER[:MODEL]`: POS tagger and optional model
 - `-P PARSER[:MODEL]`, `--parse-with PARSER[:MODEL]`: Parser and optional model  
+- `-N NER[:MODEL]`, `--ner-with NER[:MODEL]`: Named-entity recognizer (`corenlp`) and optional model; `--map-ne-tags` maps its tags to `I-PER` etc.
 - `-f`, `--force`: Overwrite existing output files
 - `-q`, `--quiet`: Suppress progress output
 - `-D DIR`, `--output-dir DIR`: Output directory
@@ -328,6 +329,39 @@ Download the Stanford CoreNLP v3.X POS tagger and constituency parser models (e.
 ```
 
 The resulting `out/wud24_sample.corenlp.zip` contains `corenlp/morpho.xml` and `corenlp/constituency.xml` alongside the base tokens.
+
+### Recognize named entities with CoreNLP (3.X) directly to a new KorAP-XML ZIP file
+
+The German CoreNLP 3.9.2 models, including the NER model `german.conll.germeval2014.hgc_175m_600.crf.ser.gz`
+(and also `german-fast.tagger` and `germanSR.ser.gz`), are in the models jar on Maven Central:
+
+```shell script
+curl -sLO https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/3.9.2/stanford-corenlp-3.9.2-models-german.jar
+unzip -j -d libs stanford-corenlp-3.9.2-models-german.jar \
+  edu/stanford/nlp/models/ner/german.conll.germeval2014.hgc_175m_600.crf.ser.gz
+
+./build/bin/korapxmltool -t zip -D out \
+  -N corenlp:libs/german.conll.germeval2014.hgc_175m_600.crf.ser.gz \
+  app/src/test/resources/wud24_sample.zip
+```
+
+This writes `corenlp/ne.xml` (one span per token inside an entity). `-N` can be combined with `-T corenlp -P corenlp`
+to get all CoreNLP layers in one ZIP. The layer keeps the model's tags (`PERSON`, `LOCATION`, `ORGANIZATION`, `MISC`),
+so it can be searched e.g. with `[corenlp/ne=PERSON]`; `--map-ne-tags` maps them to the CoNLL tags of older CoreNLP
+models and of KorAP's query assistant (`I-PER`, `I-LOC`, `I-ORG`, `I-MISC`).
+
+On the GermEval 2014 test set (96,499 tokens, the same pre-tokenized input for all systems, exact-match entity F1),
+this model clearly outperforms both the older CoreNLP models and spaCy's `de_core_news_lg` 3.8, and is about 2.5×
+faster than spaCy (single CPU thread, model loading excluded; it was trained partly on GermEval data, though):
+
+| Model | PER | LOC | ORG | MISC¹ | PER/LOC/ORG | tokens/s |
+|---|---|---|---|---|---|---|
+| CoreNLP `german.conll.germeval2014.hgc_175m_600` (default) | 84.2 | 81.0 | 68.7 | 69.2 | **79.2** | 25,000 |
+| spaCy `de_core_news_lg` 3.8 (NER only) | 80.4 | 66.1 | 57.0 | 40.8 | 68.7 | 9,800 |
+| CoreNLP `german.dewac_175m_600` (3.5.2) | 71.7 | 63.8 | 45.1 | 38.2 | 62.3 | 19,500 |
+| CoreNLP `german.hgc_175m_600` (3.5.2) | 70.0 | 61.7 | 45.6 | 35.9 | 60.7 | 22,700 |
+
+¹ GermEval's `OTH` and derivations such as *deutsche* (`*deriv`) counted as MISC.
 
 ### Parse using the integrated Maltparser directly to a new KorAP-XML ZIP file
 

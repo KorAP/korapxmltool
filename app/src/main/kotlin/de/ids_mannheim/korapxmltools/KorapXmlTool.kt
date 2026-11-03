@@ -1,5 +1,6 @@
 package de.ids_mannheim.korapxmltools
 
+import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.nerFoundries
 import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.parserFoundries
 import de.ids_mannheim.korapxmltools.AnnotationToolBridgeFactory.Companion.taggerFoundries
 import de.ids_mannheim.korapxmltools.formatters.KorapXmlFormatter
@@ -401,6 +402,10 @@ class KorapXmlTool : Callable<Int> {
         "spacy" to DockerTaggerConfig("korap/conllu-spacy", "de_core_news_lg", "")
     )
 
+    private val defaultNerModels = mapOf(
+        "corenlp" to "german.conll.germeval2014.hgc_175m_600.crf.ser.gz"
+    )
+
     private val defaultParserModels = mapOf(
         "malt" to "german.mco",
         "corenlp" to "germanSR.ser.gz",
@@ -426,8 +431,8 @@ class KorapXmlTool : Callable<Int> {
                 calculateKrillThreads(availableCores, availableMemoryGB)
             }
             
-            // Tagging/Parsing: memory-intensive, needs careful balancing
-            taggerName != null || parserName != null -> {
+            // Tagging/Parsing/NER: memory-intensive, needs careful balancing
+            internalAnnotatorActive() -> {
                 calculateAnnotationThreads(availableCores, availableMemoryGB)
             }
             
@@ -489,7 +494,7 @@ class KorapXmlTool : Callable<Int> {
         // Estimate memory per thread: parsing ~1.5GB, tagging ~0.8GB
         val memoryPerThreadGB = when {
             parserName != null -> 1.5  // 1.5GB per parser thread
-            taggerName != null -> 0.8  // 0.8GB per tagger thread  
+            taggerName != null || nerName != null -> 0.8  // 0.8GB per tagger/NER thread
             else -> 0.5                // 0.5GB per thread for other operations
         }
         
@@ -497,7 +502,7 @@ class KorapXmlTool : Callable<Int> {
         val coreBasedThreads = maxOf(1, cores / 2)  // Leave cores for I/O and GC
         
         return minOf(memoryBasedThreads, coreBasedThreads, 16).also { threads ->
-            LOGGER.info("Annotation threading: ${parserName ?: taggerName}, memory=${"%.1f".format(memoryGB)}GB, " +
+            LOGGER.info("Annotation threading: ${parserName ?: taggerName ?: nerName}, memory=${"%.1f".format(memoryGB)}GB, " +
                        "memLimit=${memoryBasedThreads}t, coreLimit=${coreBasedThreads}t, result=${threads}t")
         }
     }
@@ -721,6 +726,49 @@ class KorapXmlTool : Callable<Int> {
         }
     }
 
+    private var nerName: String? = null
+    private var nerModel: String? = null
+    @Option(
+        names = ["-N", "--ner-with"],
+        paramLabel = "NER[:MODEL]",
+        description = ["Recognize named entities with ${nerFoundries}[:<path/to/model>] (KorAP-XML ZIP output only), writing <foundry>/ne.xml.",
+                      "If model is omitted, the default is: corenlp→german.conll.germeval2014.hgc_175m_600.crf.ser.gz"]
+    )
+    fun setNerWith(nerWith: String) {
+        val matcher: Matcher = Pattern.compile("(${nerFoundries})(?::(.+))?").matcher(nerWith)
+        if (!matcher.matches()) {
+            throw ParameterException(spec.commandLine(),
+                String.format(Locale.ROOT, "Invalid value `%s' for option '--ner-with': "+
+                        "value does not match the expected pattern ${nerFoundries}[:<path/to/model>]", nerWith))
+        }
+        nerName = matcher.group(1)
+        val originalModelPath = matcher.group(2) ?: defaultNerModels[nerName]!!
+        val resolvedModelPath = resolveModelPath(originalModelPath)
+        if (resolvedModelPath == null) {
+            val defaultModelsPath = System.getenv("KORAPXMLTOOL_MODELS_PATH")
+            val searchInfo = if (defaultModelsPath != null) {
+                " (searched in current directory and KORAPXMLTOOL_MODELS_PATH='$defaultModelsPath')"
+            } else {
+                " (searched in current directory; KORAPXMLTOOL_MODELS_PATH defaults to ../lib/models relative to executable)"
+            }
+            throw ParameterException(spec.commandLine(),
+                String.format(Locale.ROOT, "Invalid value for option '--ner-with': "+
+                        "model file '%s' does not exist%s", originalModelPath, searchInfo))
+        }
+        nerModel = resolvedModelPath
+        if (resolvedModelPath != originalModelPath) {
+            modelPathResolutions.add(originalModelPath to resolvedModelPath)
+        }
+    }
+
+    @Option(
+        names = ["--map-ne-tags"],
+        description = ["Map the NER model's tags (PERSON, LOCATION, ORGANIZATION, MISC) to the CoNLL tag set of older CoreNLP models and Kalamar's query assistant (I-PER, I-LOC, I-ORG, I-MISC)."]
+    )
+    var mapNeTags: Boolean = false
+
+    // Built-in taggers, parsers and recognizers that annotate texts in processText
+    private fun internalAnnotatorActive() = taggerName != null || parserName != null || nerName != null
 
     private fun logCallOptionsAndEnvironment() {
         val sb = StringBuilder()
@@ -745,6 +793,7 @@ class KorapXmlTool : Callable<Int> {
         // Annotation options
         if (taggerName != null)       sb.appendLine("  Tagger:         $taggerName  model: $taggerModel")
         if (parserName != null)       sb.appendLine("  Parser:         $parserName  model: $parserModel")
+        if (nerName != null)          sb.appendLine("  NER:            $nerName  model: $nerModel${if (mapNeTags) "  (tags mapped)" else ""}")
         if (annotateWith.isNotBlank()) sb.appendLine("  Annotate-with:  $annotateWith")
         if (foundryOverride != null)  sb.appendLine("  Foundry:        $foundryOverride")
 
@@ -837,7 +886,7 @@ class KorapXmlTool : Callable<Int> {
             LOGGER.level = level
             // For annotation and krill formats a per-run log file is always created, so we
             // route everything there and suppress the console.  Otherwise honour the requested level.
-            val willLogToFile = (taggerName != null || parserName != null || annotateWith.isNotBlank()
+            val willLogToFile = (internalAnnotatorActive() || annotateWith.isNotBlank()
                     || outputFormat == OutputFormat.KRILL)
             handler.level = if (willLogToFile) Level.OFF else level
 
@@ -976,6 +1025,12 @@ class KorapXmlTool : Callable<Int> {
             // not to the console, so it does not clutter stderr output.
             logCallOptionsAndEnvironment()
 
+            // NER results are only written as a KorAP-XML ne.xml layer by the built-in pipeline
+            if (nerName != null && (outputFormat != OutputFormat.KORAP_XML || annotateWith.isNotBlank())) {
+                throw ParameterException(spec.commandLine(),
+                    "--ner-with requires KorAP-XML ZIP output (-t zip) and cannot be combined with external annotators (-A, or Docker-based -T/-P)")
+            }
+
             // Krill tar merge mode: update an existing Krill tar from the remaining inputs
             if (krillInputTarPath != null) {
                 return mergeKrillTar(krillInputTarPath!!, zipFileNames ?: emptyArray())
@@ -1101,8 +1156,7 @@ class KorapXmlTool : Callable<Int> {
 
     internal fun canUseArchiveOrderTextStreaming(): Boolean =
         annotationWorkerPool == null &&
-            taggerName == null &&
-            parserName == null &&
+            !internalAnnotatorActive() &&
             when (outputFormat) {
                 OutputFormat.NOW, OutputFormat.WORD2VEC -> true
                 OutputFormat.CONLLU -> hasSingleBaseZipInput()
@@ -1323,6 +1377,7 @@ class KorapXmlTool : Callable<Int> {
     var taggerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge> = ConcurrentHashMap()
     var parserToolBridges: ConcurrentHashMap<Long, ParserToolBridge> = ConcurrentHashMap()
     var constituencyParserBridges: ConcurrentHashMap<Long, ConstituencyParserBridge> = ConcurrentHashMap()
+    var nerToolBridges: ConcurrentHashMap<Long, TaggerToolBridge> = ConcurrentHashMap()
 
     // Zip progress tracking for logging (zipNumber/zipTotal)
     private val zipOrdinals: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
@@ -2919,6 +2974,11 @@ class KorapXmlTool : Callable<Int> {
                         labelParts.add(parserName!!)
                     }
                 }
+                // NER alone names the ZIP after its foundry; next to a tagger/parser it
+                // just adds its layer (in its own foundry directory) to their ZIP
+                if (labelParts.isEmpty() && nerName != null) {
+                    labelParts.add(nerName!!)
+                }
                 if (labelParts.isNotEmpty()) {
                     targetFoundry = labelParts.joinToString("-")
                 } else if (annotateWith.isNotEmpty()) {
@@ -3368,7 +3428,7 @@ class KorapXmlTool : Callable<Int> {
 
         // Update total document count and start timer for external annotation or internal tagging
         // (Text output formats use size-based progress initialized upfront)
-        val shouldShowProgress = (annotationWorkerPool != null || taggerName != null)
+        val shouldShowProgress = (annotationWorkerPool != null || taggerName != null || nerName != null)
         
         if (shouldShowProgress && documentCount > 0) {
              // Only for annotation/tagging scenarios
@@ -3607,6 +3667,11 @@ class KorapXmlTool : Callable<Int> {
                 foundry = tagger.foundry
             }
 
+        }
+        if (nerName != null && !nerToolBridges.containsKey(Thread.currentThread().threadId())) {
+            AnnotationToolBridgeFactory.getNer(nerName!!, nerModel!!, LOGGER, mapNeTags)?.let {
+                nerToolBridges[Thread.currentThread().threadId()] = it
+            }
         }
         if (parserName != null && !parserToolBridges.containsKey(Thread.currentThread().threadId()) && !constituencyParserBridges.containsKey(Thread.currentThread().threadId())) {
             // If both tagger and parser are CoreNLP, pass tagger model to parser for POS tagging
@@ -3855,8 +3920,8 @@ class KorapXmlTool : Callable<Int> {
                 }
 
                 val morphoRequired = when {
-                    // If tagger or parser is enabled, we generate annotations in processText
-                    taggerName != null || parserName != null -> false
+                    // If tagger, parser or NER is enabled, we generate annotations in processText
+                    internalAnnotatorActive() -> false
                     // Word2Vec/NOW with lemmas needs morpho unless a tagger is active (handled above)
                     useLemma -> true
                     // Explicit wait flag means: require morpho.xml before proceeding
@@ -3937,7 +4002,7 @@ class KorapXmlTool : Callable<Int> {
                 if (meta.isNotEmpty() && docId != null) {
                     metadata[docId] = meta.toTypedArray()
                     val morphoRequired = when {
-                        taggerName != null || parserName != null -> false
+                        internalAnnotatorActive() -> false
                         useLemma -> true
                         waitForMorpho -> true
                         outputFormat == OutputFormat.KORAP_XML && annotationWorkerPool == null -> true
@@ -4099,8 +4164,10 @@ class KorapXmlTool : Callable<Int> {
                 }
                 else -> {
                     if (outputFormat == OutputFormat.KRILL && fileName.matches(NAMED_ENTITY_FILE_NAME)) {
-                        // Named entities share the tagger's foundry (see convertConlluToZip)
-                        val neFoundry = getFoundryForLayer(annotationFoundry, "morpho")
+                        // The ne layer belongs to the foundry of its directory, which need not be the
+                        // ZIP's (e.g. corenlp/ne.xml next to marmot/morpho.xml from -T marmot -N corenlp)
+                        val neDir = zipEntry.name.substringBeforeLast('/', "").substringAfterLast('/')
+                        val neFoundry = if (neDir.isEmpty() || neDir == "base") getFoundryForLayer(annotationFoundry, "morpho") else neDir
                         collectKrillMorphoDataDirect(docId, neFoundry, extractNamedEntitySpansStax(reader), "ne")
                     }
                 }
@@ -4115,7 +4182,7 @@ class KorapXmlTool : Callable<Int> {
             val effectiveWaitForMorpho = if (fileName == "morpho.xml" && !surfaceTextOutput) true else waitForMorpho
             
              val finalMorphoRequired = when {
-                taggerName != null || parserName != null -> false
+                internalAnnotatorActive() -> false
                 useLemma -> true
                 effectiveWaitForMorpho -> true
                 outputFormat == OutputFormat.KORAP_XML && annotationWorkerPool == null -> true
@@ -4172,6 +4239,9 @@ class KorapXmlTool : Callable<Int> {
             return
         }
 
+        // Named entities are kept apart from morpho so they do not end up in morpho.xml
+        var namedEntities: MutableMap<String, MorphoSpan>? = null
+
         val output =
         if (outputFormat == OutputFormat.WORD2VEC) {
             formatWord2VecOutput(docId)
@@ -4210,6 +4280,9 @@ class KorapXmlTool : Callable<Int> {
                 )
                 constituencyTrees[docId] = trees
                 LOGGER.finer("Constituency parsed text: $docId, generated ${trees.size} trees in thread ${Thread.currentThread().threadId()}")
+            }
+            nerToolBridges[Thread.currentThread().threadId()]?.let { ner ->
+                namedEntities = ner.tagText(tokens[docId]!!, sentences[docId], texts[docId]!!)
             }
             if (outputFormat == OutputFormat.KORAP_XML && annotationWorkerPool == null) {
                 formatKorapXmlOutput(getMorphoFoundry(), docId)
@@ -4354,6 +4427,20 @@ class KorapXmlTool : Callable<Int> {
                  synchronized(morphoZipOutputStream!!) {
                      morphoZipOutputStream!!.putArchiveEntry(constEntry)
                      KorapXmlFormatter.formatConstituencyToStream(context, dBuilder!!, morphoZipOutputStream!!)
+                     morphoZipOutputStream!!.closeArchiveEntry()
+                 }
+                 wroteOne = true
+             }
+             // Write ne.xml if a named-entity recognizer is active (even without entities, so
+             // every text of the ZIP carries the layer)
+             namedEntities?.let { neSpans ->
+                val neDir = foundryOverride ?: nerToolBridges[Thread.currentThread().threadId()]!!.foundry
+                val nePath = docId.replace(Regex("[_.]"), "/") + "/$neDir/ne.xml"
+                 val neEntry = ZipArchiveEntry(nePath)
+                 neEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+                 synchronized(morphoZipOutputStream!!) {
+                     morphoZipOutputStream!!.putArchiveEntry(neEntry)
+                     KorapXmlFormatter.formatNamedEntitiesToStream(docId, neSpans, dBuilder!!, morphoZipOutputStream!!)
                      morphoZipOutputStream!!.closeArchiveEntry()
                  }
                  wroteOne = true
