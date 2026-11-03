@@ -435,7 +435,7 @@ object KrillJsonPatcher {
     private fun rebuildFoundries(existing: List<String>, c: FoundryContribution): List<String> {
         val kept = existing.filterNot { it.substringBefore('/') in c.names }
 
-        // Reconstruct the sets the generator derives its ordering from
+        // Reconstruct the sets the generator builds the summary from
         val sentFoundries = kept.filter { it.endsWith("/sentences") }.map { it.substringBefore('/') }.toSortedSet()
         val constitFoundries = kept.filter { it.endsWith("/structure") && it.substringBefore('/') != "dereko" }
             .map { it.substringBefore('/') }.toSortedSet()
@@ -458,30 +458,11 @@ object KrillJsonPatcher {
             if (c.morphoLayers.any { it != "d=rels" && it != "ne=tokens" }) layers.add("morpho")
         }
 
-        val result = mutableListOf<String>()
         // dereko block stays as-is (order is fixed)
-        kept.filter { it == "dereko" || it.startsWith("dereko/") }.forEach { result.add(it) }
-        // structure-advertised foundries: bare name, X/sentences, X/structure
-        (sentFoundries + constitFoundries).toSortedSet().forEach { f ->
-            if (!result.contains(f)) result.add(f)
-            if (f in sentFoundries) {
-                val e = "$f/sentences"
-                if (!result.contains(e)) result.add(e)
-            }
-            if (f in constitFoundries) {
-                val e = "$f/structure"
-                if (!result.contains(e)) result.add(e)
-            }
-        }
-        // annotation foundries, sorted like the generator (by layer prefix)
-        annLayers.keys.sortedBy { name -> if (name == "treetagger") "tt" else name }.forEach { name ->
-            result.add(name)
-            annLayers[name]!!.forEach { layer ->
-                val e = "$name/$layer"
-                if (!result.contains(e)) result.add(e)
-            }
-        }
-        return result
+        return KrillJsonGenerator.foundriesSummary(
+            kept.filter { it == "dereko" || it.startsWith("dereko/") },
+            sentFoundries, constitFoundries, annLayers
+        )
     }
 
     // ------------------------------------------------------------------

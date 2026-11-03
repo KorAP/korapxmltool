@@ -1734,4 +1734,29 @@ class KrillJsonGeneratorTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test
+    fun krillListsEachFoundryOnceWithAllItsLayers() {
+        val dir = File.createTempFile("krill_foundries_once", "").apply { delete(); mkdirs() }
+        try {
+            // corenlp contributes both structure (constituency, sentences) and morpho layers
+            assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", dir.path,
+                loadResource("wud24_sample.zip").path, loadResource("wud24_sample.corenlp.zip").path,
+                loadResource("wud24_sample.spacy.zip").path)))
+            readKrillJson(File(dir, "wud24_sample.krill.tar")).forEach { (name, json) ->
+                val foundries = json.substringAfter("\"foundries\":\"").substringBefore("\"").split(" ")
+                assertEquals(foundries, foundries.distinct(), "No duplicate entries in $name: $foundries")
+                val names = foundries.filter { '/' !in it }
+                assertEquals(names, names.sorted().let { listOf("dereko") + (it - "dereko") }, "Foundries sorted by name in $name: $foundries")
+                // Every layer follows its own foundry directly
+                foundries.forEachIndexed { i, entry ->
+                    if ('/' in entry) assertEquals(entry.substringBefore('/'),
+                        foundries.subList(0, i).last { '/' !in it }, "Layer $entry out of place in $name: $foundries")
+                }
+                assertContains(foundries, "corenlp/morpho")
+            }
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

@@ -183,6 +183,30 @@ object KrillJsonGenerator {
         return layers
     }
 
+    /**
+     * The "foundries" summary: the dereko entries, then every other foundry once, sorted by
+     * name and followed by all its layers (sentences, structure, dependency, morpho, ...), as
+     * in korapxml2krill. Shared between [generateTo] and the tar merge path.
+     */
+    fun foundriesSummary(
+        derekoEntries: List<String>,
+        sentenceFoundries: Set<String>,
+        constituencyFoundries: Set<String>,
+        annotationLayers: Map<String, Set<String>>
+    ): List<String> {
+        val layersByFoundry = sortedMapOf<String, SortedSet<String>>()
+        sentenceFoundries.forEach { layersByFoundry.getOrPut(it) { sortedSetOf() }.add("sentences") }
+        constituencyFoundries.forEach { layersByFoundry.getOrPut(it) { sortedSetOf() }.add("structure") }
+        annotationLayers.forEach { (foundry, layers) -> layersByFoundry.getOrPut(foundry) { sortedSetOf() }.addAll(layers) }
+
+        val result = derekoEntries.toMutableList()
+        layersByFoundry.forEach { (foundry, layers) ->
+            if (foundry !in result) result.add(foundry)
+            layers.forEach { layer -> "$foundry/$layer".let { if (it !in result) result.add(it) } }
+        }
+        return result
+    }
+
     /** Resolve a CoNLL-U or offset-based head reference to a 0-based token index, or null. */
     internal fun resolveHeadIndex(headStr: String, offsetToIndex: Map<String, Int>): Int? =
         if (headStr.contains("-")) {
@@ -630,42 +654,15 @@ object KrillJsonGenerator {
         sb.append("\"layerInfos\":${jsonString(layerInfos.joinToString(" "))},")
 
         // foundries - list all foundries with their layers
-        val foundries = mutableListOf<String>()
-
-        // Add dereko if we have structure
-        if (textData.sentences != null) {
-            foundries.add("dereko")
-            foundries.add("dereko/structure")
-            foundries.add("dereko/structure/base-sentences-paragraphs-pagebreaks")
+        val derekoEntries = if (textData.sentences != null) {
+            listOf("dereko", "dereko/structure", "dereko/structure/base-sentences-paragraphs-pagebreaks")
+        } else {
+            emptyList()
         }
-
-        val advertisedStructureFoundries = (externalSentenceFoundries + externalConstitFoundries).toSortedSet()
-        advertisedStructureFoundries.forEach { foundry ->
-            if (!foundries.contains(foundry)) {
-                foundries.add(foundry)
-            }
-            if (externalSentenceFoundries.contains(foundry)) {
-                val sentencesEntry = "$foundry/sentences"
-                if (!foundries.contains(sentencesEntry)) {
-                    foundries.add(sentencesEntry)
-                }
-            }
-            if (externalConstitFoundries.contains(foundry)) {
-                val structureEntry = "$foundry/structure"
-                if (!foundries.contains(structureEntry)) {
-                    foundries.add(structureEntry)
-                }
-            }
-        }
-
-        // Add annotation foundries with their layers
-        foundryLayers.keys.sorted().forEach { foundry ->
-            // Use full name "treetagger" instead of "tt" in foundries list
-            val foundryFullName = if (foundry == "tt") "treetagger" else foundry
-            foundries.add(foundryFullName)
-            // Convert layer format: "d=rels" -> "dependency", "p=tokens" -> "morpho", etc.
-            // Sorted by name so that the tar merge path (KrillJsonPatcher) reproduces the order.
-            foundryLayers[foundry]?.map { layer ->
+        // Annotation foundries under their full name ("treetagger" instead of "tt"), with the
+        // layer format converted: "d=rels" -> "dependency", "p=tokens" -> "morpho", etc.
+        val annotationLayers = foundryLayers.entries.associate { (foundry, layers) ->
+            foundryFullNameForPrefix(foundry) to layers.map { layer ->
                 when {
                     layer.startsWith("d=") -> "dependency"
                     layer.startsWith("l=") || layer.startsWith("p=") || layer.startsWith("m=") || layer.startsWith("u=") ||
@@ -674,13 +671,9 @@ object KrillJsonGenerator {
                     layer.startsWith("ne=") -> "namedentities"
                     else -> layer.split("=")[0]
                 }
-            }?.distinct()?.sorted()?.forEach { layerName ->
-                val foundryLayer = "$foundryFullName/$layerName"
-                if (!foundries.contains(foundryLayer)) {
-                    foundries.add(foundryLayer)
-                }
-            }
+            }.toSet()
         }
+        val foundries = foundriesSummary(derekoEntries, externalSentenceFoundries, externalConstitFoundries, annotationLayers)
         sb.append("\"foundries\":${jsonString(foundries.joinToString(" "))},")
 
         // name - field name for the data (always "tokens")
