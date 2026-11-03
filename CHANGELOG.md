@@ -1,6 +1,8 @@
 # Changelog
 
-## [v4.2.0] - 2026-11-03
+## [v4.2.1] - 2026-11-03
+
+v4.2.0 was not released; its changes are part of this release.
 
 ### Added
 
@@ -18,6 +20,10 @@
 - `word2vec`/`NOW` lemma exports now fall back to Apache Commons Compress when Java's ZIP reader rejects ZIP64 metadata in annotation archives such as `.tree_tagger.zip`. Parallel ZIP-reader failures are also propagated to the main command instead of being silently discarded and yielding an empty output file with exit status 0.
 - CoreNLP POS tags no longer shift within a sentence after tokens that contain characters such as U+2009 (thin space), U+000B or U+2028, or that consist only of U+3000. The CoreNLP tagger now tags the base tokens directly with `MaxentTagger` instead of re-tokenizing them with CoreNLP's whitespace tokenizer, and the CoreNLP parser receives pre-built tokens, so such sentences are no longer skipped with a "token count mismatch" warning either.
 - KorAP-XML annotation output (`-t zip` with `-T`/`-P`) is now also written when ZIPs are processed sequentially, i.e. with `-j 1` (explicit or auto-detected, e.g. on small heaps) or `--sequential`. Previously the output ZIP was never opened on that path, every text failed with "DocumentBuilder required for KorAP-XML output", and the run still ended with exit code 0 and no output.
+
+### Changed
+
+- Dependency updates: `org.apache.opennlp:opennlp-tools` 2.5.10 → 2.5.12, `com.google.guava:guava` 33.6.0-jre → 33.7.1-jre, `org.apache.ant:ant` 1.10.17 → 1.10.18, Kotlin (`org.jetbrains.kotlin.jvm` plugin and `org.jetbrains.kotlin:kotlin-test`) 2.4.10 → 2.4.20, and the `actions/setup-java` GitHub Action 5 → 6.
 
 ## [v4.1.0] - 2026-06-19
 
