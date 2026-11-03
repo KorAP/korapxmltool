@@ -83,7 +83,7 @@ private val CONLLU_FILE_NAME = Regex(".*\\.conllup?$")
 @Command(
     name = "korapxmltool",
     mixinStandardHelpOptions = true,
-    version = ["korapxmltool v4.1.0"],
+    version = ["korapxmltool v4.2.0"],
     usageHelpAutoWidth = false,
     usageHelpWidth = 200,
     description = ["Converts between KorAP-XML ZIP format and formats like CoNLL-U, Krill, word2vec, NOW\n"+
