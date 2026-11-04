@@ -13,8 +13,9 @@ import java.util.logging.Logger
  * of the returned spans; untagged tokens ("O") get no span.
  *
  * The model's own tags (PERSON, LOCATION, ORGANIZATION, MISC) are kept; with
- * [mapTags], they are mapped to the CoNLL tag set of older CoreNLP models and
- * Kalamar's annotation assistant (PERSON -> I-PER, ...).
+ * [mapTags], they are mapped to CoNLL BIO tags (PERSON -> B-PER for the first token
+ * of an entity, I-PER for the following ones; the IOB2 scheme of GermEval 2014). The
+ * models tag in the IO scheme, so two adjacent entities of the same class become one.
  */
 class CoreNLPNerBridge(
     override val model: String,
@@ -56,21 +57,27 @@ class CoreNLPNerBridge(
             return
         }
 
+        var previous: String? = null
         classified.forEachIndexed { idx, label ->
             val tag = label.get(CoreAnnotations.AnswerAnnotation::class.java)
-            if (tag.isNullOrEmpty() || tag == classifier.backgroundSymbol()) return@forEachIndexed
-            morphoMap?.set(sentenceTokenOffsets[idx], KorapXmlTool.MorphoSpan(ne = if (mapTags) mapTag(tag) else tag))
+                ?.takeUnless { it.isEmpty() || it == classifier.backgroundSymbol() }
+            if (tag != null) {
+                val ne = if (mapTags) mapTag(tag, continuesEntity = tag == previous) else tag
+                morphoMap?.set(sentenceTokenOffsets[idx], KorapXmlTool.MorphoSpan(ne = ne))
+            }
+            previous = tag
         }
     }
 
     companion object {
         private val TAG_MAPPING = mapOf(
-            "PERSON" to "I-PER",
-            "LOCATION" to "I-LOC",
-            "ORGANIZATION" to "I-ORG",
-            "MISC" to "I-MISC"
+            "PERSON" to "PER",
+            "LOCATION" to "LOC",
+            "ORGANIZATION" to "ORG",
+            "MISC" to "MISC"
         )
 
-        fun mapTag(tag: String): String = TAG_MAPPING[tag] ?: tag
+        fun mapTag(tag: String, continuesEntity: Boolean = false): String =
+            TAG_MAPPING[tag]?.let { (if (continuesEntity) "I-" else "B-") + it } ?: tag
     }
 }

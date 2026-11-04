@@ -18,6 +18,7 @@ private const val MIN_BUFFER_BYTES = 256L * 1024 * 1024
 private const val MAX_BUFFER_BYTES = 8L * 1024 * 1024 * 1024
 private const val APPROX_BYTES_PER_BUFFER_UNIT = 2L * HIGH_WATERMARK
 private const val MAX_RETRIES_PER_TASK = 5 // Give up on a document after this many unsuccessful annotation attempts
+private const val GLOBAL_COLUMNS_PREFIX = KorapXmlTool.ConlluColumns.GLOBAL_COLUMNS_PREFIX
 
 internal fun parseKorapXmlToolXmxToBytes(spec: String?): Long? {
     if (spec.isNullOrBlank()) return null
@@ -228,6 +229,14 @@ class AnnotationWorkerPool(
                                 val output = StringBuilder()
                                 var lastLineWasEmpty = false
                                 var linesRead = 0
+                                // CoNLL-U Plus tools print "# global.columns" once at the top of their
+                                // output; hand it on with every later document so each can be parsed alone
+                                var globalColumns: String? = null
+                                fun documentOutput(): String {
+                                    val text = output.toString()
+                                    return if (globalColumns == null || text.contains(GLOBAL_COLUMNS_PREFIX)) text
+                                        else "$globalColumns\n$text"
+                                }
                                 try {
                                     procInStream.bufferedReader().use { reader ->
                                         LOGGER.fine("Worker $workerIndex: Reader started, waiting for input from external process")
@@ -260,7 +269,7 @@ class AnnotationWorkerPool(
                                                             LOGGER.fine("Worker $workerIndex: Invoking outputHandler with ${output.length} chars (EOF)")
                                                             pendingOutputHandlers.incrementAndGet()
                                                             try {
-                                                                outputHandler.invoke(output.toString(), task)
+                                                                outputHandler.invoke(documentOutput(), task)
                                                             } finally {
                                                                 pendingOutputHandlers.decrementAndGet()
                                                                 releaseTaskBuffer(task)
@@ -282,7 +291,7 @@ class AnnotationWorkerPool(
                                                         LOGGER.fine("Worker $workerIndex: Invoking outputHandler with ${output.length} chars (EOT)")
                                                         pendingOutputHandlers.incrementAndGet()
                                                         try {
-                                                            outputHandler.invoke(output.toString(), task)
+                                                            outputHandler.invoke(documentOutput(), task)
                                                         } finally {
                                                             pendingOutputHandlers.decrementAndGet()
                                                             releaseTaskBuffer(task)
@@ -308,7 +317,7 @@ class AnnotationWorkerPool(
                                                             LOGGER.fine("Worker $workerIndex: Invoking outputHandler with ${output.length} chars (double empty line)")
                                                             pendingOutputHandlers.incrementAndGet()
                                                             try {
-                                                                outputHandler.invoke(output.toString(), task)
+                                                                outputHandler.invoke(documentOutput(), task)
                                                             } finally {
                                                                 pendingOutputHandlers.decrementAndGet()
                                                                 releaseTaskBuffer(task)
@@ -326,6 +335,7 @@ class AnnotationWorkerPool(
                                                     }
                                                 }
                                                  else -> {
+                                                     if (line.startsWith(GLOBAL_COLUMNS_PREFIX)) globalColumns = line
                                                      output.append(line).append('\n')
                                                      lastLineWasEmpty = false
                                                  }
@@ -352,7 +362,7 @@ class AnnotationWorkerPool(
                                                 LOGGER.fine("Worker $workerIndex: Invoking outputHandler with ${output.length} chars (remaining)")
                                                 pendingOutputHandlers.incrementAndGet()
                                                 try {
-                                                    outputHandler.invoke(output.toString(), task)
+                                                    outputHandler.invoke(documentOutput(), task)
                                                 } finally {
                                                     pendingOutputHandlers.decrementAndGet()
                                                     releaseTaskBuffer(task)

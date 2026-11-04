@@ -763,7 +763,7 @@ class KorapXmlTool : Callable<Int> {
 
     @Option(
         names = ["--map-ne-tags"],
-        description = ["Map the NER model's tags (PERSON, LOCATION, ORGANIZATION, MISC) to the CoNLL tag set of older CoreNLP models and Kalamar's query assistant (I-PER, I-LOC, I-ORG, I-MISC)."]
+        description = ["Map the NER model's tags (PERSON, LOCATION, ORGANIZATION, MISC) to CoNLL BIO tags (B-PER/I-PER, B-LOC/I-LOC, B-ORG/I-ORG, B-MISC/I-MISC)."]
     )
     var mapNeTags: Boolean = false
 
@@ -5491,9 +5491,18 @@ class KorapXmlTool : Callable<Int> {
         var sentenceStartOffset: Int? = null
         var sentenceEndOffset: Int? = null
         var extractedFoundry: String? = null
+        var conlluColumns = ConlluColumns.STANDARD
 
         for (line in annotatedConllu.lineSequence()) {
             when {
+                line.startsWith(ConlluColumns.GLOBAL_COLUMNS_PREFIX) -> {
+                    conlluColumns = try {
+                        ConlluColumns.fromHeader(line)
+                    } catch (e: IllegalArgumentException) {
+                        LOGGER.severe("Skipping annotated output for $docId: ${e.message}")
+                        return
+                    }
+                }
                 line.startsWith("# foundry =") -> {
                     val foundryStr = line.substring("# foundry =".length).trim()
                     if (foundryStr.isNotEmpty()) {
@@ -5527,19 +5536,9 @@ class KorapXmlTool : Callable<Int> {
                 }
                 !line.startsWith("#") -> {
                     val fields = line.split("\t")
-                    if (fields.size < 10) continue
+                    if (fields.size < conlluColumns.size) continue
 
-                    val idStr = fields[0]
-                    val id = idStr.toIntOrNull()
-
-                    val lemma = if (fields.size > 2) fields[2] else "_"
-                    val upos = if (fields.size > 3) fields[3] else "_"
-                    val xpos = if (fields.size > 4) fields[4] else "_"
-                    val feats = if (fields.size > 5) fields[5] else "_"
-                    val head = if (fields.size > 6) fields[6] else "_"
-                    val deprel = if (fields.size > 7) fields[7] else "_"
-                    val deps = if (fields.size > 8) fields[8] else "_"
-                    val misc = if (fields.size > 9) fields[9] else "_"
+                    val id = conlluColumns.idOf(fields).toIntOrNull()
 
                     if (id != null) {
                         val tokenIndex = id - 1
@@ -5553,7 +5552,7 @@ class KorapXmlTool : Callable<Int> {
                             val spanTo = currentEndOffsets[tokenIndex]
                             val spanKey = "$spanFrom-$spanTo"
         
-                            morphoSpans[spanKey] = MorphoSpan(lemma, upos, xpos, feats, head, deprel, deps, misc)
+                            morphoSpans[spanKey] = conlluColumns.toMorphoSpan(fields)
                         }
                     }
                 }
@@ -5582,6 +5581,12 @@ class KorapXmlTool : Callable<Int> {
 
         val tempDocId = "_temp_annotated_$docId"
         morpho[tempDocId] = morphoSpans
+
+        val hasNamedEntities = morphoSpans.values.any { it.ne != null && it.ne != "_" }
+        // A named-entity recognizer may echo the input's empty morpho columns; write no morpho layer for them
+        val hasMorpho = !hasNamedEntities || morphoSpans.values.any { span ->
+            listOf(span.lemma, span.upos, span.xpos, span.feats).any { it != null && it != "_" }
+        }
 
         val hasDependencies = morphoSpans.values.any { span ->
             span.head != null && span.head != "_" && span.deprel != null && span.deprel != "_"
@@ -5644,16 +5649,18 @@ class KorapXmlTool : Callable<Int> {
                 tokenSeparator = tokenSeparator
             )
 
-            val morphoEntryPath = docId.replace(Regex("[_.]"), "/") + "/$actualFoundry/morpho.xml"
+            if (hasMorpho) {
+                val morphoEntryPath = docId.replace(Regex("[_.]"), "/") + "/$actualFoundry/morpho.xml"
 
-            val morphoZipEntry = ZipArchiveEntry(morphoEntryPath)
-            morphoZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
-            synchronized(morphoZipOutputStream!!) {
-                morphoZipOutputStream!!.putArchiveEntry(morphoZipEntry)
-                try {
-                    KorapXmlFormatter.formatMorphoToStream(context, dBuilder!!, morphoZipOutputStream!!)
-                } finally {
-                    morphoZipOutputStream!!.closeArchiveEntry()
+                val morphoZipEntry = ZipArchiveEntry(morphoEntryPath)
+                morphoZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+                synchronized(morphoZipOutputStream!!) {
+                    morphoZipOutputStream!!.putArchiveEntry(morphoZipEntry)
+                    try {
+                        KorapXmlFormatter.formatMorphoToStream(context, dBuilder!!, morphoZipOutputStream!!)
+                    } finally {
+                        morphoZipOutputStream!!.closeArchiveEntry()
+                    }
                 }
             }
             val written = docsWrittenToZip.incrementAndGet()
@@ -5699,6 +5706,25 @@ class KorapXmlTool : Callable<Int> {
                 }
             } catch (e: Exception) {
                 LOGGER.severe("ERROR generating/writing dependency.xml: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+
+        if (hasNamedEntities) {
+            try {
+                val neEntryPath = docId.replace(Regex("[_.]"), "/") + "/$actualFoundry/ne.xml"
+                val neZipEntry = ZipArchiveEntry(neEntryPath)
+                neZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
+                synchronized(morphoZipOutputStream!!) {
+                    morphoZipOutputStream!!.putArchiveEntry(neZipEntry)
+                    try {
+                        KorapXmlFormatter.formatNamedEntitiesToStream(docId, morphoSpans, dBuilder!!, morphoZipOutputStream!!)
+                    } finally {
+                        morphoZipOutputStream!!.closeArchiveEntry()
+                    }
+                }
+            } catch (e: Exception) {
+                LOGGER.severe("ERROR generating/writing ne.xml: ${e.message}")
                 e.printStackTrace()
             }
         }

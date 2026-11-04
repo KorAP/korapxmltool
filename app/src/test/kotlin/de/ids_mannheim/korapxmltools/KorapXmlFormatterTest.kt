@@ -217,4 +217,62 @@ class KorapXmlFormatterTest {
             outputDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun externalNamedEntityRecognizerWritesNeLayer() {
+        val baseZip = loadResource("wud24_sample.zip").path
+        val outputDir = File.createTempFile("external_ner_test", "").apply {
+            delete()
+            mkdirs()
+        }
+        // A CoNLL-U Plus NER tool: declares its columns once for all documents, keeps the
+        // input's empty morpho columns and tags the first two tokens of each sentence
+        val nerTool = File(outputDir, "ner.awk").apply {
+            writeText("""
+                BEGIN { FS = OFS = "\t"; print "# global.columns = ID FORM LEMMA UPOS XPOS FEATS HEAD DEPREL DEPS MISC NER" }
+                /^# eot${'$'}/ || /^# eof${'$'}/ { print; fflush(); next }
+                /^# foundry =/ { print "# foundry = monapipe"; next }
+                /^#/ || /^${'$'}/ { print; next }
+                { print ${'$'}0, (${'$'}1 == 1 ? "B-PER" : ${'$'}1 == 2 ? "I-PER" : "_") }
+            """.trimIndent())
+        }
+
+        try {
+            val args = arrayOf(
+                "-t", "zip",
+                "-q",
+                "-D", outputDir.path,
+                "-j", "1",
+                "-A", "awk -f ${nerTool.path}",
+                baseZip
+            )
+            assertEquals(0, debug(args), "External annotation processing should succeed")
+
+            val outputZip = File(outputDir, "wud24_sample.monapipe.zip")
+            assertTrue(outputZip.exists(), "Output ZIP should exist at ${outputZip.path}")
+            val (entries, neXml) = org.apache.commons.compress.archivers.zip.ZipFile.builder()
+                .setFile(outputZip)
+                .get()
+                .use { zip ->
+                    val names = zip.entries.asSequence().map { it.name }.toList()
+                    val entry = zip.getEntry("WUD24/I0083/95367/monapipe/ne.xml")
+                    assertNotNull(entry, "Should contain an ne layer: $names")
+                    names to zip.getInputStream(entry).bufferedReader(java.nio.charset.StandardCharsets.UTF_8).use { it.readText() }
+                }
+            assertEquals(3, entries.count { it.endsWith("/monapipe/ne.xml") },
+                "Every document gets an ne layer, not only the first one with the header: $entries")
+            assertTrue(entries.none { it.endsWith("morpho.xml") }, "Empty morpho columns give no morpho layer: $entries")
+            assertTrue(neXml.contains(">B-PER<") && neXml.contains(">I-PER<"), "ne.xml should contain the tool's tags")
+
+            assertEquals(0, debug(arrayOf("-q", "-t", "krill", "-D", outputDir.path, baseZip, outputZip.path)))
+            val extractDir = File(outputDir, "krill").apply { mkdirs() }
+            assertEquals(0, ProcessBuilder("tar", "-xf", File(outputDir, "wud24_sample.krill.tar").path, "-C", extractDir.path)
+                .start().waitFor())
+            val json = java.util.zip.GZIPInputStream(File(extractDir, "WUD24-I0083-95367.json.gz").inputStream())
+                .bufferedReader().readText()
+            assertTrue(json.contains("\"monapipe/ne:B-PER\""), "Krill should index the tool's ne layer")
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
 }

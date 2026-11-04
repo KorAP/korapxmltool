@@ -51,7 +51,7 @@ Key options for korapxmltool (>= v3.1):
 - `--largest-first`: Schedule larger input ZIPs first (opt-in; the default is argument order)
 - `-T TAGGER[:MODEL]`, `--tag-with TAGGER[:MODEL]`: POS tagger and optional model
 - `-P PARSER[:MODEL]`, `--parse-with PARSER[:MODEL]`: Parser and optional model  
-- `-N NER[:MODEL]`, `--ner-with NER[:MODEL]`: Named-entity recognizer (`corenlp`) and optional model; `--map-ne-tags` maps its tags to `I-PER` etc.
+- `-N NER[:MODEL]`, `--ner-with NER[:MODEL]`: Named-entity recognizer (`corenlp`) and optional model; `--map-ne-tags` maps its tags to BIO tags (`B-PER`, `I-PER` etc.)
 - `-f`, `--force`: Overwrite existing output files
 - `-q`, `--quiet`: Suppress progress output
 - `-D DIR`, `--output-dir DIR`: Output directory
@@ -347,8 +347,9 @@ unzip -j -d libs stanford-corenlp-3.9.2-models-german.jar \
 
 This writes `corenlp/ne.xml` (one span per token inside an entity). `-N` can be combined with `-T corenlp -P corenlp`
 to get all CoreNLP layers in one ZIP. The layer keeps the model's tags (`PERSON`, `LOCATION`, `ORGANIZATION`, `MISC`),
-so it can be searched e.g. with `[corenlp/ne=PERSON]`; `--map-ne-tags` maps them to the CoNLL tags of older CoreNLP
-models and of KorAP's query assistant (`I-PER`, `I-LOC`, `I-ORG`, `I-MISC`).
+so it can be searched e.g. with `[corenlp/ne=PERSON]`; `--map-ne-tags` maps them to CoNLL BIO tags (`B-PER` for the
+first token of an entity, `I-PER` for the following ones, likewise `LOC`, `ORG`, `MISC`; the IOB2 scheme of GermEval 2014).
+The models tag in the IO scheme, so two adjacent entities of the same class come out as one.
 
 On the GermEval 2014 test set (96,499 tokens, the same pre-tokenized input for all systems, exact-match entity F1),
 this model clearly outperforms both the older CoreNLP models and spaCy's `de_core_news_lg` 3.8, and is about 2.5×
@@ -362,6 +363,20 @@ faster than spaCy (single CPU thread, model loading excluded; it was trained par
 | CoreNLP `german.hgc_175m_600` (3.5.2) | 70.0 | 61.7 | 45.6 | 35.9 | 60.7 | 22,700 |
 
 ¹ GermEval's `OTH` and derivations such as *deutsche* (`*deriv`) counted as MISC.
+
+### Recognize named entities with an external CoNLL-U Plus tool
+
+Like external taggers and parsers, an external named-entity recognizer can be run with `-A`. It reads CoNLL-U from
+stdin and writes CoNLL-U Plus with an `NE` or `NER` column declared in `# global.columns` (see
+[above](#conversion-from-conll-u--conll-u-plus-back-to-korap-xml)); it may print this header only once for all
+documents. The tags are written to `<foundry>/ne.xml`; if the tool leaves the morpho columns empty, no `morpho.xml`
+is written. The foundry is taken from the tool's `# foundry` comment or set with `-F`:
+
+```shell script
+./build/bin/korapxmltool -t zip -F monapipe -A "my-ner-tool --conllu" ./app/src/test/resources/wud24_sample.zip
+```
+
+With BIO tags, `[monapipe/ne=B-PER]` only finds the first token of each name; `[monapipe/ne=/.-PER/]` finds all.
 
 ### Parse using the integrated Maltparser directly to a new KorAP-XML ZIP file
 

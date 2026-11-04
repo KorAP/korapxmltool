@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- External named-entity recognizers via `-A`: the CoNLL-U output of external annotators is now read according to its `# global.columns` header, which the tool may print only once for all documents, and an `NE`/`NER` column is written to `<foundry>/ne.xml`. If the tool leaves the morpho columns empty, no `morpho.xml` is written.
+
+### Changed
+
+- `--map-ne-tags` now maps CoreNLP's named-entity tags to CoNLL BIO tags (`B-PER` for the first token of an entity, `I-PER` for the following ones, likewise `LOC`, `ORG`, `MISC`; the IOB2 scheme of GermEval 2014), instead of `I-PER` etc. for every token. The CoreNLP models tag in the IO scheme, so two adjacent entities of the same class come out as one.
+
 ## [v4.2.1] - 2026-11-03
 
 v4.2.0 was not released; its changes are part of this release.

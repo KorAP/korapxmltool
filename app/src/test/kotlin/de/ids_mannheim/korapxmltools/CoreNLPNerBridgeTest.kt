@@ -55,12 +55,13 @@ class CoreNLPNerBridgeTest {
     }
 
     @Test
-    fun mapsLongClassNamesToConllTags() {
-        assertEquals("I-PER", CoreNLPNerBridge.mapTag("PERSON"))
-        assertEquals("I-LOC", CoreNLPNerBridge.mapTag("LOCATION"))
-        assertEquals("I-ORG", CoreNLPNerBridge.mapTag("ORGANIZATION"))
-        assertEquals("I-MISC", CoreNLPNerBridge.mapTag("MISC"))
-        assertEquals("B-PER", CoreNLPNerBridge.mapTag("B-PER"), "Tags already in CoNLL form are kept")
+    fun mapsLongClassNamesToConllBioTags() {
+        assertEquals("B-PER", CoreNLPNerBridge.mapTag("PERSON"))
+        assertEquals("I-PER", CoreNLPNerBridge.mapTag("PERSON", continuesEntity = true))
+        assertEquals("B-LOC", CoreNLPNerBridge.mapTag("LOCATION"))
+        assertEquals("B-ORG", CoreNLPNerBridge.mapTag("ORGANIZATION"))
+        assertEquals("I-MISC", CoreNLPNerBridge.mapTag("MISC", continuesEntity = true))
+        assertEquals("I-PER", CoreNLPNerBridge.mapTag("I-PER"), "Tags already in CoNLL form are kept")
     }
 
     @Test
@@ -94,14 +95,14 @@ class CoreNLPNerBridgeTest {
     }
 
     @Test
-    fun mappedTagsUseConllNames() {
+    fun mappedTagsUseConllBioNames() {
         val ner = CoreNLPNerBridge(modelFile().path, Logger.getAnonymousLogger(), mapTags = true)
         val (text, spans, sentences) = sentence()
 
         val entities = ner.tagText(spans, sentences, text)
 
-        assertEquals("I-PER", entities["${spans[0].from}-${spans[0].to}"]?.ne)
-        assertEquals("I-LOC", entities["${spans[4].from}-${spans[4].to}"]?.ne)
+        assertEquals(listOf("B-PER", "I-PER", null, null, "B-LOC", null),
+            spans.map { entities["${it.from}-${it.to}"]?.ne })
     }
 
     @Test
@@ -124,13 +125,13 @@ class CoreNLPNerBridgeTest {
             assertContains(json, "\"corenlp/ne:ORGANIZATION\"")
             assertContains(json.substringAfter("\"layerInfos\":").substringBefore("\","), "corenlp/ne=tokens")
 
-            // --map-ne-tags switches to the CoNLL tag names
+            // --map-ne-tags switches to the CoNLL BIO tag names
             val mappedDir = File(dir, "mapped").apply { mkdirs() }
             assertEquals(0, debug(arrayOf("-q", "-N", "corenlp:${model.path}", "--map-ne-tags", "-t", "zip", "-D", mappedDir.path, baseZip)))
             val neXml = ZipFile.builder().setFile(File(mappedDir, "wud24_sample.corenlp.zip")).get().use { zip ->
                 zip.getInputStream(zip.getEntry("WUD24/I0083/95367/corenlp/ne.xml")).bufferedReader().readText()
             }
-            assertContains(neXml, ">I-ORG<")
+            assertContains(neXml, ">B-ORG<")
             assertFalse(neXml.contains(">ORGANIZATION<"), "No unmapped tags with --map-ne-tags")
         } finally {
             dir.deleteRecursively()
