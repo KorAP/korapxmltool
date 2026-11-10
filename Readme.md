@@ -52,6 +52,8 @@ Key options for korapxmltool (>= v3.1):
 - `-T TAGGER[:MODEL]`, `--tag-with TAGGER[:MODEL]`: POS tagger and optional model
 - `-P PARSER[:MODEL]`, `--parse-with PARSER[:MODEL]`: Parser and optional model  
 - `-N NER[:MODEL]`, `--ner-with NER[:MODEL]`: Named-entity recognizer (`corenlp`) and optional model; `--map-ne-tags` maps its tags to BIO tags (`B-PER`, `I-PER` etc.)
+- `-A COMMAND`, `--annotate-with COMMAND`: Pipe the CoNLL-U output through an external annotation command
+- `-F FOUNDRY`, `--foundry FOUNDRY`: Foundry name for annotations read from CoNLL-U (default: from the `# foundry` comment)
 - `-f`, `--force`: Overwrite existing output files
 - `-q`, `--quiet`: Suppress progress output
 - `-D DIR`, `--output-dir DIR`: Output directory
@@ -364,13 +366,34 @@ faster than spaCy (single CPU thread, model loading excluded; it was trained par
 
 ¹ GermEval's `OTH` and derivations such as *deutsche* (`*deriv`) counted as MISC.
 
+### Annotate with any external CoNLL-U tool
+
+Any tagger or parser that reads CoNLL-U from stdin and writes annotated CoNLL-U to stdout can be plugged in with `-A`.
+korapxmltool starts one instance of the command per job (`-j`) and sends it the documents in the CoNLL-U format shown
+[above](#conversion-to-conll-u-format). The tool must pass the `# text_id`, `# start_offsets` and `# end_offsets`
+comment lines through unchanged, because they are needed to map the annotations back to the text. Ideally, it also echoes the `# eot` line that follows each document and the `# eof` line at the end of the input,
+so that each document's output can be passed on as soon as it is ready. A tool that ignores these lines and only
+prints its output at the end of the input also works.
+With `-t zip`, the annotations are written to `<foundry>/morpho.xml` (and `dependency.xml` if HEAD/DEPREL are set).
+The foundry is the one given with `-F`, otherwise a name guessed from the command (`spacy`, `tree_tagger`, `marmot`,
+`opennlp`, `corenlp`, `udpipe`, `stanza`), otherwise the tool's `# foundry` comment. A tool that just echoes the input's
+`# foundry = base` therefore needs `-F`:
+
+```shell script
+./build/bin/korapxmltool -t zip -j4 -F tree_tagger \
+  -A "docker run --rm -i korap/conllu-treetagger -l french" \
+  app/src/test/resources/wdf19.zip
+```
+
+Without `-t`, the annotated CoNLL-U is written to stdout instead.
+
 ### Recognize named entities with an external CoNLL-U Plus tool
 
 Like external taggers and parsers, an external named-entity recognizer can be run with `-A`. It reads CoNLL-U from
 stdin and writes CoNLL-U Plus with an `NE` or `NER` column declared in `# global.columns` (see
 [above](#conversion-from-conll-u--conll-u-plus-back-to-korap-xml)); it may print this header only once for all
 documents. The tags are written to `<foundry>/ne.xml`; if the tool leaves the morpho columns empty, no `morpho.xml`
-is written. The foundry is taken from the tool's `# foundry` comment or set with `-F`:
+is written. The foundry is determined as [above](#annotate-with-any-external-conll-u-tool), so set it with `-F`:
 
 ```shell script
 ./build/bin/korapxmltool -t zip -F monapipe -A "my-ner-tool --conllu" ./app/src/test/resources/wud24_sample.zip
