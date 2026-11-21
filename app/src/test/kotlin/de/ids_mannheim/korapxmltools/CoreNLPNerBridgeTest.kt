@@ -55,27 +55,28 @@ class CoreNLPNerBridgeTest {
     }
 
     @Test
-    fun mapsLongClassNamesToConllBioTags() {
-        assertEquals("B-PER", CoreNLPNerBridge.mapTag("PERSON"))
-        assertEquals("I-PER", CoreNLPNerBridge.mapTag("PERSON", continuesEntity = true))
-        assertEquals("B-LOC", CoreNLPNerBridge.mapTag("LOCATION"))
-        assertEquals("B-ORG", CoreNLPNerBridge.mapTag("ORGANIZATION"))
-        assertEquals("I-MISC", CoreNLPNerBridge.mapTag("MISC", continuesEntity = true))
-        assertEquals("I-PER", CoreNLPNerBridge.mapTag("I-PER"), "Tags already in CoNLL form are kept")
+    fun normalizesVerboseCoreNlpClassNamesToShortStandardTags() {
+        assertEquals("PER", CoreNLPNerBridge.normalizeTag("PERSON"))
+        assertEquals("LOC", CoreNLPNerBridge.normalizeTag("LOCATION"))
+        assertEquals("ORG", CoreNLPNerBridge.normalizeTag("ORGANIZATION"))
+        assertEquals("MISC", CoreNLPNerBridge.normalizeTag("MISC"))
+        assertEquals("I-PER", CoreNLPNerBridge.normalizeTag("I-PER"))
+        assertEquals("B-PER", CoreNLPNerBridge.normalizeTag("B-PERSON"))
+        assertNull(CoreNLPNerBridge.normalizeTag("O"))
     }
 
     @Test
-    fun tagsBaseTokensWithTheModelsTags() {
+    fun tagsBaseTokensWithShortStandardTags() {
         val ner = CoreNLPNerBridge(modelFile().path, Logger.getAnonymousLogger())
         val (text, spans, sentences) = sentence()
 
         val entities = ner.tagText(spans, sentences, text)
 
         fun tagOf(i: Int) = entities["${spans[i].from}-${spans[i].to}"]?.ne
-        assertEquals("PERSON", tagOf(0), "Konrad")
-        assertEquals("PERSON", tagOf(1), "Alberti")
+        assertEquals("PER", tagOf(0), "Konrad")
+        assertEquals("PER", tagOf(1), "Alberti")
         assertNull(tagOf(2), "Tokens outside entities get no span")
-        assertEquals("LOCATION", tagOf(4), "Berlin")
+        assertEquals("LOC", tagOf(4), "Berlin")
     }
 
     @Test
@@ -90,23 +91,12 @@ class CoreNLPNerBridgeTest {
 
         val entities = ner.tagText(spans.toTypedArray(), arrayOf(KorapXmlTool.Span(0, text.length)), NonBmpString(text))
 
-        assertEquals(listOf("PERSON", "PERSON", null, null, null, "ORGANIZATION", "ORGANIZATION", null, "ORGANIZATION", null),
+        assertEquals(listOf("PER", "PER", null, null, null, "ORG", "ORG", null, "ORG", null),
             spans.map { entities["${it.from}-${it.to}"]?.ne })
     }
 
     @Test
-    fun mappedTagsUseConllBioNames() {
-        val ner = CoreNLPNerBridge(modelFile().path, Logger.getAnonymousLogger(), mapTags = true)
-        val (text, spans, sentences) = sentence()
-
-        val entities = ner.tagText(spans, sentences, text)
-
-        assertEquals(listOf("B-PER", "I-PER", null, null, "B-LOC", null),
-            spans.map { entities["${it.from}-${it.to}"]?.ne })
-    }
-
-    @Test
-    fun nerWritesNeLayerThatKrillIndexes() {
+    fun nerWritesMultiTokenSpansThatKrillIndexesAsSpansAndTokens() {
         val model = modelFile()
         val dir = createTempDir("corenlp_ner")
         try {
@@ -118,21 +108,21 @@ class CoreNLPNerBridgeTest {
             assertEquals(3, entries.count { it.endsWith("/corenlp/ne.xml") }, "Every text gets an ne layer: $entries")
             assertFalse(entries.any { it.endsWith("morpho.xml") }, "NER alone writes no morpho layer: $entries")
 
+            val neXml = ZipFile.builder().setFile(neZip).get().use { zip ->
+                zip.getInputStream(zip.getEntry("WUD24/I0083/95367/corenlp/ne.xml")).bufferedReader().readText()
+            }
+            assertContains(neXml, ">ORG<")
+            assertFalse(neXml.contains(">ORGANIZATION<"), "CoreNLP tags should be normalized to PER/LOC/ORG/MISC")
+
             assertEquals(0, debug(arrayOf("-q", "-t", "krill", "-D", dir.path, baseZip, neZip.path)))
             val extractDir = File(dir, "krill").apply { mkdirs() }
             assertEquals(0, ProcessBuilder("tar", "-xf", File(dir, "wud24_sample.krill.tar").path, "-C", extractDir.path).start().waitFor())
             val json = GZIPInputStream(File(extractDir, "WUD24-I0083-95367.json.gz").inputStream()).bufferedReader().readText()
-            assertContains(json, "\"corenlp/ne:ORGANIZATION\"")
+            assertContains(json, "\"corenlp/ne:ORG\"")
+            assertContains(json, "\"<>:corenlp/ne:ORG\$<b>64<i>")
             assertContains(json.substringAfter("\"layerInfos\":").substringBefore("\","), "corenlp/ne=tokens")
-
-            // --map-ne-tags switches to the CoNLL BIO tag names
-            val mappedDir = File(dir, "mapped").apply { mkdirs() }
-            assertEquals(0, debug(arrayOf("-q", "-N", "corenlp:${model.path}", "--map-ne-tags", "-t", "zip", "-D", mappedDir.path, baseZip)))
-            val neXml = ZipFile.builder().setFile(File(mappedDir, "wud24_sample.corenlp.zip")).get().use { zip ->
-                zip.getInputStream(zip.getEntry("WUD24/I0083/95367/corenlp/ne.xml")).bufferedReader().readText()
-            }
-            assertContains(neXml, ">B-ORG<")
-            assertFalse(neXml.contains(">ORGANIZATION<"), "No unmapped tags with --map-ne-tags")
+            assertFalse(json.substringAfter("\"layerInfos\":").substringBefore("\",").contains("corenlp/ne=spans"),
+                "layerInfos should keep ne=tokens only so Kalamar does not duplicate span+token terms in tree view")
         } finally {
             dir.deleteRecursively()
         }

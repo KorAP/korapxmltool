@@ -262,7 +262,8 @@ class KorapXmlFormatterTest {
             assertEquals(3, entries.count { it.endsWith("/monapipe/ne.xml") },
                 "Every document gets an ne layer, not only the first one with the header: $entries")
             assertTrue(entries.none { it.endsWith("morpho.xml") }, "Empty morpho columns give no morpho layer: $entries")
-            assertTrue(neXml.contains(">B-PER<") && neXml.contains(">I-PER<"), "ne.xml should contain the tool's tags")
+            assertTrue(neXml.contains(">PER<") && !neXml.contains(">B-PER<") && !neXml.contains(">I-PER<"),
+                "ne.xml should collapse BIO sequences into multi-token spans with bare PER tags:\n$neXml")
 
             assertEquals(0, debug(arrayOf("-q", "-t", "krill", "-D", outputDir.path, baseZip, outputZip.path)))
             val extractDir = File(outputDir, "krill").apply { mkdirs() }
@@ -270,7 +271,8 @@ class KorapXmlFormatterTest {
                 .start().waitFor())
             val json = java.util.zip.GZIPInputStream(File(extractDir, "WUD24-I0083-95367.json.gz").inputStream())
                 .bufferedReader().readText()
-            assertTrue(json.contains("\"monapipe/ne:B-PER\""), "Krill should index the tool's ne layer")
+            assertTrue(json.contains("\"monapipe/ne:PER\""), "Krill should index bare token NE annotations")
+            assertTrue(json.contains("\"<>:monapipe/ne:PER\$<b>64<i>"), "Krill should index multi-token NE spans")
         } finally {
             outputDir.deleteRecursively()
         }

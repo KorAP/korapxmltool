@@ -2,6 +2,8 @@ package de.ids_mannheim.korapxmltools.formatters
 
 import de.ids_mannheim.korapxmltools.KorapXmlTool.MorphoSpan
 import de.ids_mannheim.korapxmltools.KorapXmlTool.Span
+import de.ids_mannheim.korapxmltools.NamedEntities
+import de.ids_mannheim.korapxmltools.NamedEntitySpan
 import de.ids_mannheim.korapxmltools.NonBmpString
 import java.util.SortedSet
 import java.util.logging.Logger
@@ -49,6 +51,10 @@ object KrillJsonGenerator {
         var lpSentencesCollected: Boolean = false,
         var sentencesCollectedByFoundry: MutableSet<String> = mutableSetOf(),
         var constituencyCollectedByFoundry: MutableSet<String> = mutableSetOf(),
+        // Named-entity spans (multi-token or legacy per-token), keyed by foundry
+        var namedEntitySpansByFoundry: MutableMap<String, MutableList<NamedEntitySpan>> = mutableMapOf(),
+        var namedEntityCollectedByFoundry: MutableSet<String> = mutableSetOf(),
+        var namedEntityFileCountByFoundry: MutableMap<String, Int> = mutableMapOf(),
         // Extra metadata fields derived from stand-off metadata files, already
         // resolved to their final Krill type/value (see StandoffMetadata).
         var standoffFields: MutableList<StandoffField> = mutableListOf()
@@ -258,22 +264,67 @@ object KrillJsonGenerator {
     }
 
     /**
+     * Resolve one foundry's raw [NamedEntitySpan]s against [tokens] into:
+     * 1. Krill [StructureSpan]s (`<>:<prefix>/ne:<tag>$<b>64<i>from<i>to<i>tokenTo<b>depth`)
+     * 2. Bare per-token annotations (`<prefix>/ne:<tag>`) projected onto every covered token.
+     *
+     * Shared between [generateTo] and [KrillJsonPatcher] so fresh exports and tar merges
+     * emit identical stream entries.
+     */
+    internal fun resolveNamedEntitiesForFoundry(
+        prefix: String?,
+        rawSpans: List<NamedEntitySpan>?,
+        sortAlternatives: Boolean,
+        tokens: List<Span>,
+        sentences: Array<Span>?
+    ): Pair<List<StructureSpan>, Map<Int, List<String>>> {
+        if (prefix == null || rawSpans.isNullOrEmpty() || tokens.isEmpty()) {
+            return emptyList<StructureSpan>() to emptyMap()
+        }
+        val resolved = NamedEntities.resolveForKrill(rawSpans, tokens, sentences, sortAlternatives)
+        if (resolved.isEmpty()) return emptyList<StructureSpan>() to emptyMap()
+
+        val spans = ArrayList<StructureSpan>(resolved.size)
+        val tokenTags = HashMap<Int, MutableList<String>>()
+        for (ne in resolved) {
+            val escaped = ne.tag.escapeKrillValue()
+            spans.add(
+                StructureSpan(
+                    layer = "$prefix/ne:$escaped",
+                    from = ne.from,
+                    to = ne.to,
+                    tokenFrom = ne.tokenFrom,
+                    tokenTo = ne.tokenTo,
+                    depth = ne.depth
+                )
+            )
+            val term = "$prefix/ne:$escaped"
+            for (tokIdx in ne.tokenFrom until ne.tokenTo) {
+                val list = tokenTags.getOrPut(tokIdx) { mutableListOf() }
+                if (term !in list) list.add(term)
+            }
+        }
+        return spans to tokenTags
+    }
+
+    /**
      * The raw (unquoted) stream annotations a single foundry contributes to one
      * token: morphological features, POS, lemma, UPOS, extra w-attribute layers,
-     * and the outgoing/ROOT dependency edge. Shared between [forEachStreamItem]
-     * and the tar merge path so both emit identical strings.
+     * named entities, and the outgoing/ROOT dependency edge. Shared between
+     * [forEachStreamItem] and the tar merge path so both emit identical strings.
      */
     internal fun morphoAnnotationsForToken(
         prefix: String?,
         foundry: String,
-        morphoSpan: MorphoSpan,
+        morphoSpan: MorphoSpan?,
         token: Span,
         index: Int,
-        offsetToIndex: Map<String, Int>
+        offsetToIndex: Map<String, Int>,
+        neTokenAnnotations: List<String>? = null
     ): List<String> {
         val tokenAnnotations = mutableListOf<String>()
 
-        if (prefix != null) {
+        if (prefix != null && morphoSpan != null) {
             // Morphological features (sorted)
             if (morphoSpan.feats != null && morphoSpan.feats != "_") {
                 val features = mutableListOf<String>()
@@ -382,17 +433,22 @@ object KrillJsonGenerator {
                     tokenAnnotations.add("$prefix/trans:${it.escapeKrillValue()}")
                 }
             }
+        }
 
-            // Named entities (e.g. corenlp/ne:I-LOC)
-            if (morphoSpan.ne != null && morphoSpan.ne != "_") {
-                morphoSpan.ne!!.split("|").forEach {
-                    tokenAnnotations.add("$prefix/ne:${it.escapeKrillValue()}")
+        // Named entities (bare token tags projected from NE spans, e.g. corenlp/ne:PER)
+        if (!neTokenAnnotations.isNullOrEmpty()) {
+            neTokenAnnotations.forEach { tokenAnnotations.add(it) }
+        } else if (prefix != null && morphoSpan != null && morphoSpan.ne != null && morphoSpan.ne != "_") {
+            morphoSpan.ne!!.split("|").forEach {
+                NamedEntities.parseTag(it)?.label?.let { label ->
+                    val term = "$prefix/ne:${label.escapeKrillValue()}"
+                    if (term !in tokenAnnotations) tokenAnnotations.add(term)
                 }
             }
         }
 
         // Dependency relations
-        if (morphoSpan.head != null && morphoSpan.head != "_" && morphoSpan.deprel != null && morphoSpan.deprel != "_") {
+        if (morphoSpan != null && morphoSpan.head != null && morphoSpan.head != "_" && morphoSpan.deprel != null && morphoSpan.deprel != "_") {
             // Head can be either an offset (e.g., "100-110") or a token index (e.g., "1")
             val headStr = morphoSpan.head!!
             val resolvedHeadIndex = resolveHeadIndex(headStr, offsetToIndex)
@@ -635,13 +691,29 @@ object KrillJsonGenerator {
         externalSentenceFoundries.forEach { layerInfos.add("$it/s=spans") }
         externalConstitFoundries.forEach { layerInfos.add("$it/c=spans") }
 
+        // Resolve kept tokens and named-entity spans once so layerInfos, foundries, and
+        // stream emission always agree.
+        val resolvedTokens = resolveTokens(textData, includeNonWordTokens)
+        val resolvedNeByFoundry: Map<String, Pair<List<StructureSpan>, Map<Int, List<String>>>> =
+            textData.namedEntitySpansByFoundry.entries.associate { (foundry, rawSpans) ->
+                val shortFoundry = foundryPrefix(foundry)
+                val sortAlternatives = (textData.namedEntityFileCountByFoundry[foundry] ?: 1) > 1
+                foundry to resolveNamedEntitiesForFoundry(
+                    shortFoundry, rawSpans, sortAlternatives, resolvedTokens, textData.sentences
+                )
+            }
+
         // Collect layers by foundry type (checking what data actually exists)
         val foundryLayers = mutableMapOf<String, MutableSet<String>>()
-        textData.morphoByFoundry.keys.sorted().forEach { foundry ->
+        val allAnnotationFoundries = (textData.morphoByFoundry.keys + textData.namedEntitySpansByFoundry.keys).sorted()
+        allAnnotationFoundries.forEach { foundry ->
             val shortFoundry = foundryPrefix(foundry)
             if (shortFoundry != null) {
-                foundryLayers.getOrPut(shortFoundry) { mutableSetOf() }
-                    .addAll(computeFoundryLayers(foundry, textData.morphoByFoundry[foundry]?.values))
+                val layers = foundryLayers.getOrPut(shortFoundry) { mutableSetOf() }
+                layers.addAll(computeFoundryLayers(foundry, textData.morphoByFoundry[foundry]?.values))
+                if (resolvedNeByFoundry[foundry]?.first?.isNotEmpty() == true) {
+                    layers.add("ne=tokens")
+                }
             }
         }
 
@@ -682,11 +754,21 @@ object KrillJsonGenerator {
         // stream - token-level annotations
         sb.append("\"stream\":[")
         out.append(sb.toString())
-        appendStream(out, textData, includeNonWordTokens)
+        appendStream(out, textData, includeNonWordTokens, resolvedTokens, resolvedNeByFoundry)
         out.append("]")
 
         out.append("}")  // close data
         out.append("}")  // close root
+    }
+
+    private fun resolveTokens(textData: KrillTextData, includeNonWordTokens: Boolean): List<Span> {
+        val rawTokens = textData.tokens ?: return emptyList()
+        val text = textData.textContent ?: NonBmpString("")
+        return if (includeNonWordTokens || text.length == 0) {
+            rawTokens.toList()
+        } else {
+            rawTokens.filter { span -> shouldKeepTokenForKrill(text, span) }
+        }
     }
 
     private fun mergeMeaningfulMetadata(target: MutableMap<String, Any>, source: Map<String, Any>?) {
@@ -724,9 +806,15 @@ object KrillJsonGenerator {
         return result
     }
 
-    private fun appendStream(out: Appendable, textData: KrillTextData, includeNonWordTokens: Boolean) {
+    private fun appendStream(
+        out: Appendable,
+        textData: KrillTextData,
+        includeNonWordTokens: Boolean,
+        preResolvedTokens: List<Span>? = null,
+        preResolvedNe: Map<String, Pair<List<StructureSpan>, Map<Int, List<String>>>>? = null
+    ) {
         var first = true
-        forEachStreamItem(textData, includeNonWordTokens) { item ->
+        forEachStreamItem(textData, includeNonWordTokens, preResolvedTokens, preResolvedNe) { item ->
             if (!first) {
                 out.append(",")
             }
@@ -738,32 +826,37 @@ object KrillJsonGenerator {
     private fun forEachStreamItem(
         textData: KrillTextData,
         includeNonWordTokens: Boolean,
+        preResolvedTokens: List<Span>? = null,
+        preResolvedNe: Map<String, Pair<List<StructureSpan>, Map<Int, List<String>>>>? = null,
         emit: (String) -> Unit
     ) {
         val rawTokens = textData.tokens ?: return
         val text = textData.textContent ?: NonBmpString("")
         val sentences = textData.sentences ?: emptyArray()
-        val tokens: List<Span> = if (includeNonWordTokens || text.length == 0) {
-            rawTokens.toList()
-        } else {
-            rawTokens.filter { span -> shouldKeepTokenForKrill(text, span) }
-        }
+        val tokens: List<Span> = preResolvedTokens ?: resolveTokens(textData, includeNonWordTokens)
         if (tokens.isEmpty()) {
             LOGGER.fine("No tokens remained for ${textData.textId} after filtering non-word tokens")
             return
         }
+        val resolvedNeByFoundry = preResolvedNe ?: textData.namedEntitySpansByFoundry.entries.associate { (foundry, rawSpans) ->
+            val shortFoundry = foundryPrefix(foundry)
+            val sortAlternatives = (textData.namedEntityFileCountByFoundry[foundry] ?: 1) > 1
+            foundry to resolveNamedEntitiesForFoundry(shortFoundry, rawSpans, sortAlternatives, tokens, textData.sentences)
+        }
         data class FoundryMorphoData(
             val foundry: String,
             val prefix: String?,
-            val morphoSpans: MutableMap<String, MorphoSpan>
+            val morphoSpans: Map<String, MorphoSpan>?,
+            val neTokenTags: Map<Int, List<String>>
         )
-        val sortedFoundries = textData.morphoByFoundry.entries
-            .sortedBy { it.key }
-            .map { (foundry, morphoSpans) ->
+        val sortedFoundries = (textData.morphoByFoundry.keys + textData.namedEntitySpansByFoundry.keys)
+            .sorted()
+            .map { foundry ->
                 FoundryMorphoData(
                     foundry = foundry,
                     prefix = foundryPrefix(foundry),
-                    morphoSpans = morphoSpans
+                    morphoSpans = textData.morphoByFoundry[foundry],
+                    neTokenTags = resolvedNeByFoundry[foundry]?.second ?: emptyMap()
                 )
             }
 
@@ -780,7 +873,7 @@ object KrillJsonGenerator {
         tokens.forEachIndexed { index, token ->
             val spanKey = "${token.from}-${token.to}"
             sortedFoundries.forEach { foundryData ->
-                val morphoSpan = foundryData.morphoSpans[spanKey]
+                val morphoSpan = foundryData.morphoSpans?.get(spanKey)
                 if (morphoSpan != null && morphoSpan.head != null && morphoSpan.head != "_" && morphoSpan.deprel != null && morphoSpan.deprel != "_") {
                     val headStr = morphoSpan.head!!
                     val prefix = foundryData.prefix ?: foundryData.foundry
@@ -868,11 +961,14 @@ object KrillJsonGenerator {
         // Combine base structure spans with dereko spans
         val allStructureSpans = baseStructureSpans + textData.structureSpans
 
-        // Resolve tokenFrom and tokenTo for structural spans
+        // Resolve tokenFrom and tokenTo for structural spans, then add resolved NE spans
         // Note: tokenTo is exclusive (one past the last token index)
+        val neStructureSpans = resolvedNeByFoundry.entries
+            .sortedBy { it.key }
+            .flatMap { it.value.first }
         val resolvedStructureSpans = allStructureSpans.map { span ->
             resolveStructureSpanTokenRange(span, tokens)
-        }
+        } + neStructureSpans
 
         val resolvedSentenceFoundries = resolvedStructureSpans.foundriesWithSentenceSpans()
         val resolvedConstitFoundries = resolvedStructureSpans.foundriesWithConstituencySpans()
@@ -971,10 +1067,11 @@ object KrillJsonGenerator {
 
             // Collect annotations from all foundries for this token
             sortedFoundries.forEach { foundryData ->
-                val morphoSpan = foundryData.morphoSpans[spanKey]
-                if (morphoSpan != null) {
+                val morphoSpan = foundryData.morphoSpans?.get(spanKey)
+                val neTags = foundryData.neTokenTags[index]
+                if (morphoSpan != null || !neTags.isNullOrEmpty()) {
                     morphoAnnotationsForToken(
-                        foundryData.prefix, foundryData.foundry, morphoSpan, token, index, offsetToIndex
+                        foundryData.prefix, foundryData.foundry, morphoSpan, token, index, offsetToIndex, neTags
                     ).forEach { tokenAnnotations.add(jsonString(it)) }
                 }
             }

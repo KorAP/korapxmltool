@@ -1628,13 +1628,57 @@ class KrillJsonGeneratorTest {
             assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", dir.path, loadResource("wud24_sample.zip").path, neZip.path)))
             val json = krillJsonFor(File(dir, "wud24_sample.krill.tar"), "WUD24-Z0087-65594.json")
 
-            assertContains(json, "\"mona/ne:B-ORG\"")
-            assertEquals(1, Regex("mona/ne:").findAll(json).count(), "Only the tagged token carries an ne term")
+            assertContains(json, "\"mona/ne:ORG\"")
+            assertContains(json, "\"<>:mona/ne:ORG\$<b>64<i>6<i>11<i>2<b>0\"")
+            assertEquals(1, Regex("\"mona/ne:").findAll(json).count(), "Only the tagged token carries a bare ne token term")
             assertContains(json.substringAfter("\"layerInfos\":").substringBefore("\","), "mona/ne=tokens")
             assertContains(json.substringAfter("\"foundries\":").substringBefore("\","), "mona/namedentities")
-            // The ne term sits on the second token ("Konto", 6-11)
-            val konto = json.substringAfter("\"_1\$<i>6<i>11\"").substringBefore("]")
-            assertContains(konto, "mona/ne:B-ORG")
+            // Both the span and the bare token term sit on the second token ("Konto", 6-11)
+            val konto = json.substringAfter("\"<>:mona/ne:ORG").substringBefore("]")
+            assertContains(konto, "\"_1\$<i>6<i>11\"")
+            assertContains(konto, "\"mona/ne:ORG\"")
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun krillIndexesMultiTokenNamedEntityAsSpanAndProjectedTokensAndMatchesTarMerge() {
+        val dir = File.createTempFile("krill_ne_multi", "").apply { delete(); mkdirs() }
+        try {
+            val conllup = File(dir, "wud24_ne_multi.conllup")
+            conllup.writeText(
+                "# global.columns = ID FORM LEMMA UPOS XPOS FEATS HEAD DEPREL DEPS MISC NER\n" +
+                "# foundry = mona\n" +
+                "# text_id = WUD24_Z0087.65594\n" +
+                "# start_offsets = 1 1 6\n" +
+                "# end_offsets = 11 5 11\n" +
+                "1\tDein\t_\t_\t_\t_\t_\t_\t_\t_\tB-ORG\n" +
+                "2\tKonto\t_\t_\t_\t_\t_\t_\t_\t_\tI-ORG\n\n"
+            )
+            val neZip = File(dir, "wud24_sample.mona.zip")
+            assertEquals(0, debug(arrayOf("-t", "zip", "-o", neZip.path, conllup.path)))
+
+            val baseZip = loadResource("wud24_sample.zip").path
+            val freshDir = File(dir, "fresh").apply { mkdirs() }
+            assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", freshDir.path, baseZip, neZip.path)))
+            val freshJson = krillJsonFor(File(freshDir, "wud24_sample.krill.tar"), "WUD24-Z0087-65594.json")
+
+            // Multi-token span starts at token 0 ("Dein", 1-5) and ends at tokenTo=2 ("Konto", 6-11)
+            assertContains(freshJson, "\"<>:mona/ne:ORG\$<b>64<i>1<i>11<i>2<b>0\"")
+            val tok0 = freshJson.substringAfter("\"_0\$<i>1<i>5\"").substringBefore("]")
+            val tok1 = freshJson.substringAfter("\"_1\$<i>6<i>11\"").substringBefore("]")
+            assertContains(tok0, "\"mona/ne:ORG\"")
+            assertContains(tok1, "\"mona/ne:ORG\"")
+
+            // Tar merge mode adding mona.zip to an existing base-only Krill tar must reproduce fresh JSON identically
+            val baseOnlyDir = File(dir, "baseonly").apply { mkdirs() }
+            assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", baseOnlyDir.path, baseZip)))
+            val mergedTar = File(dir, "merged.krill.tar")
+            assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-o", mergedTar.path,
+                File(baseOnlyDir, "wud24_sample.krill.tar").path, neZip.path)))
+            val mergedJson = krillJsonFor(mergedTar, "WUD24-Z0087-65594.json")
+            assertEquals(freshJson, mergedJson, "Tar merge mode must emit identical NE spans and tokens as fresh generation")
         } finally {
             dir.deleteRecursively()
         }
@@ -1658,7 +1702,8 @@ class KrillJsonGeneratorTest {
 
             assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", dir.path, loadResource("wud24_sample.zip").path, corenlpZip.path)))
             val json = krillJsonFor(File(dir, "wud24_sample.krill.tar"), "WUD24-Z0087-65594.json")
-            assertContains(json, "\"corenlp/ne:B-ORG\"")
+            assertContains(json, "\"corenlp/ne:ORG\"")
+            assertContains(json, "\"<>:corenlp/ne:ORG\$<b>64<i>6<i>11<i>2<b>0\"")
             assertContains(json.substringAfter("\"layerInfos\":").substringBefore("\","), "corenlp/ne=tokens")
         } finally {
             dir.deleteRecursively()
@@ -1701,13 +1746,13 @@ class KrillJsonGeneratorTest {
     fun krillKeepsDisagreeingNamedEntityModelsAsAlternativesInEitherOrder() {
         val forward = coreNlpNamedEntitiesForKonto(listOf("dewac" to "B-PER", "hgc" to "B-ORG"))
         val reverse = coreNlpNamedEntitiesForKonto(listOf("hgc" to "B-ORG", "dewac" to "B-PER"))
-        assertEquals(listOf("corenlp/ne:B-ORG", "corenlp/ne:B-PER"), forward, "Neither model may overwrite the other")
+        assertEquals(listOf("corenlp/ne:ORG", "corenlp/ne:PER"), forward, "Neither model may overwrite the other")
         assertEquals(forward, reverse, "Result must not depend on the order of the ne files")
     }
 
     @Test
     fun krillMergesAgreeingNamedEntityModels() {
-        assertEquals(listOf("corenlp/ne:B-PER"),
+        assertEquals(listOf("corenlp/ne:PER"),
             coreNlpNamedEntitiesForKonto(listOf("dewac" to "B-PER", "hgc" to "B-PER")))
     }
 
@@ -1729,7 +1774,7 @@ class KrillJsonGeneratorTest {
             assertEquals(0, debug(arrayOf("-t", "zip", "-o", neZip.path, conllup.path)))
             assertEquals(0, debug(arrayOf("-t", "krill", "-q", "-D", dir.path, loadResource("wud24_sample.zip").path, neZip.path)))
             val json = krillJsonFor(File(dir, "wud24_sample.krill.tar"), "WUD24-Z0087-65594.json")
-            assertEquals(listOf("mona/ne:B-PER", "mona/ne:B-ORG"), kontoNamedEntities(json))
+            assertEquals(listOf("mona/ne:PER", "mona/ne:ORG"), kontoNamedEntities(json))
         } finally {
             dir.deleteRecursively()
         }

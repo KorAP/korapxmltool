@@ -51,7 +51,7 @@ Key options for korapxmltool (>= v3.1):
 - `--largest-first`: Schedule larger input ZIPs first (opt-in; the default is argument order)
 - `-T TAGGER[:MODEL]`, `--tag-with TAGGER[:MODEL]`: POS tagger and optional model
 - `-P PARSER[:MODEL]`, `--parse-with PARSER[:MODEL]`: Parser and optional model  
-- `-N NER[:MODEL]`, `--ner-with NER[:MODEL]`: Named-entity recognizer (`corenlp`) and optional model; `--map-ne-tags` maps its tags to BIO tags (`B-PER`, `I-PER` etc.)
+- `-N NER[:MODEL]`, `--ner-with NER[:MODEL]`: Named-entity recognizer (`corenlp`) and optional model (writes multi-token entity spans with `PER`, `LOC`, `ORG`, `MISC`)
 - `-A COMMAND`, `--annotate-with COMMAND`: Pipe the CoNLL-U output through an external annotation command
 - `-F FOUNDRY`, `--foundry FOUNDRY`: Foundry name for annotations read from CoNLL-U (default: from the `# foundry` comment)
 - `-f`, `--force`: Overwrite existing output files
@@ -99,10 +99,13 @@ can be converted back into a KorAP-XML annotation ZIP (`<foundry>/morpho.xml`, p
 
 In CoNLL-U Plus files, the `# global.columns` header determines which column holds which field (it must declare an `ID` column).
 A named-entity column called `NE` or `NER` (optionally namespaced, e.g. `MONAPIPE:NER`) is written to a separate
-`<foundry>/ne.xml` layer in the CoreNLP named-entity format, one span per tagged token, tags kept verbatim (e.g. `B-PER`).
-As with POS tags, a foundry has one NE layer: alternative tags go into the same column, separated by `|`
-(e.g. `B-PER|B-ORG`, kept in this order). A second NE annotation belongs into its own foundry, i.e. its own file;
-several NE columns in one file are rejected.
+`<foundry>/ne.xml` layer in the KorAP-XML named-entity format. Contiguous BIO/IO sequences (such as `B-PER` + `I-PER`)
+are collapsed into one multi-token entity span (`from` of the first token to `to` of the last token) with bare normalized
+class names in prefix-first `CLASS[:specifier]` form (`PER`, `LOC`, `ORG`, `MISC`; GermEval's `OTH` → `MISC` and
+`*part`/`*deriv` → `:part`/`:deriv`, e.g. `PER:part`, `LOC:deriv`; outside `O` tags are omitted; other foundry-specific
+tags such as `persName:forename` or `GPE` are kept verbatim). As with POS tags, a foundry has one NE layer:
+alternative or nested tags go into the same column, separated by `|` (e.g. `B-PER|B-ORG`, or `I-ORG|B-LOC` for nested
+entities). A second NE annotation belongs into its own foundry, i.e. its own file; several NE columns in one file are rejected.
 
 ```
 # global.columns = ID FORM LEMMA UPOS XPOS FEATS HEAD DEPREL DEPS MISC NER
@@ -115,10 +118,15 @@ several NE columns in one file are rejected.
 3	-	-	PUNCT	$(	_	_	_	_	_	_
 ```
 
-The Krill export (`-t krill`) indexes such layers, as well as CoreNLP's `corenlp/ne_<model>.xml`, as token
-annotations `<foundry>/ne:<tag>`, so they can be searched e.g. with `[monapipe/ne=B-PER]`. As in korapxml2krill,
-several NE models of the same foundry (e.g. `ne_dewac_175m_600.xml` and `ne_hgc_175m_600.xml`) share this layer:
-where the models disagree, both tags are kept as alternatives; where they agree, the tag is indexed once.
+The Krill export (`-t krill`) indexes `ne.xml`, CoreNLP's `corenlp/ne_<model>.xml`, and NKJP's `named.xml` as **both**
+multi-token spans (`<>:<foundry>/ne:<tag>`) and bare per-token annotations (`<foundry>/ne:<tag>` on every covered token).
+That way whole entities can be searched with `<monapipe/ne=PER>` (or `contains(<monapipe/ne=ORG>, "Bank")`), while
+single tokens inside an entity can be matched with `[monapipe/ne=PER]`. Legacy single-token `ne*.xml` files with
+BIO/IO prefixes or unnormalized CoreNLP/GermEval tags (`PERSON`, `LOCATION`, `ORGANIZATION`, `OTH`, `*part`, `*deriv`)
+are collapsed into spans automatically (a legacy file whose only tags in a text are bare `MISC` cannot be distinguished
+from the current span format). As in korapxml2krill, several NE models of the same foundry (e.g.
+`ne_dewac_175m_600.xml` and `ne_hgc_175m_600.xml`) share this layer: where the models disagree, both tags are kept as
+alternatives; where they agree, the tag is indexed once.
 
 ## Conversion to language model training data input format from KorAP-XML
 
@@ -347,11 +355,11 @@ unzip -j -d libs stanford-corenlp-3.9.2-models-german.jar \
   app/src/test/resources/wud24_sample.zip
 ```
 
-This writes `corenlp/ne.xml` (one span per token inside an entity). `-N` can be combined with `-T corenlp -P corenlp`
-to get all CoreNLP layers in one ZIP. The layer keeps the model's tags (`PERSON`, `LOCATION`, `ORGANIZATION`, `MISC`),
-so it can be searched e.g. with `[corenlp/ne=PERSON]`; `--map-ne-tags` maps them to CoNLL BIO tags (`B-PER` for the
-first token of an entity, `I-PER` for the following ones, likewise `LOC`, `ORG`, `MISC`; the IOB2 scheme of GermEval 2014).
-The models tag in the IO scheme, so two adjacent entities of the same class come out as one.
+This writes `corenlp/ne.xml` with one span per entity covering all its tokens (e.g. `from` of *"New"* to `to` of *"York"*),
+using the short CoNLL/ParlaMint/UNER class names (`PER`, `LOC`, `ORG`, `MISC`; outside `O` tags are omitted). `-N` can be
+combined with `-T corenlp -P corenlp` to get all CoreNLP layers in one ZIP. In Krill, entities are indexed both as spans
+(`<corenlp/ne=PER>`) and as bare token annotations (`[corenlp/ne=PER]`). The CoreNLP models tag in the IO scheme, so two
+adjacent entities of the same class come out as one.
 
 On the GermEval 2014 test set (96,499 tokens, the same pre-tokenized input for all systems, exact-match entity F1),
 this model clearly outperforms both the older CoreNLP models and spaCy's `de_core_news_lg` 3.8, and is about 2.5×
@@ -399,7 +407,7 @@ is written. The foundry is determined as [above](#annotate-with-any-external-con
 ./build/bin/korapxmltool -t zip -F monapipe -A "my-ner-tool --conllu" ./app/src/test/resources/wud24_sample.zip
 ```
 
-With BIO tags, `[monapipe/ne=B-PER]` only finds the first token of each name; `[monapipe/ne=/.-PER/]` finds all.
+BIO/IO tags from the external tool are collapsed into multi-token entity spans with bare class names (`PER`, `LOC`, `ORG`, `MISC`), so `<monapipe/ne=PER>` matches full names and `[monapipe/ne=PER]` matches every token inside one.
 
 ### Parse using the integrated Maltparser directly to a new KorAP-XML ZIP file
 

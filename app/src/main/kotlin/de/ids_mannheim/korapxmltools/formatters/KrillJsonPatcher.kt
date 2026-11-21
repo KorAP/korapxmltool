@@ -123,7 +123,9 @@ object KrillJsonPatcher {
     fun patchFoundries(json: String, textData: KrillJsonGenerator.KrillTextData): String {
         val foundries = (textData.morphoByFoundry.keys +
             textData.sentencesCollectedByFoundry +
-            textData.constituencyCollectedByFoundry)
+            textData.constituencyCollectedByFoundry +
+            textData.namedEntityCollectedByFoundry +
+            textData.namedEntitySpansByFoundry.keys)
             .filterNot { it == "base" || it == "dereko" }
             .toSortedSet()
         if (foundries.isEmpty()) return json
@@ -153,6 +155,16 @@ object KrillJsonPatcher {
         val offsetToIndex = HashMap<String, Int>(tokens.size * 2)
         tokens.forEachIndexed { index, t -> offsetToIndex["${t.from}-${t.to}"] = index }
 
+        // Extract base sentence spans from the existing stream for BIO/IO boundary splitting
+        val baseSentenceRegex = Regex("""^<>:base/s:s\$<b>64<i>(\d+)<i>(\d+)<i>""")
+        val streamSentences = tokenArrays.flatMap { anns ->
+            anns.mapNotNull { ann ->
+                baseSentenceRegex.find(ann)?.let { m ->
+                    KorapXmlTool.Span(m.groupValues[1].toInt(), m.groupValues[2].toInt())
+                }
+            }
+        }.takeIf { it.isNotEmpty() }?.toTypedArray()
+
         var layerInfoTokens = layerInfosRange?.let {
             unescapeJsonString(json.substring(it.first + 1, it.last)).split(" ").filter { t -> t.isNotEmpty() }
         } ?: emptyList()
@@ -161,7 +173,7 @@ object KrillJsonPatcher {
         } ?: emptyList()
 
         foundries.forEach { foundry ->
-            val contribution = buildContribution(foundry, textData, tokens, offsetToIndex)
+            val contribution = buildContribution(foundry, textData, tokens, offsetToIndex, streamSentences)
             removeFoundryAnnotations(tokenArrays, contribution.names)
             insertFoundryAnnotations(tokenArrays, contribution)
             layerInfoTokens = rebuildLayerInfos(layerInfoTokens, contribution)
@@ -207,39 +219,49 @@ object KrillJsonPatcher {
         foundry: String,
         textData: KrillJsonGenerator.KrillTextData,
         tokens: List<KorapXmlTool.Span>,
-        offsetToIndex: Map<String, Int>
+        offsetToIndex: Map<String, Int>,
+        sentences: Array<KorapXmlTool.Span>? = null
     ): FoundryContribution {
         val prefix = KrillJsonGenerator.foundryPrefix(foundry) ?: foundry
         val fullName = KrillJsonGenerator.foundryFullNameForPrefix(prefix)
         val morphoSpans = textData.morphoByFoundry[foundry]
 
-        // Structural spans of this foundry (sentences "f/s:s", constituency "f/c:X")
-        val spans = textData.structureSpans
+        // Named-entity spans and projected bare token tags for this foundry
+        val sortNeAlternatives = (textData.namedEntityFileCountByFoundry[foundry] ?: 1) > 1
+        val (neSpans, neTokenTagsByIndex) = KrillJsonGenerator.resolveNamedEntitiesForFoundry(
+            prefix, textData.namedEntitySpansByFoundry[foundry], sortNeAlternatives, tokens, sentences
+        )
+
+        // Structural spans of this foundry (sentences "f/s:s", constituency "f/c:X") + NE spans
+        val structureSpans = textData.structureSpans
             .filter { it.layer.startsWith("$foundry/") }
             .map { KrillJsonGenerator.resolveStructureSpanTokenRange(it, tokens) }
             .filter { it.tokenFrom >= 0 }
+        val spans = structureSpans + neSpans
         val spansByToken = spans.groupBy { it.tokenFrom }
             .mapValues { (_, list) ->
                 list.sortedWith(compareByDescending<KrillJsonGenerator.StructureSpan> { it.depth }.thenBy { it.layer })
             }
-        val sentenceCount = spans.count { it.layer == "$foundry/s:s" }
-        val hasConstituency = spans.any { it.layer.substringAfter('/').startsWith("c:") }
+        val sentenceCount = structureSpans.count { it.layer == "$foundry/s:s" }
+        val hasConstituency = structureSpans.any { it.layer.substringAfter('/').startsWith("c:") }
 
         val morphoByToken = HashMap<Int, List<String>>()
         val inverseByToken = HashMap<Int, MutableList<Pair<String, String>>>()
-        if (morphoSpans != null) {
+        if (morphoSpans != null || neTokenTagsByIndex.isNotEmpty()) {
             tokens.forEachIndexed { index, token ->
                 val spanKey = "${token.from}-${token.to}"
-                val morphoSpan = morphoSpans[spanKey] ?: return@forEachIndexed
+                val morphoSpan = morphoSpans?.get(spanKey)
+                val neTags = neTokenTagsByIndex[index]
+                if (morphoSpan == null && neTags.isNullOrEmpty()) return@forEachIndexed
                 val anns = KrillJsonGenerator.morphoAnnotationsForToken(
-                    prefix, foundry, morphoSpan, token, index, offsetToIndex
+                    prefix, foundry, morphoSpan, token, index, offsetToIndex, neTags
                 )
                 if (anns.isNotEmpty()) {
                     morphoByToken[index] = anns
                 }
                 // Inverse dependency edges pointing at this token's head
-                val headStr = morphoSpan.head
-                val deprel = morphoSpan.deprel
+                val headStr = morphoSpan?.head
+                val deprel = morphoSpan?.deprel
                 if (headStr != null && headStr != "_" && deprel != null && deprel != "_" &&
                     !KrillJsonGenerator.isRootHead(headStr)
                 ) {
@@ -253,6 +275,11 @@ object KrillJsonPatcher {
             inverseByToken.values.forEach { list -> list.sortBy { it.first } }
         }
 
+        val morphoLayers = KrillJsonGenerator.computeFoundryLayers(foundry, morphoSpans?.values)
+        if (neSpans.isNotEmpty()) {
+            morphoLayers.add("ne=tokens")
+        }
+
         return FoundryContribution(
             foundry = foundry,
             prefix = prefix,
@@ -263,7 +290,7 @@ object KrillJsonPatcher {
             hasConstituency = hasConstituency,
             inverseByToken = inverseByToken,
             morphoByToken = morphoByToken,
-            morphoLayers = KrillJsonGenerator.computeFoundryLayers(foundry, morphoSpans?.values)
+            morphoLayers = morphoLayers
         )
     }
 
@@ -399,7 +426,7 @@ object KrillJsonPatcher {
 
     /** (depth, layer) of an existing "<>:" span annotation, for ordered insertion. */
     private fun parseSpanOrder(raw: String): Pair<Int, String>? {
-        val m = Regex("""^<>:([^$]+)\$<b>64(?:<i>-?\d+){3}<b>(\d+)""").find(raw) ?: return null
+        val m = Regex("""^<>:([^$]+)\$<b>64(?:<i>-?\d+){3}<b>(-?\d+)""").find(raw) ?: return null
         return m.groupValues[2].toInt() to m.groupValues[1]
     }
 

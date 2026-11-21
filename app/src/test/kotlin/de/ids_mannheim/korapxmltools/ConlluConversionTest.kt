@@ -446,11 +446,9 @@ class ConlluConversionTest {
 
             val neXml = extractFileFromZip(outputZip, "$basePath/ne.xml")
             assertTrue(neXml.contains("type=\"ne\""), "ne.xml should use the CoreNLP ne feature structure")
-            assertTrue(Regex("""from="0"[^>]*to="6"[^>]*>\s*<fs[^>]*>\s*<f name="ne">\s*<fs>\s*<f name="ent">B-PER</f>""")
-                .containsMatchIn(neXml), "B-PER should be on span 0-6:\n$neXml")
-            assertTrue(Regex("""from="7"[^>]*to="14"[\s\S]*?<f name="ent">I-PER</f>""").containsMatchIn(neXml),
-                "I-PER should be on span 7-14:\n$neXml")
-            assertEquals(2, Regex("<span ").findAll(neXml).count(), "Untagged tokens get no ne span")
+            assertTrue(Regex("""from="0"[^>]*to="14"[^>]*>\s*<fs[^>]*>\s*<f name="ne">\s*<fs>\s*<f name="ent">PER</f>""")
+                .containsMatchIn(neXml), "B-PER + I-PER should collapse into one multi-token span 0-14 with bare PER:\n$neXml")
+            assertEquals(1, Regex("<span ").findAll(neXml).count(), "Multi-token entity produces one span; untagged tokens get none")
         } finally {
             outputDir.deleteRecursively()
         }
@@ -478,10 +476,8 @@ class ConlluConversionTest {
                 "Konrad\t1\tB-PER\nAlberti\t2\tI-PER\n\n")
             assertEquals(0, exitCode)
             val neXml = extractFileFromZip(outputZip, "TG26-part1/Alberti-Konrad/00001/monapipe/ne.xml")
-            assertTrue(Regex("""from="0"[^>]*to="6"[\s\S]*?<f name="ent">B-PER</f>""").containsMatchIn(neXml),
-                "Token 1 must be found via the ID column declared in global.columns:\n$neXml")
-            assertTrue(Regex("""from="7"[^>]*to="14"[\s\S]*?<f name="ent">I-PER</f>""").containsMatchIn(neXml),
-                "Token 2 must be found via the ID column declared in global.columns:\n$neXml")
+            assertTrue(Regex("""from="0"[^>]*to="14"[\s\S]*?<f name="ent">PER</f>""").containsMatchIn(neXml),
+                "Tokens 1 and 2 must be found via the ID column declared in global.columns and collapsed into 0-14:\n$neXml")
         } finally {
             outputDir.deleteRecursively()
         }
@@ -518,14 +514,15 @@ class ConlluConversionTest {
     fun conlluPlusKeepsNerAlternativesInGivenOrder() {
         val outputDir = createTempDir("conllup_ner_alternatives")
         try {
-            // Alternatives within one column work like POS alternatives (ADJD|ADV)
+            // Alternatives within one column work like POS alternatives (ADJD|ADV):
+            // same-extent alternatives stay on one span in given order; nested/overlapping spans stay separate
             val (exitCode, outputZip) = convertConllup(outputDir,
                 "# global.columns = ID FORM NER\n" + konradHeader +
-                "1\tKonrad\tB-PER|B-ORG|B-PER\n2\tAlberti\tI-PER\n\n")
+                "1\tKonrad\tB-PER|B-ORG|B-PER\n2\tAlberti\t_\n\n")
             assertEquals(0, exitCode)
             val neXml = extractFileFromZip(outputZip, "TG26-part1/Alberti-Konrad/00001/monapipe/ne.xml")
             val konrad = neXml.substringAfter("from=\"0\"").substringBefore("</span>")
-            assertEquals(listOf("B-PER", "B-ORG"),
+            assertEquals(listOf("PER", "ORG"),
                 Regex("<f name=\"ent\">([^<]+)</f>").findAll(konrad).map { it.groupValues[1] }.toList(),
                 "Each alternative gets its own feature structure, in the given order, without duplicates:\n$neXml")
         } finally {

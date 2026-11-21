@@ -12,15 +12,14 @@ import java.util.logging.Logger
  * german.conll.germeval2014.hgc_175m_600.crf.ser.gz). Fills only the ne field
  * of the returned spans; untagged tokens ("O") get no span.
  *
- * The model's own tags (PERSON, LOCATION, ORGANIZATION, MISC) are kept; with
- * [mapTags], they are mapped to CoNLL BIO tags (PERSON -> B-PER for the first token
- * of an entity, I-PER for the following ones; the IOB2 scheme of GermEval 2014). The
- * models tag in the IO scheme, so two adjacent entities of the same class become one.
+ * Class names are normalized to the short CoNLL/ParlaMint/UNER standard (`PER`, `LOC`,
+ * `ORG`, `MISC`; unknown tags are kept verbatim). When written to `corenlp/ne.xml`,
+ * contiguous entity tokens within a sentence are collapsed into multi-token spans.
  */
 class CoreNLPNerBridge(
     override val model: String,
     override val logger: Logger,
-    private val mapTags: Boolean = false
+    @Suppress("UNUSED_PARAMETER") mapTags: Boolean = false
 ) : TaggerToolBridge() {
     override val foundry = "corenlp"
 
@@ -57,27 +56,33 @@ class CoreNLPNerBridge(
             return
         }
 
-        var previous: String? = null
         classified.forEachIndexed { idx, label ->
             val tag = label.get(CoreAnnotations.AnswerAnnotation::class.java)
                 ?.takeUnless { it.isEmpty() || it == classifier.backgroundSymbol() }
             if (tag != null) {
-                val ne = if (mapTags) mapTag(tag, continuesEntity = tag == previous) else tag
-                morphoMap?.set(sentenceTokenOffsets[idx], KorapXmlTool.MorphoSpan(ne = ne))
+                val normalized = normalizeTag(tag)
+                if (normalized != null) {
+                    morphoMap?.set(sentenceTokenOffsets[idx], KorapXmlTool.MorphoSpan(ne = normalized))
+                }
             }
-            previous = tag
         }
     }
 
     companion object {
-        private val TAG_MAPPING = mapOf(
-            "PERSON" to "PER",
-            "LOCATION" to "LOC",
-            "ORGANIZATION" to "ORG",
-            "MISC" to "MISC"
-        )
-
-        fun mapTag(tag: String, continuesEntity: Boolean = false): String =
-            TAG_MAPPING[tag]?.let { (if (continuesEntity) "I-" else "B-") + it } ?: tag
+        /**
+         * Normalize a CoreNLP NER tag to the short CoNLL/ParlaMint/UNER class name
+         * (`PERSON` -> `PER`, `LOCATION` -> `LOC`, `ORGANIZATION` -> `ORG`, `MISC` -> `MISC`),
+         * returning null for background ("O") tags. Preserves any `B-`/`I-` prefix if a custom
+         * BIO model is used, so downstream span collapsing keeps adjacent entity boundaries.
+         */
+        fun normalizeTag(tag: String): String? {
+            val parsed = NamedEntities.parseTag(tag) ?: return null
+            return when (parsed.boundary) {
+                NamedEntities.Boundary.BEGIN -> "B-${parsed.label}"
+                NamedEntities.Boundary.CONTINUE -> if (parsed.closesAfter) "E-${parsed.label}" else "I-${parsed.label}"
+                NamedEntities.Boundary.SINGLE -> "S-${parsed.label}"
+                NamedEntities.Boundary.UNMARKED -> parsed.label
+            }
+        }
     }
 }

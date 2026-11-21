@@ -62,9 +62,9 @@ import javax.xml.stream.XMLStreamReader
 val ZIP_ENTRY_UNIX_MODE = parseInt("644", 8)
 
 // Named-entity layers: ne.xml, CoreNLP's model-specific ne_<model>.xml
-// (e.g. ne_dewac_175m_600.xml) and namedentities.xml
-private const val NAMED_ENTITY_FILES = "/ne|/ne_[^/]*|/namedentities"
-private val NAMED_ENTITY_FILE_NAME = Regex("(ne|ne_[^/]*|namedentities)\\.xml")
+// (e.g. ne_dewac_175m_600.xml), namedentities.xml, and NKJP's named.xml
+private const val NAMED_ENTITY_FILES = "/ne|/ne_[^/]*|/namedentities|/named"
+private val NAMED_ENTITY_FILE_NAME = Regex("(ne|ne_[^/]*|namedentities|named)\\.xml")
 
 /**
  * "|"-separated named-entity alternatives without "_" and duplicates. Like POS
@@ -763,7 +763,7 @@ class KorapXmlTool : Callable<Int> {
 
     @Option(
         names = ["--map-ne-tags"],
-        description = ["Map the NER model's tags (PERSON, LOCATION, ORGANIZATION, MISC) to CoNLL BIO tags (B-PER/I-PER, B-LOC/I-LOC, B-ORG/I-ORG, B-MISC/I-MISC)."]
+        description = ["Deprecated compatibility flag (no-op): NER layers now always normalize class names to PER, LOC, ORG, MISC and emit multi-token entity spans."]
     )
     var mapNeTags: Boolean = false
 
@@ -4168,7 +4168,7 @@ class KorapXmlTool : Callable<Int> {
                         // ZIP's (e.g. corenlp/ne.xml next to marmot/morpho.xml from -T marmot -N corenlp)
                         val neDir = zipEntry.name.substringBeforeLast('/', "").substringAfterLast('/')
                         val neFoundry = if (neDir.isEmpty() || neDir == "base") getFoundryForLayer(annotationFoundry, "morpho") else neDir
-                        collectKrillMorphoDataDirect(docId, neFoundry, extractNamedEntitySpansStax(reader), "ne")
+                        collectKrillNamedEntityData(docId, neFoundry, extractNamedEntitySpansStax(reader))
                     }
                 }
             }
@@ -4440,7 +4440,10 @@ class KorapXmlTool : Callable<Int> {
                  neEntry.unixMode = ZIP_ENTRY_UNIX_MODE
                  synchronized(morphoZipOutputStream!!) {
                      morphoZipOutputStream!!.putArchiveEntry(neEntry)
-                     KorapXmlFormatter.formatNamedEntitiesToStream(docId, neSpans, dBuilder!!, morphoZipOutputStream!!)
+                     KorapXmlFormatter.formatNamedEntitiesToStream(
+                         docId, neSpans, dBuilder!!, morphoZipOutputStream!!,
+                         tokens = tokens[docId], sentences = sentences[docId]
+                     )
                      morphoZipOutputStream!!.closeArchiveEntry()
                  }
                  wroteOne = true
@@ -5220,41 +5223,108 @@ class KorapXmlTool : Callable<Int> {
         return res
     }
 
-    // Named-entity tags from <f name="ent"> features (CoreNLP ne layer structure)
-    private fun extractNamedEntitySpansStax(reader: XMLStreamReader): MutableMap<String, MorphoSpan> {
-        val res: MutableMap<String, MorphoSpan> = HashMap()
-        var currentFromTo: String? = null
+    // Named-entity spans from KorAP-XML ne.xml / ne_<model>.xml (CoreNLP <f name="ent">)
+    // and NKJP named.xml (<f name="ne"><fs><f name="type"><symbol value="..."/>...).
+    private fun extractNamedEntitySpansStax(reader: XMLStreamReader): List<NamedEntitySpan> {
+        val spans = mutableListOf<NamedEntitySpan>()
+        var currentFrom: Int? = null
+        var currentTo: Int? = null
+        var currentTags: MutableList<String>? = null
         var inEnt = false
+        var inNeBlock = false
+        var neBlockDepth = 0
+        var currentNkjpField: String? = null
+        var nkjpType: String? = null
+        var nkjpSubtype: String? = null
         val textAccumulator = StringBuilder()
 
         while (reader.hasNext()) {
             when (reader.next()) {
                 XMLStreamConstants.START_ELEMENT -> {
-                    if (reader.localName == "span") {
-                        currentFromTo = "${reader.getAttributeValue(null, "from")}-${reader.getAttributeValue(null, "to")}"
-                    } else if (reader.localName == "f" && currentFromTo != null && reader.getAttributeValue(null, "name") == "ent") {
-                        inEnt = true
-                        textAccumulator.clear()
+                    when (reader.localName) {
+                        "span" -> {
+                            currentFrom = reader.getAttributeValue(null, "from")?.toIntOrNull()
+                            currentTo = reader.getAttributeValue(null, "to")?.toIntOrNull()
+                            currentTags = if (currentFrom != null && currentTo != null) mutableListOf() else null
+                        }
+                        "f" -> if (currentTags != null) {
+                            val name = reader.getAttributeValue(null, "name")
+                            when {
+                                name == "ent" -> {
+                                    inEnt = true
+                                    textAccumulator.clear()
+                                }
+                                name == "ne" && !inNeBlock -> {
+                                    inNeBlock = true
+                                    neBlockDepth = 1
+                                    nkjpType = null
+                                    nkjpSubtype = null
+                                }
+                                inNeBlock -> {
+                                    neBlockDepth++
+                                    if (name == "type" || name == "subtype") {
+                                        currentNkjpField = name
+                                    }
+                                }
+                            }
+                        }
+                        "symbol" -> if (inNeBlock && currentNkjpField != null) {
+                            val sym = reader.getAttributeValue(null, "value")?.trim()
+                            if (!sym.isNullOrEmpty()) {
+                                if (currentNkjpField == "type") nkjpType = sym
+                                else if (currentNkjpField == "subtype") nkjpSubtype = sym
+                            }
+                        }
                     }
                 }
                 XMLStreamConstants.CHARACTERS -> {
                     if (inEnt) textAccumulator.append(reader.text)
                 }
                 XMLStreamConstants.END_ELEMENT -> {
-                    if (reader.localName == "f" && inEnt) {
-                        val value = textAccumulator.toString().trim()
-                        if (value.isNotEmpty()) {
-                            val span = res.getOrPut(currentFromTo!!) { MorphoSpan() }
-                            span.ne = mergeNamedEntities(listOf(span.ne, value))
+                    when (reader.localName) {
+                        "f" -> {
+                            if (inEnt) {
+                                val value = textAccumulator.toString().trim()
+                                if (value.isNotEmpty() && value != "_" && value != "O") {
+                                    currentTags?.let { list -> if (value !in list) list.add(value) }
+                                }
+                                inEnt = false
+                            } else if (inNeBlock) {
+                                if (currentNkjpField != null) {
+                                    currentNkjpField = null
+                                }
+                                neBlockDepth--
+                                if (neBlockDepth == 0) {
+                                    inNeBlock = false
+                                    if (nkjpType != null) {
+                                        val combined = if (nkjpSubtype != null) "$nkjpType:$nkjpSubtype" else nkjpType
+                                        currentTags?.let { list -> if (combined !in list) list.add(combined) }
+                                    }
+                                    nkjpType = null
+                                    nkjpSubtype = null
+                                }
+                            }
                         }
-                        inEnt = false
-                    } else if (reader.localName == "span") {
-                        currentFromTo = null
+                        "span" -> {
+                            val from = currentFrom
+                            val to = currentTo
+                            val tags = currentTags
+                            if (from != null && to != null && !tags.isNullOrEmpty()) {
+                                spans.add(NamedEntitySpan(from, to, tags))
+                            }
+                            currentFrom = null
+                            currentTo = null
+                            currentTags = null
+                            inEnt = false
+                            inNeBlock = false
+                            neBlockDepth = 0
+                            currentNkjpField = null
+                        }
                     }
                 }
             }
         }
-        return res
+        return spans
     }
 
     private fun extractDependencySpans(
@@ -5718,7 +5788,11 @@ class KorapXmlTool : Callable<Int> {
                 synchronized(morphoZipOutputStream!!) {
                     morphoZipOutputStream!!.putArchiveEntry(neZipEntry)
                     try {
-                        KorapXmlFormatter.formatNamedEntitiesToStream(docId, morphoSpans, dBuilder!!, morphoZipOutputStream!!)
+                        KorapXmlFormatter.formatNamedEntitiesToStream(
+                            docId, morphoSpans, dBuilder!!, morphoZipOutputStream!!,
+                            tokens = tokens[tempDocId] ?: getTokenSpansFromMorho(morphoSpans),
+                            sentences = sentences[tempDocId]
+                        )
                     } finally {
                         morphoZipOutputStream!!.closeArchiveEntry()
                     }
@@ -6030,7 +6104,11 @@ class KorapXmlTool : Callable<Int> {
                     val neZipEntry = ZipArchiveEntry(nePath)
                     neZipEntry.unixMode = ZIP_ENTRY_UNIX_MODE
                     zipOutputStream.putArchiveEntry(neZipEntry)
-                    KorapXmlFormatter.formatNamedEntitiesToStream(doc.textId, morphoSpans, dBuilder!!, zipOutputStream)
+                    KorapXmlFormatter.formatNamedEntitiesToStream(
+                        doc.textId, morphoSpans, dBuilder!!, zipOutputStream,
+                        tokens = getTokenSpansFromMorho(morphoSpans),
+                        sentences = sentences[tempDocId]
+                    )
                     zipOutputStream.closeArchiveEntry()
                     LOGGER.fine("Wrote $nePath")
                 }
@@ -6706,6 +6784,27 @@ class KorapXmlTool : Callable<Int> {
             }
         } else {
             foundry  // Single foundry used for all layers
+        }
+    }
+
+    // Collect named-entity spans (multi-token or legacy per-token) directly for Krill output
+    private fun collectKrillNamedEntityData(docId: String, foundry: String, spans: List<NamedEntitySpan>) {
+        if (outputTexts.contains(docId)) return
+
+        LOGGER.info("Collecting krill ne data (direct) for $docId, foundry=$foundry, spans=${spans.size}")
+
+        val textData = krillData.getOrPut(docId) {
+            KrillJsonGenerator.KrillTextData(textId = docId)
+        }
+
+        synchronized(textData) {
+            textData.namedEntityCollectedByFoundry.add(foundry)
+            val fileCount = (textData.namedEntityFileCountByFoundry[foundry] ?: 0) + 1
+            textData.namedEntityFileCountByFoundry[foundry] = fileCount
+            if (spans.isNotEmpty()) {
+                val target = textData.namedEntitySpansByFoundry.getOrPut(foundry) { mutableListOf() }
+                target.addAll(spans)
+            }
         }
     }
 

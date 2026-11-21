@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Named-entity layers (`-N corenlp`, CoNLL-U Plus `.conllup`, and external `-A` annotators) now write multi-token entity spans to `<foundry>/ne.xml` (`from` of the first token to `to` of the last token) with short prefix-first `CLASS[:specifier]` names (`PER`, `LOC`, `ORG`, `MISC`; GermEval `OTH` → `MISC` and `*part`/`*deriv` → `PER:part`, `LOC:deriv`, etc.; outside `O` tags omitted). `--map-ne-tags` is kept as a deprecated no-op.
+- Krill export (`-t krill`, including tar merge mode) now reads multi-token `ne.xml`, CoreNLP `ne_<model>.xml`, and NKJP `named.xml` (collapsing legacy per-token BIO/IO and unnormalized CoreNLP/GermEval `PERSON`/`LOCATION`/`ORGANIZATION` files automatically) and indexes each entity as both a span (`<>:<foundry>/ne:<tag>`) and bare per-token annotations (`<foundry>/ne:<tag>`), so both `<foundry/ne=PER>` whole-entity queries and `[foundry/ne=PER]` token queries work cleanly.
+
+### Fixed
+
+- Krill tar merge mode (`KrillJsonPatcher`) now parses negative span depths (such as `dereko/s:s` at depth `-1`) when inserting new structural or named-entity spans, keeping span order identical to fresh Krill exports.
+
 ## [v4.3.0] - 2026-11-04
 
 ### Added

@@ -2,6 +2,8 @@ package de.ids_mannheim.korapxmltools.formatters
 
 import de.ids_mannheim.korapxmltools.ConstituencyParserBridge
 import de.ids_mannheim.korapxmltools.KorapXmlTool.MorphoSpan
+import de.ids_mannheim.korapxmltools.KorapXmlTool.Span
+import de.ids_mannheim.korapxmltools.NamedEntities
 import org.w3c.dom.Document
 import java.io.OutputStream
 import java.io.StringWriter
@@ -224,10 +226,23 @@ object KorapXmlFormatter : OutputFormatter {
     }
 
     /**
-     * Build the named-entity DOM document: one span per tagged token, in the
-     * CoreNLP ne layer structure (fs type="ne" / f name="ne" / f name="ent").
+     * Build the named-entity DOM document: one span per named entity (spanning all its
+     * tokens, e.g. `from="0" to="14"` for "Konrad Alberti") with bare normalized class
+     * names (`PER`, `LOC`, `ORG`, `MISC`), in the KorAP-XML ne layer structure
+     * (`fs type="ne" / f name="ne" / f name="ent"`).
+     *
+     * [tokens] should list all tokens of the document in order (including untagged tokens)
+     * so adjacent entities separated by untagged tokens are never merged; when omitted,
+     * the offsets in [morpho] are sorted and used instead (CoNLL-U / external annotator
+     * maps include every token).
      */
-    private fun buildNamedEntitiesDocument(docId: String, morpho: Map<String, MorphoSpan>, dBuilder: DocumentBuilder): Document {
+    private fun buildNamedEntitiesDocument(
+        docId: String,
+        morpho: Map<String, MorphoSpan>,
+        dBuilder: DocumentBuilder,
+        tokens: Array<Span>? = null,
+        sentences: Array<Span>? = null
+    ): Document {
         val doc: Document = dBuilder.newDocument()
 
         val layer = doc.createElement("layer")
@@ -239,18 +254,32 @@ object KorapXmlFormatter : OutputFormatter {
         val spanList = doc.createElement("spanList")
         layer.appendChild(spanList)
 
-        var i = 0
-        morpho.forEach { (spanString, mfs) ->
-            if (mfs.ne == null || mfs.ne == "_") return@forEach
-            i++
-            val offsets = spanString.split("-")
-            val spanNode = doc.createElement("span")
-            spanNode.setAttribute("id", "ne_$i")
-            spanNode.setAttribute("from", offsets[0])
-            spanNode.setAttribute("to", offsets[1])
+        val orderedTokens: List<Span> = if (tokens != null) {
+            tokens.toList()
+        } else {
+            morpho.keys.mapNotNull { key ->
+                val parts = key.split("-")
+                if (parts.size == 2) {
+                    val from = parts[0].toIntOrNull()
+                    val to = parts[1].toIntOrNull()
+                    if (from != null && to != null) Span(from, to) else null
+                } else null
+            }.sortedWith(compareBy<Span> { it.from }.thenBy { it.to })
+        }
 
-            // One feature structure per tag (several NE columns may tag the same token)
-            mfs.ne!!.split("|").forEach { tag ->
+        val entitySpans = NamedEntities.collapseTokenTagsToSpans(
+            tokens = orderedTokens,
+            tokenTags = { span -> morpho["${span.from}-${span.to}"]?.ne },
+            sentences = sentences
+        )
+
+        entitySpans.forEachIndexed { idx, entity ->
+            val spanNode = doc.createElement("span")
+            spanNode.setAttribute("id", "ne_${idx + 1}")
+            spanNode.setAttribute("from", entity.from.toString())
+            spanNode.setAttribute("to", entity.to.toString())
+
+            entity.tags.forEach { tag ->
                 val fs = doc.createElement("fs")
                 fs.setAttribute("type", "ne")
                 fs.setAttribute("xmlns", "http://www.tei-c.org/ns/1.0")
@@ -275,8 +304,15 @@ object KorapXmlFormatter : OutputFormatter {
     /**
      * Stream named-entity annotations as a KorAP-XML ne.xml layer.
      */
-    fun formatNamedEntitiesToStream(docId: String, morpho: Map<String, MorphoSpan>, dBuilder: DocumentBuilder, out: OutputStream) {
-        transformToStream(buildNamedEntitiesDocument(docId, morpho, dBuilder), out)
+    fun formatNamedEntitiesToStream(
+        docId: String,
+        morpho: Map<String, MorphoSpan>,
+        dBuilder: DocumentBuilder,
+        out: OutputStream,
+        tokens: Array<Span>? = null,
+        sentences: Array<Span>? = null
+    ) {
+        transformToStream(buildNamedEntitiesDocument(docId, morpho, dBuilder, tokens, sentences), out)
     }
 
     /**
