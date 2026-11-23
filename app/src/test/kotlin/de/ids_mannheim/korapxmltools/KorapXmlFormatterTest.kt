@@ -53,6 +53,21 @@ class KorapXmlFormatterTest {
     }
 
     @Test
+    fun severalInputZipsAreRejected() {
+        // A single output stream per run would mix up the annotations of both ZIPs
+        val outputDir = File.createTempFile("multizip", "").apply { delete(); mkdirs() }
+        try {
+            val args = arrayOf("-D", outputDir.path, "-f", "-t", "zip",
+                loadResource("wdf19.zip").path, loadResource("goe.zip").path)
+            assertTrue(debug(args) != 0, "Several input ZIPs with -t zip must be rejected")
+            assertTrue(outputDir.listFiles()!!.none { it.name.endsWith(".zip") }, "No output ZIP may be written")
+            assertTrue(errContent.toString().contains("only one input ZIP per run"))
+        } finally {
+            outputDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun overwriteWorks() {
         val sourceFile = loadResource("wdf19.zip").path
         val tmpSourceFile = File.createTempFile("tmp", ".zip")

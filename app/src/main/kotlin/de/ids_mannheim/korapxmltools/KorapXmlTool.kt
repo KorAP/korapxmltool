@@ -1031,6 +1031,15 @@ class KorapXmlTool : Callable<Int> {
                     "--ner-with requires KorAP-XML ZIP output (-t zip) and cannot be combined with external annotators (-A, or Docker-based -T/-P)")
             }
 
+            // KorAP-XML ZIP output has a single output stream per run, so the annotations of
+            // several input ZIPs would end up in the wrong output files
+            val inputZipCount = zipFileNames?.count { it.endsWith(".zip") } ?: 0
+            if (outputFormat == OutputFormat.KORAP_XML && inputZipCount > 1) {
+                throw ParameterException(spec.commandLine(),
+                    "KorAP-XML ZIP output (-t zip) supports only one input ZIP per run, got $inputZipCount; " +
+                        "run one process per ZIP instead (e.g. in parallel with xargs -P)")
+            }
+
             // Krill tar merge mode: update an existing Krill tar from the remaining inputs
             if (krillInputTarPath != null) {
                 return mergeKrillTar(krillInputTarPath!!, zipFileNames ?: emptyArray())

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- KorAP-XML ZIP output (`-t zip`, e.g. with `-N`, `-T`, `-P`) with several input ZIPs in one run wrote the annotations into the wrong output ZIPs (all into the one opened last, or into the first one). Such runs are now rejected with an error; run one process per ZIP instead.
+
 ## [v4.4.0] - 2026-11-23
 
 ### Changed
