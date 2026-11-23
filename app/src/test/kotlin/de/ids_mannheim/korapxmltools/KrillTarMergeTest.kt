@@ -289,6 +289,42 @@ class KrillTarMergeTest {
         }
     }
 
+    /** Copy of a resource ZIP with only the entries whose file name is in [files], as dir/<same name>. */
+    private fun filteredZip(key: String, zipName: String, vararg files: String): String {
+        val target = File(newTempDir(key), zipName)
+        java.util.zip.ZipFile(resource(zipName)).use { zip ->
+            java.util.zip.ZipOutputStream(target.outputStream()).use { out ->
+                zip.entries().asSequence().filter { it.name.substringAfterLast('/') in files }.forEach { entry ->
+                    out.putNextEntry(java.util.zip.ZipEntry(entry.name))
+                    zip.getInputStream(entry).use { it.copyTo(out) }
+                    out.closeEntry()
+                }
+            }
+        }
+        return target.path
+    }
+
+    @Test
+    fun mergeKeepsOtherLayersOfTheSameFoundry() {
+        // Adding a layer to a foundry the tar already has (e.g. corenlp/ne.xml to
+        // corenlp morpho) must not drop the foundry's existing layers
+        val full = generateTar("corenlp_full", "wud24_sample.krill.tar",
+            resource("wud24_sample.zip"), resource("wud24_sample.corenlp.zip"))
+        val morphoOnly = generateTar("corenlp_morpho", "wud24_sample.krill.tar",
+            resource("wud24_sample.zip"), filteredZip("corenlp_m", "wud24_sample.corenlp.zip", "morpho.xml"))
+        val (merged, _) = mergeTar("corenlp_add", morphoOnly,
+            filteredZip("corenlp_cs", "wud24_sample.corenlp.zip", "constituency.xml", "sentences.xml"))
+
+        val fullJson = readTarJson(full)
+        val mergedJson = readTarJson(merged)
+        assertEquals(fullJson.keys, mergedJson.keys)
+        fullJson.forEach { (name, expected) ->
+            assertContains(expected, "corenlp/p:")
+            assertContains(expected, "<>:corenlp/c:")
+            assertEquals(expected, mergedJson[name], "Merged JSON should equal full generation for $name")
+        }
+    }
+
     @Test
     fun mergeSupportsLz4CompressedTars() {
         val outputDir = newTempDir("lz4_base")

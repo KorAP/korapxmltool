@@ -6,6 +6,7 @@
 
 - KorAP-XML ZIP output (`-t zip`, e.g. with `-N`, `-T`, `-P`) with several input ZIPs in one run wrote the annotations into the wrong output ZIPs (all into the one opened last, or into the first one). Such runs are now rejected with an error; run one process per ZIP instead.
 - Krill tar merge mode sized the Java heap only from the annotation ZIPs, ignoring the input tar, and ran out of memory with 4 GB on large tars. The launcher now counts the input tar, too.
+- Krill tar merge mode replaced a whole foundry when a ZIP added a layer to a foundry the tar already had: merging `corenlp/ne.xml` into a tar with CoreNLP POS and constituency annotations dropped `corenlp/p` and `corenlp/c`. Only the layer kinds a ZIP provides (morpho/dependency, sentences, constituency, named entities) are replaced now.
 
 ## [v4.4.0] - 2026-11-23
 

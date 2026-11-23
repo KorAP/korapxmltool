@@ -111,10 +111,12 @@ object KrillJsonPatcher {
      * Replace or add annotation foundries in an existing Krill JSON document.
      *
      * [textData] carries the new annotations collected from KorAP-XML ZIP entries
-     * (morpho/dependency/sentences/constituency) for this text. Every foundry it
-     * contains is treated as authoritative: all existing stream annotations of
-     * that foundry are removed and the new ones inserted at the positions full
-     * generation would put them; layerInfos and foundries summaries are updated.
+     * (morpho/dependency/sentences/constituency/named entities) for this text. For
+     * every foundry it contains, the layer kinds it provides are treated as
+     * authoritative: the existing stream annotations of these kinds are removed and
+     * the new ones inserted at the positions full generation would put them, while
+     * other layers of the same foundry are kept (e.g. adding corenlp/ne.xml keeps
+     * corenlp/p and corenlp/c); layerInfos and foundries summaries are updated.
      * Token offsets come from the existing stream, so the original base ZIP is
      * not needed. Annotations whose offsets match no stream token (tokenization
      * drift, filtered non-word tokens) are silently skipped, like in full
@@ -174,7 +176,7 @@ object KrillJsonPatcher {
 
         foundries.forEach { foundry ->
             val contribution = buildContribution(foundry, textData, tokens, offsetToIndex, streamSentences)
-            removeFoundryAnnotations(tokenArrays, contribution.names)
+            removeFoundryAnnotations(tokenArrays, contribution)
             insertFoundryAnnotations(tokenArrays, contribution)
             layerInfoTokens = rebuildLayerInfos(layerInfoTokens, contribution)
             foundriesTokens = rebuildFoundries(foundriesTokens, contribution)
@@ -201,8 +203,10 @@ object KrillJsonPatcher {
         val foundry: String,
         val prefix: String,
         val fullName: String,
-        /** All name variants whose existing annotations must be removed. */
+        /** All name variants of the foundry in existing annotations. */
         val names: Set<String>,
+        /** Layer kinds the new data provides; existing annotations of these kinds are replaced. */
+        val kinds: Set<LayerKind>,
         val sentenceCount: Int,
         /** Resolved structural spans (sentences/constituency), keyed by start token. */
         val spansByToken: Map<Int, List<KrillJsonGenerator.StructureSpan>>,
@@ -285,6 +289,13 @@ object KrillJsonPatcher {
             prefix = prefix,
             fullName = fullName,
             names = setOf(foundry, prefix, fullName),
+            kinds = buildSet {
+                if (foundry in textData.sentencesCollectedByFoundry) add(LayerKind.SENTENCES)
+                if (foundry in textData.constituencyCollectedByFoundry) add(LayerKind.CONSTITUENCY)
+                if (foundry in textData.namedEntityCollectedByFoundry ||
+                    foundry in textData.namedEntitySpansByFoundry) add(LayerKind.NAMED_ENTITIES)
+                if (morphoSpans != null) add(LayerKind.MORPHO)
+            },
             sentenceCount = sentenceCount,
             spansByToken = spansByToken,
             hasConstituency = hasConstituency,
@@ -328,10 +339,38 @@ object KrillJsonPatcher {
         return body.substring(0, slash)
     }
 
-    private fun removeFoundryAnnotations(tokenArrays: MutableList<MutableList<String>>, names: Set<String>) {
+    /** What a merge input replaces in a foundry: one kind per KorAP-XML annotation file. */
+    internal enum class LayerKind { SENTENCES, CONSTITUENCY, NAMED_ENTITIES, MORPHO }
+
+    /**
+     * Kind of a layer name as used in stream annotations ("p", "c", "ne", "sentences"),
+     * layerInfos ("s=spans") and foundries summaries ("structure", "namedentities").
+     * Dependencies belong to MORPHO: dependency.xml is read into the same token data.
+     */
+    private fun layerKind(layer: String): LayerKind = when (layer.substringBefore('=')) {
+        "s", "sentences" -> LayerKind.SENTENCES
+        "c", "structure" -> LayerKind.CONSTITUENCY
+        "ne", "namedentities" -> LayerKind.NAMED_ENTITIES
+        else -> LayerKind.MORPHO
+    }
+
+    /** Layer of a stream annotation ("corenlp/ne:PER" -> "ne"), or null without a foundry. */
+    private fun annotationLayer(raw: String): String? {
+        val owner = annotationOwner(raw) ?: return null
+        val rest = raw.substring(raw.indexOf("$owner/") + owner.length + 1)
+        return rest.takeWhile { it != ':' && it != '$' }
+    }
+
+    /** Whether an existing "foundry/layer" entry is replaced by [c]. A bare foundry name is. */
+    private fun isReplaced(entry: String, c: FoundryContribution): Boolean =
+        entry.substringBefore('/') in c.names &&
+            (!entry.contains('/') || layerKind(entry.substringAfter('/')) in c.kinds)
+
+    private fun removeFoundryAnnotations(tokenArrays: MutableList<MutableList<String>>, c: FoundryContribution) {
         tokenArrays.forEach { anns ->
             anns.removeAll { raw ->
-                classify(raw) != CLS_NONWORD && annotationOwner(raw) in names
+                classify(raw) != CLS_NONWORD && annotationOwner(raw) in c.names &&
+                    annotationLayer(raw)?.let { layerKind(it) in c.kinds } == true
             }
         }
     }
@@ -409,6 +448,11 @@ object KrillJsonPatcher {
                             pos = i
                             break
                         }
+                        // Into a kept block of the same foundry: before its dependency edges, like full generation
+                        if (owner in contribution.names && annotationLayer(anns[i]) == "d") {
+                            pos = i
+                            break
+                        }
                     }
                     i++
                 }
@@ -443,12 +487,13 @@ object KrillJsonPatcher {
     }
 
     private fun rebuildLayerInfos(existing: List<String>, c: FoundryContribution): List<String> {
-        val kept = existing.filterNot { it.substringBefore('/') in c.names }
+        val kept = existing.filterNot { isReplaced(it, c) }
         val added = mutableListOf<String>()
         if (c.sentenceCount > 0) added.add("${c.foundry}/s=spans")
         if (c.hasConstituency) added.add("${c.foundry}/c=spans")
         c.morphoLayers.forEach { added.add("${c.prefix}/$it") }
-        return (kept + added).sortedWith(compareBy({ layerInfoRank(it) }, { it.substringBefore('/') }, { it.substringAfter('/') }))
+        return (kept + added).distinct()
+            .sortedWith(compareBy({ layerInfoRank(it) }, { it.substringBefore('/') }, { it.substringAfter('/') }))
     }
 
     private fun layerInfoRank(token: String): Int = when {
@@ -460,7 +505,7 @@ object KrillJsonPatcher {
     }
 
     private fun rebuildFoundries(existing: List<String>, c: FoundryContribution): List<String> {
-        val kept = existing.filterNot { it.substringBefore('/') in c.names }
+        val kept = existing.filterNot { isReplaced(it, c) }
 
         // Reconstruct the sets the generator builds the summary from
         val sentFoundries = kept.filter { it.endsWith("/sentences") }.map { it.substringBefore('/') }.toSortedSet()
@@ -479,7 +524,6 @@ object KrillJsonPatcher {
         if (c.hasConstituency) constitFoundries.add(c.foundry)
         if (c.morphoLayers.isNotEmpty()) {
             val layers = annLayers.getOrPut(c.fullName) { sortedSetOf() }
-            layers.clear()
             if (c.morphoLayers.any { it == "d=rels" }) layers.add("dependency")
             if (c.morphoLayers.any { it == "ne=tokens" }) layers.add("namedentities")
             if (c.morphoLayers.any { it != "d=rels" && it != "ne=tokens" }) layers.add("morpho")
