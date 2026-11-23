@@ -1,11 +1,12 @@
 # Changelog
 
-## [Unreleased]
+## [v4.4.0] - 2026-11-23
 
 ### Changed
 
 - Named-entity layers (`-N corenlp`, CoNLL-U Plus `.conllup`, and external `-A` annotators) now write multi-token entity spans to `<foundry>/ne.xml` (`from` of the first token to `to` of the last token) with short prefix-first `CLASS[:specifier]` names (`PER`, `LOC`, `ORG`, `MISC`; GermEval `OTH` → `MISC` and `*part`/`*deriv` → `PER:part`, `LOC:deriv`, etc.; outside `O` tags omitted). `--map-ne-tags` is kept as a deprecated no-op.
 - Krill export (`-t krill`, including tar merge mode) now reads multi-token `ne.xml`, CoreNLP `ne_<model>.xml`, and NKJP `named.xml` (collapsing legacy per-token BIO/IO and unnormalized CoreNLP/GermEval `PERSON`/`LOCATION`/`ORGANIZATION` files automatically) and indexes each entity as both a span (`<>:<foundry>/ne:<tag>`) and bare per-token annotations (`<foundry>/ne:<tag>`), so both `<foundry/ne=PER>` whole-entity queries and `[foundry/ne=PER]` token queries work cleanly.
+- Build now requires Gradle 9 (wrapper 9.8.2) and uses the `com.gradleup.shadow` plugin; Kotlin 2.4.21, slf4j 2.0.20.
 
 ### Fixed
 
