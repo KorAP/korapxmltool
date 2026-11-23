@@ -36,8 +36,14 @@ import java.util.zip.GZIPOutputStream
  */
 class KrillTarMerger(
     private val logger: Logger,
-    private val threads: Int
+    private val threads: Int,
+    private val maxPatchBytes: Int = MAX_PATCH_BYTES
 ) {
+    companion object {
+        /** Strings with non-Latin-1 characters hold at most 2^30 - 1 chars, and UTF-8 has at least one byte per char. */
+        const val MAX_PATCH_BYTES = (1 shl 30) - 1
+    }
+
     fun interface TextPatcher {
         /**
          * Return a JSON patch function for the tar entry with this normalized text id
@@ -51,7 +57,9 @@ class KrillTarMerger(
         var entries: Int = 0,
         var patched: Int = 0,
         var copied: Int = 0,
-        val seenTextIds: MutableSet<String> = mutableSetOf()
+        val seenTextIds: MutableSet<String> = mutableSetOf(),
+        /** Entries too large to patch in memory, copied unchanged. */
+        val tooLarge: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf())
     )
 
     private class OutEntry(val name: String, val modTime: Long, val bytes: Future<ByteArray>)
@@ -126,7 +134,7 @@ class KrillTarMerger(
                         } else {
                             stats.patched++
                             pending.addLast(OutEntry(name, modTime, pool.submit<ByteArray> {
-                                recompress(patchFn(decompress(raw, compression)), compression)
+                                patchOrCopy(name, raw, compression, patchFn, stats)
                             }))
                         }
                         while (pending.size >= maxInFlight) drainOne()
@@ -144,12 +152,40 @@ class KrillTarMerger(
 
     private enum class Compression { GZIP, LZ4 }
 
-    private fun decompress(bytes: ByteArray, compression: Compression): String {
+    /**
+     * Patched entry bytes, or the unchanged [raw] bytes when the text's JSON is too
+     * large for a Java String (very long books): one such text must not fail the tar.
+     * shortcut: such texts keep their old annotations; upgrade if they matter, by patching on bytes.
+     */
+    private fun patchOrCopy(
+        name: String, raw: ByteArray, compression: Compression, patchFn: (String) -> String, stats: Stats
+    ): ByteArray {
+        fun tooLarge(reason: String): ByteArray {
+            stats.tooLarge.add(name)
+            logger.warning("Text $name is too large to patch ($reason); copied unchanged")
+            return raw
+        }
+        val json = decompress(raw, compression) ?: return tooLarge("over $maxPatchBytes bytes of JSON")
+        return try {
+            recompress(patchFn(json), compression)
+        } catch (e: OutOfMemoryError) {
+            // String/array length limits, not an exhausted heap
+            val msg = e.message ?: ""
+            if (msg.contains("Java heap space") || msg.contains("GC overhead")) throw e
+            tooLarge(msg)
+        }
+    }
+
+    /** Decompressed JSON, or null when it has more than [maxPatchBytes] bytes. */
+    private fun decompress(bytes: ByteArray, compression: Compression): String? {
         val input = when (compression) {
             Compression.GZIP -> GZIPInputStream(ByteArrayInputStream(bytes))
             Compression.LZ4 -> net.jpountz.lz4.LZ4FrameInputStream(ByteArrayInputStream(bytes))
         }
-        return input.use { it.readAllBytes().toString(StandardCharsets.UTF_8) }
+        return input.use {
+            val data = it.readNBytes(maxPatchBytes + 1)
+            if (data.size > maxPatchBytes) null else data.toString(StandardCharsets.UTF_8)
+        }
     }
 
     private fun recompress(json: String, compression: Compression): ByteArray {

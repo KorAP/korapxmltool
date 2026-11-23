@@ -326,6 +326,19 @@ class KrillTarMergeTest {
     }
 
     @Test
+    fun textsTooLargeToPatchAreCopiedUnchanged() {
+        val out = File(newTempDir("too_large"), "out.krill.tar")
+        val stats = KrillTarMerger(java.util.logging.Logger.getAnonymousLogger(), 2, maxPatchBytes = 100)
+            .merge(baseTar, out, { { json -> json.replace("REI", "XXX") } })
+
+        val input = readTarEntries(baseTar)
+        val output = readTarEntries(out)
+        assertEquals(input.keys, output.keys)
+        input.forEach { (name, bytes) -> assertTrue(bytes.contentEquals(output[name]), "$name must be unchanged") }
+        assertEquals(input.keys.filter { it.endsWith(".json.gz") }.sorted(), stats.tooLarge.sorted())
+    }
+
+    @Test
     fun mergeSupportsLz4CompressedTars() {
         val outputDir = newTempDir("lz4_base")
         val exitCode = debug(arrayOf("-t", "krill", "-q", "--lz4", "-D", outputDir.path, resource("rei_sample.zip")))

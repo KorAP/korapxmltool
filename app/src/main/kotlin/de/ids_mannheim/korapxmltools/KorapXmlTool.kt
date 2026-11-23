@@ -2609,9 +2609,14 @@ class KorapXmlTool : Callable<Int> {
                 LOGGER.warning("Ignored ${displayIds.size} text(s) from the new input(s) that are not in the input tar")
             }
 
+            if (stats.tooLarge.isNotEmpty()) {
+                LOGGER.warning("${stats.tooLarge.size} text(s) too large to patch were copied unchanged: " +
+                    stats.tooLarge.sorted().joinToString(" "))
+            }
             LOGGER.info(
                 "Krill tar update complete: ${stats.entries} entries " +
-                    "(${stats.patched} updated, ${stats.copied} copied unchanged) -> ${outputTar.path}"
+                    "(${stats.patched - stats.tooLarge.size} updated, " +
+                    "${stats.copied + stats.tooLarge.size} copied unchanged) -> ${outputTar.path}"
             )
             return 0
         } finally {
