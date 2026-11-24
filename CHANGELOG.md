@@ -8,6 +8,7 @@
 - Krill tar merge mode sized the Java heap only from the annotation ZIPs, ignoring the input tar, and ran out of memory with 4 GB on large tars. The launcher now counts the input tar, too.
 - Krill tar merge mode replaced a whole foundry when a ZIP added a layer to a foundry the tar already had: merging `corenlp/ne.xml` into a tar with CoreNLP POS and constituency annotations dropped `corenlp/p` and `corenlp/c`. Only the layer kinds a ZIP provides (morpho/dependency, sentences, constituency, named entities) are replaced now.
 - Krill tar merge mode failed on texts whose Krill JSON exceeds Java's String limit (about 1 billion UTF-16 characters, very long books). Such texts are now copied unchanged with a warning.
+- Taggers, parsers and the named-entity recognizer (`-T`, `-P`, `-N`) dropped texts with tokens after the last sentence, e.g. 108943 texts of WDD11. Such tokens are now annotated as a final group, also in `dependency.xml`.
 
 ## [v4.4.0] - 2026-11-23
 

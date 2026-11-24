@@ -168,7 +168,8 @@ object KorapXmlFormatter : OutputFormatter {
                 LOGGER.warning("Invalid span: $spanString in ${context.docId}")
                 return@forEach
             }
-            if (offsets[0].toInt() > context.sentences!!.elementAt(s).to) {
+            // Tokens after the last sentence form a final group without a sentence span
+            if (offsets[0].toInt() > (context.sentences!!.getOrNull(s)?.to ?: Int.MAX_VALUE)) {
                 s++
                 n = i
             }
@@ -190,8 +191,9 @@ object KorapXmlFormatter : OutputFormatter {
             val innerSpan = doc.createElement("span")
             val headInt = if(mfs.head == "_") 0 else Integer.parseInt(mfs.head) - 1
             if (headInt < 0) {
-                innerSpan.setAttribute("from", context.sentences.elementAt(s).from.toString())
-                innerSpan.setAttribute("to",  context.sentences.elementAt(s).to.toString())
+                val sentence = context.sentences.getOrNull(s)
+                innerSpan.setAttribute("from", sentence?.from?.toString() ?: sortedKeys[n].substringBefore("-"))
+                innerSpan.setAttribute("to", sentence?.to?.toString() ?: sortedKeys.last().substringAfter("-"))
             } else {
                 if (headInt + n >= context.morpho.size) {
                     LOGGER.warning("Head index out of bounds: ${headInt+n} >= ${context.morpho.size} in ${context.docId}")

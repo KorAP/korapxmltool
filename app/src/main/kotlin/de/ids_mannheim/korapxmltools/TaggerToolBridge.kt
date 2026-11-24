@@ -11,7 +11,7 @@ abstract class TaggerToolBridge : AnnotationToolBridge {
         var token_index = 0
         var sentence_index = 0
         tokens.forEach { span ->
-            if (span.from >= (sentenceSpans?.get(sentence_index)?.to ?: 11111110)) {
+            if (span.from >= (sentenceSpans?.getOrNull(sentence_index)?.to ?: Int.MAX_VALUE)) {
                 tagSentence(sentence_tokens, sentence_token_offsets, morphoMap)
                 sentence_tokens.clear()
                 sentence_token_offsets.clear()
