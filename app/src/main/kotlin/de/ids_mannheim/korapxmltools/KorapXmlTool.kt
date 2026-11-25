@@ -1925,7 +1925,7 @@ class KorapXmlTool : Callable<Int> {
             }
         }
 
-        if (maxThreads > 1) {
+        if (maxThreads > 1 || workStealingSchedulerActive) {
             val foundry = getFoundryFromZipFileNames(zips)
             val parallelism = effectiveZipParallelism(zips.size)
             if (canUseArchiveOrderTextStreaming()) {

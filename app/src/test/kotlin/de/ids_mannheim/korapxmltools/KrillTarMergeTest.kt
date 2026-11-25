@@ -326,6 +326,16 @@ class KrillTarMergeTest {
     }
 
     @Test
+    fun singleThreadedExportEqualsParallelExport() {
+        val inputs = arrayOf("rei_sample.zip", "rei_sample.opennlp.zip", "rei_sample.tree_tagger.zip").map { resource(it) }.toTypedArray()
+        val single = readTarJson(generateTar("krill_j1", "rei_sample.krill.tar", "-j", "1", *inputs))
+        val parallel = readTarJson(generateTar("krill_j4", "rei_sample.krill.tar", "-j", "4", *inputs))
+        assertEquals(3, parallel.size)
+        assertEquals(parallel.keys, single.keys)
+        parallel.forEach { (name, expected) -> assertEquals(expected, single[name], "-j 1 should equal -j 4 for $name") }
+    }
+
+    @Test
     fun textsTooLargeToPatchAreCopiedUnchanged() {
         val out = File(newTempDir("too_large"), "out.krill.tar")
         val stats = KrillTarMerger(java.util.logging.Logger.getAnonymousLogger(), 2, maxPatchBytes = 100)

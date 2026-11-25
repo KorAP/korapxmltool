@@ -10,6 +10,7 @@
 - Krill tar merge mode failed on texts whose Krill JSON exceeds Java's String limit (about 1 billion UTF-16 characters, very long books). Such texts are now copied unchanged with a warning.
 - Taggers, parsers and the named-entity recognizer (`-T`, `-P`, `-N`) dropped texts with tokens after the last sentence, e.g. 108943 texts of WDD11. Such tokens are now annotated as a final group, also in `dependency.xml`.
 - Krill export could index a text with the tokens of an annotation ZIP instead of its base tokens, depending on thread timing, if the ZIP contains its own token layer (e.g. `corenlp/tokens.xml` or `opennlp/tokens.xml`, as in older annotation ZIPs). Such token layers are now ignored. ZIPs written by korapxmltool do not contain them.
+- Krill export with a single thread (`-j 1`, explicit or auto-detected) lost most header metadata and, with annotation ZIPs, wrote an empty tar while exiting with 0. It now takes the same path as with several threads and writes the same output.
 
 ## [v4.4.0] - 2026-11-23
 
