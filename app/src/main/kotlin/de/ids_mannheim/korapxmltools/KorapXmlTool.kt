@@ -4087,7 +4087,10 @@ class KorapXmlTool : Callable<Int> {
                 }
                 "tokens.xml" -> {
                     if (!fnames.contains(docId)) fnames[docId] = zipEntry.name
-                    tokens[docId] = extractSpansStax(reader, docId)
+                    // Krill indexes the base tokens only; an annotation ZIP's tokens.xml must not replace them
+                    if (outputFormat != OutputFormat.KRILL || _foundry == "base") {
+                        tokens[docId] = extractSpansStax(reader, docId)
+                    }
                     if (outputFormat == OutputFormat.KRILL && _foundry == "base") {
                         // Set tokenSource based on the foundry containing the tokens
                         // Extract foundry from path like "CORPUS/DOC/TEXT/base/tokens.xml" -> "base"
